@@ -1,0 +1,2 @@
+"""ProteinHub MVP application package."""
+
