@@ -11,7 +11,7 @@ from proteinhub.application.permissions import (
     require_project_role,
 )
 from proteinhub.application.validation import required
-from proteinhub.domain.errors import NotFoundError
+from proteinhub.domain.errors import DomainError, NotFoundError
 from proteinhub.infrastructure.sqlite.connection import transaction
 from proteinhub.infrastructure.sqlite.repositories import ArtifactRepository
 from proteinhub.infrastructure.storage.local_file_store import LocalFileStore
@@ -21,6 +21,17 @@ from proteinhub.infrastructure.storage.local_file_store import LocalFileStore
 class UploadedArtifact:
     artifact: dict
     absolute_path: Path
+
+
+ARTIFACT_TYPES = {
+    "design_output",
+    "structure_model",
+    "synthesis_protocol",
+    "experimental_result",
+    "analysis_report",
+    "other",
+    "file",
+}
 
 
 def list_artifacts(
@@ -48,6 +59,9 @@ def create_artifact(
     require_project_role(connection, project_id=project_id, user_id=user_id)
     file_name = required(filename, "Filename")
     mime_type = content_type or "application/octet-stream"
+    normalized_type = artifact_type.strip() or "other"
+    if normalized_type not in ARTIFACT_TYPES:
+        raise DomainError("Artifact type is not supported")
     store = file_store or LocalFileStore(storage_root)
     artifacts = ArtifactRepository(connection)
 
@@ -56,7 +70,7 @@ def create_artifact(
             sequence_id=sequence_id,
             uploaded_by=user_id,
             filename=file_name,
-            artifact_type=artifact_type.strip() or "file",
+            artifact_type=normalized_type,
             mime_type=mime_type,
         )
         stored = store.save_artifact(

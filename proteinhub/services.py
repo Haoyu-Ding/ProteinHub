@@ -32,9 +32,13 @@ from proteinhub.application.protein_service import (
     list_proteins,
 )
 from proteinhub.application.sequence_service import (
+    create_sequence_comment,
     create_sequence,
     get_sequence,
+    list_project_board,
+    list_sequence_comments,
     list_sequences,
+    update_sequence_workflow,
 )
 from proteinhub.domain.errors import (
     AuthenticationError,
@@ -57,6 +61,7 @@ __all__ = [
     "create_project",
     "create_protein",
     "create_sequence",
+    "create_sequence_comment",
     "get_artifact",
     "get_project",
     "get_project_role",
@@ -65,8 +70,10 @@ __all__ = [
     "get_user",
     "list_artifacts",
     "list_project_members",
+    "list_project_board",
     "list_projects",
     "list_proteins",
+    "list_sequence_comments",
     "list_sequences",
     "project_for_artifact",
     "project_for_protein",
@@ -74,4 +81,5 @@ __all__ = [
     "register_user",
     "require_project_role",
     "soft_delete_artifact",
+    "update_sequence_workflow",
 ]

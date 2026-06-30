@@ -34,6 +34,12 @@ ProteinHub keeps framework, business, and infrastructure concerns separate:
 
 The legacy modules `proteinhub.db`, `proteinhub.storage`, and `proteinhub.services` remain as compatibility exports for existing imports and tests.
 
+Detailed project standards live in:
+
+- `docs/architecture.md`
+- `docs/development.md`
+- `AGENTS.md`
+
 ## API
 
 - `POST /api/auth/register`

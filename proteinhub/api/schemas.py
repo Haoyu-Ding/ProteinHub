@@ -27,6 +27,7 @@ class ProjectCreateRequest(BaseModel):
 class MemberCreateRequest(BaseModel):
     email: str
     role: str = "member"
+    discipline: str = "other"
 
 
 class ProteinCreateRequest(BaseModel):
@@ -40,3 +41,16 @@ class SequenceCreateRequest(BaseModel):
     description: str = ""
     version_tag: str = ""
 
+
+class SequenceWorkflowUpdateRequest(BaseModel):
+    status: str = "draft"
+    priority: str = "medium"
+    assigned_to: int | None = None
+    discipline_owner: str = ""
+    design_rationale: str = ""
+    handoff_note: str = ""
+    risk_note: str = ""
+
+
+class SequenceCommentCreateRequest(BaseModel):
+    body: str

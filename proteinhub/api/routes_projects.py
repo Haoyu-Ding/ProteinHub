@@ -22,6 +22,7 @@ from proteinhub.application.protein_service import (
     create_protein,
     list_proteins,
 )
+from proteinhub.application.sequence_service import list_project_board
 from proteinhub.domain.errors import DomainError
 
 
@@ -85,6 +86,20 @@ def create_projects_router(
                 owner_user_id=user["id"],
                 email=payload.email,
                 role=payload.role,
+                discipline=payload.discipline,
+            )
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.get("/projects/{project_id}/board")
+    def project_board(
+        project_id: int,
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> list[dict]:
+        try:
+            return list_project_board(
+                connection, project_id=project_id, user_id=user["id"]
             )
         except DomainError as error:
             raise map_domain_error(error) from error

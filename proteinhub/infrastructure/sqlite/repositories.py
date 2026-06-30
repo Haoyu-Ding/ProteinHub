@@ -67,19 +67,26 @@ class ProjectRepository:
             "SELECT * FROM projects WHERE id = ?", (project_id,)
         ).fetchone()
 
-    def insert_member(self, *, project_id: int, user_id: int, role: str) -> None:
+    def insert_member(
+        self, *, project_id: int, user_id: int, role: str, discipline: str = "other"
+    ) -> None:
         self.connection.execute(
             """
-            INSERT INTO project_members (project_id, user_id, role)
-            VALUES (?, ?, ?)
+            INSERT INTO project_members (project_id, user_id, role, discipline)
+            VALUES (?, ?, ?, ?)
             """,
-            (project_id, user_id, role),
+            (project_id, user_id, role, discipline),
         )
 
     def list_members(self, project_id: int) -> list[dict]:
         return self.connection.execute(
             """
-            SELECT users.id, users.email, project_members.role, project_members.created_at
+            SELECT
+                users.id,
+                users.email,
+                project_members.role,
+                project_members.discipline,
+                project_members.created_at
             FROM project_members
             JOIN users ON users.id = project_members.user_id
             WHERE project_members.project_id = ?
@@ -144,12 +151,40 @@ class SequenceRepository:
     def list_for_protein(self, protein_id: int) -> list[dict]:
         return self.connection.execute(
             """
-            SELECT *
+            SELECT sequences.*, users.email AS assigned_to_email
             FROM sequences
+            LEFT JOIN users ON users.id = sequences.assigned_to
             WHERE protein_id = ?
             ORDER BY created_at DESC, id DESC
             """,
             (protein_id,),
+        ).fetchall()
+
+    def list_board_for_project(self, project_id: int) -> list[dict]:
+        return self.connection.execute(
+            """
+            SELECT
+                sequences.*,
+                proteins.name AS protein_name,
+                users.email AS assigned_to_email,
+                COUNT(artifacts.id) AS artifact_count
+            FROM sequences
+            JOIN proteins ON proteins.id = sequences.protein_id
+            LEFT JOIN users ON users.id = sequences.assigned_to
+            LEFT JOIN artifacts
+                ON artifacts.sequence_id = sequences.id AND artifacts.is_deleted = 0
+            WHERE proteins.project_id = ?
+            GROUP BY sequences.id
+            ORDER BY
+                CASE sequences.priority
+                    WHEN 'high' THEN 0
+                    WHEN 'medium' THEN 1
+                    ELSE 2
+                END,
+                sequences.updated_at DESC,
+                sequences.id DESC
+            """,
+            (project_id,),
         ).fetchall()
 
     def insert(
@@ -163,8 +198,10 @@ class SequenceRepository:
     ) -> int:
         cursor = self.connection.execute(
             """
-            INSERT INTO sequences (protein_id, name, sequence, description, version_tag)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO sequences (
+                protein_id, name, sequence, description, version_tag, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
             (protein_id, name, sequence, description, version_tag),
         )
@@ -173,13 +210,85 @@ class SequenceRepository:
     def get_with_project(self, sequence_id: int) -> dict | None:
         return self.connection.execute(
             """
-            SELECT sequences.*, proteins.project_id
+            SELECT
+                sequences.*,
+                proteins.project_id,
+                proteins.name AS protein_name,
+                users.email AS assigned_to_email
             FROM sequences
             JOIN proteins ON proteins.id = sequences.protein_id
+            LEFT JOIN users ON users.id = sequences.assigned_to
             WHERE sequences.id = ?
             """,
             (sequence_id,),
         ).fetchone()
+
+    def update_workflow(
+        self,
+        *,
+        sequence_id: int,
+        status: str,
+        priority: str,
+        assigned_to: int | None,
+        discipline_owner: str,
+        design_rationale: str,
+        handoff_note: str,
+        risk_note: str,
+    ) -> None:
+        self.connection.execute(
+            """
+            UPDATE sequences
+            SET
+                status = ?,
+                priority = ?,
+                assigned_to = ?,
+                discipline_owner = ?,
+                design_rationale = ?,
+                handoff_note = ?,
+                risk_note = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                status,
+                priority,
+                assigned_to,
+                discipline_owner,
+                design_rationale,
+                handoff_note,
+                risk_note,
+                sequence_id,
+            ),
+        )
+
+
+class SequenceCommentRepository:
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self.connection = connection
+
+    def list_for_sequence(self, sequence_id: int) -> list[dict]:
+        return self.connection.execute(
+            """
+            SELECT
+                sequence_comments.*,
+                users.email AS author_email
+            FROM sequence_comments
+            JOIN users ON users.id = sequence_comments.author_id
+            WHERE sequence_comments.sequence_id = ?
+            ORDER BY sequence_comments.created_at DESC, sequence_comments.id DESC
+            """,
+            (sequence_id,),
+        ).fetchall()
+
+    def insert(self, *, sequence_id: int, author_id: int, body: str) -> int:
+        cursor = self.connection.execute(
+            """
+            INSERT INTO sequence_comments (sequence_id, author_id, body)
+            VALUES (?, ?, ?)
+            """,
+            (sequence_id, author_id, body),
+        )
+        return int(cursor.lastrowid)
 
 
 class ArtifactRepository:
@@ -262,4 +371,3 @@ class ArtifactRepository:
             """,
             (artifact_id,),
         )
-

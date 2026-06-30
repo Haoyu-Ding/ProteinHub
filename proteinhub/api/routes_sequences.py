@@ -6,8 +6,18 @@ from collections.abc import Callable
 from fastapi import APIRouter, Depends, File, UploadFile
 
 from proteinhub.api.dependencies import ApiContext, map_domain_error
+from proteinhub.api.schemas import (
+    SequenceCommentCreateRequest,
+    SequenceWorkflowUpdateRequest,
+)
 from proteinhub.application.artifact_service import create_artifact, list_artifacts
-from proteinhub.application.sequence_service import get_sequence
+from proteinhub.application.project_service import list_project_members
+from proteinhub.application.sequence_service import (
+    create_sequence_comment,
+    get_sequence,
+    list_sequence_comments,
+    update_sequence_workflow,
+)
 from proteinhub.domain.errors import DomainError
 
 
@@ -29,10 +39,58 @@ def create_sequences_router(
             sequence = get_sequence(connection, sequence_id=sequence_id, user_id=user["id"])
             return {
                 "sequence": sequence,
+                "project_members": list_project_members(
+                    connection,
+                    project_id=sequence["project_id"],
+                    user_id=user["id"],
+                ),
                 "artifacts": list_artifacts(
                     connection, sequence_id=sequence_id, user_id=user["id"]
                 ),
+                "comments": list_sequence_comments(
+                    connection, sequence_id=sequence_id, user_id=user["id"]
+                ),
             }
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.patch("/sequences/{sequence_id}/workflow")
+    def update_workflow(
+        sequence_id: int,
+        payload: SequenceWorkflowUpdateRequest,
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> dict:
+        try:
+            return update_sequence_workflow(
+                connection,
+                sequence_id=sequence_id,
+                user_id=user["id"],
+                status=payload.status,
+                priority=payload.priority,
+                assigned_to=payload.assigned_to,
+                discipline_owner=payload.discipline_owner,
+                design_rationale=payload.design_rationale,
+                handoff_note=payload.handoff_note,
+                risk_note=payload.risk_note,
+            )
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.post("/sequences/{sequence_id}/comments")
+    def create_comment(
+        sequence_id: int,
+        payload: SequenceCommentCreateRequest,
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> dict:
+        try:
+            return create_sequence_comment(
+                connection,
+                sequence_id=sequence_id,
+                user_id=user["id"],
+                body=payload.body,
+            )
         except DomainError as error:
             raise map_domain_error(error) from error
 

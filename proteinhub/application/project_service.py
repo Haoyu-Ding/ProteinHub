@@ -25,7 +25,12 @@ def create_project(
             description=description.strip(),
             owner_id=user_id,
         )
-        projects.insert_member(project_id=project_id, user_id=user_id, role="owner")
+        projects.insert_member(
+            project_id=project_id,
+            user_id=user_id,
+            role="owner",
+            discipline="other",
+        )
 
     return get_project(connection, project_id=project_id, user_id=user_id)
 
@@ -53,12 +58,15 @@ def add_project_member(
     owner_user_id: int,
     email: str,
     role: str = "member",
+    discipline: str = "other",
 ) -> dict:
     require_project_role(
         connection, project_id=project_id, user_id=owner_user_id, owner_only=True
     )
     if role not in {"owner", "member"}:
         raise DomainError("Role must be owner or member")
+    if discipline not in {"design", "synthesis", "assay", "other"}:
+        raise DomainError("Discipline must be design, synthesis, assay, or other")
 
     user = UserRepository(connection).get_by_email(email.strip().lower())
     if not user:
@@ -67,8 +75,19 @@ def add_project_member(
     projects = ProjectRepository(connection)
     try:
         with transaction(connection):
-            projects.insert_member(project_id=project_id, user_id=user["id"], role=role)
+            projects.insert_member(
+                project_id=project_id,
+                user_id=user["id"],
+                role=role,
+                discipline=discipline,
+            )
     except sqlite3.IntegrityError as exc:
         raise ConflictError("User is already a project member") from exc
 
-    return {"id": user["id"], "email": user["email"], "created_at": user["created_at"], "role": role}
+    return {
+        "id": user["id"],
+        "email": user["email"],
+        "created_at": user["created_at"],
+        "role": role,
+        "discipline": discipline,
+    }
