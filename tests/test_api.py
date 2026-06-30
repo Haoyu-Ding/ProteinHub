@@ -14,6 +14,7 @@ def make_client(tmp_path: Path) -> TestClient:
         database_path=tmp_path / "proteinhub.sqlite3",
         storage_root=tmp_path / "storage",
         jwt_secret="test-secret",
+        nicegui_storage_secret="test-storage-secret",
     )
     init_db(settings.database_path)
 
@@ -158,3 +159,8 @@ def test_project_permissions_for_members_and_non_members(tmp_path: Path) -> None
     )
     assert owner_delete.status_code == 204
 
+    deleted_download = client.get(
+        f"/api/artifacts/{artifact_id}/download",
+        headers=auth(owner_token),
+    )
+    assert deleted_download.status_code == 404

@@ -1,13 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from nicegui import ui
-
-from proteinhub.config import Settings
-from proteinhub.db import connect
-from proteinhub.security import decode_token
-from proteinhub.services import DomainError, create_artifact, get_user
 
 
 def api_script() -> None:
@@ -69,20 +62,7 @@ async def ensure_logged_in() -> bool:
         return False
 
 
-def install_ui(
-    *,
-    database_path: Path,
-    storage_root: Path,
-    settings: Settings,
-) -> None:
-    async def current_user_from_browser() -> dict:
-        token = await ui.run_javascript("phToken()", timeout=5)
-        if not token:
-            raise RuntimeError("Please log in again")
-        payload = decode_token(token, settings.jwt_secret, issuer=settings.jwt_issuer)
-        with connect(database_path) as connection:
-            return get_user(connection, int(payload["sub"]))
-
+def install_ui() -> None:
     @ui.page("/")
     async def index() -> None:
         if await ensure_logged_in():
@@ -343,7 +323,7 @@ def install_ui(
             sequence_description = ui.label().classes("text-sm text-slate-600")
             with ui.row().classes("w-full items-center justify-between"):
                 ui.label("Artifacts").classes("text-xl font-semibold")
-                upload = ui.upload(label="Upload Artifact", auto_upload=True).props("flat")
+                upload_button = ui.button("Upload Artifact", icon="upload").props("flat")
             artifacts_column = ui.column().classes("w-full gap-3")
 
             async def load_sequence() -> None:
@@ -409,24 +389,35 @@ def install_ui(
                 except Exception as error:
                     ui.notify(str(error), type="negative")
 
-            async def upload_artifact(event) -> None:
-                try:
-                    user = await current_user_from_browser()
-                    with connect(database_path) as connection:
-                        create_artifact(
-                            connection,
-                            storage_root=storage_root,
-                            sequence_id=sequence_id,
-                            user_id=user["id"],
-                            filename=event.name,
-                            content_type=event.type or "application/octet-stream",
-                            source=event.content,
-                        )
-                    await load_sequence()
-                except DomainError as error:
-                    ui.notify(error.message, type="negative")
-                except Exception as error:
-                    ui.notify(str(error), type="negative")
-
-            upload.on_upload(upload_artifact)
+            upload_button.on(
+                "click",
+                js_handler=f"""
+                () => {{
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.style.display = 'none';
+                    input.addEventListener('change', async () => {{
+                        if (!input.files || input.files.length === 0) {{
+                            input.remove();
+                            return;
+                        }}
+                        const form = new FormData();
+                        form.append('file', input.files[0]);
+                        try {{
+                            await phApi('/api/sequences/{sequence_id}/artifacts', {{
+                                method: 'POST',
+                                body: form,
+                            }});
+                            window.location.reload();
+                        }} catch (error) {{
+                            alert(error.message || 'Upload failed');
+                        }} finally {{
+                            input.remove();
+                        }}
+                    }}, {{once: true}});
+                    document.body.appendChild(input);
+                    input.click();
+                }}
+                """,
+            )
             await load_sequence()

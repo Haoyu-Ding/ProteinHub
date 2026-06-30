@@ -21,6 +21,19 @@ python main.py
 
 Then open the NiceGUI URL printed in the terminal, usually `http://127.0.0.1:8080`.
 
+## Code layout
+
+ProteinHub keeps framework, business, and infrastructure concerns separate:
+
+- `proteinhub/api/` defines FastAPI routes, request schemas, and request-scoped dependencies.
+- `proteinhub/application/` coordinates business rules such as authentication, permissions, projects, sequences, and artifacts.
+- `proteinhub/domain/` contains domain-level errors and shared domain concepts.
+- `proteinhub/infrastructure/sqlite/` owns SQLite connection, schema, and repository queries.
+- `proteinhub/infrastructure/storage/` owns local file storage and safe artifact paths.
+- `proteinhub/ui.py` defines NiceGUI pages and talks to the backend only through `/api/...`.
+
+The legacy modules `proteinhub.db`, `proteinhub.storage`, and `proteinhub.services` remain as compatibility exports for existing imports and tests.
+
 ## API
 
 - `POST /api/auth/register`
@@ -39,4 +52,3 @@ Then open the NiceGUI URL printed in the terminal, usually `http://127.0.0.1:808
 - `POST /api/sequences/{sequence_id}/artifacts`
 - `GET /api/artifacts/{artifact_id}/download`
 - `DELETE /api/artifacts/{artifact_id}`
-

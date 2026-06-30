@@ -13,6 +13,7 @@ class Settings:
     database_path: Path
     storage_root: Path
     jwt_secret: str
+    nicegui_storage_secret: str
     jwt_issuer: str = "proteinhub"
     token_ttl_seconds: int = 60 * 60 * 24
 
@@ -22,9 +23,13 @@ def get_settings() -> Settings:
     storage_root = Path(os.getenv("PROTEINHUB_STORAGE_DIR", BASE_DIR / "storage"))
     database_path = Path(os.getenv("PROTEINHUB_DATABASE", data_dir / "proteinhub.sqlite3"))
     jwt_secret = os.getenv("PROTEINHUB_JWT_SECRET", "dev-only-change-me")
+    nicegui_storage_secret = os.getenv(
+        "PROTEINHUB_NICEGUI_STORAGE_SECRET",
+        "dev-storage-secret",
+    )
     return Settings(
         database_path=database_path,
         storage_root=storage_root,
         jwt_secret=jwt_secret,
+        nicegui_storage_secret=nicegui_storage_secret,
     )
-
