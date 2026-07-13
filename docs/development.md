@@ -57,9 +57,9 @@ python main.py
 ## Application Service 规范
 
 - 业务工作流放在 `proteinhub/application/`。
-- 函数命名应面向用例，例如 `create_project`、`create_sequence` 或 `soft_delete_artifact`。
+- 函数命名应面向用例，例如 `create_project`、`create_protein` 或 `soft_delete_artifact`。
 - 权限检查应靠近对应用例。
-- 当一个 workflow 会修改多条记录，或同时组合数据库和文件操作时，transaction 应放在 application-service 层。
+- 当一个用例会修改多条记录，或同时组合数据库和文件操作时，transaction 应放在 application-service 层。
 - 对预期内的产品失败抛出 domain errors。
 - 避免 import FastAPI、NiceGUI 或浏览器代码。
 
@@ -104,9 +104,10 @@ python main.py
 - permissions
 - authentication
 - artifact upload、download、deletion 或 path handling
+- batch membership、experiment type、well mapping 或 result update
 - schema shape
 - API response behavior
-- sequence normalization
+- protein sequence normalization
 
 推荐测试命令：
 
@@ -136,4 +137,3 @@ python main.py
 - Artifact path 是否仍然无法逃出 storage root？
 - 测试是否覆盖了变化的行为？
 - 配置或 secrets 是否避免了硬编码 runtime paths？
-

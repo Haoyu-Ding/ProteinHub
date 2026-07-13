@@ -3,17 +3,18 @@
 ProteinHub 是一个本地优先的蛋白设计工作台。应用围绕下面这个固定层级展开：
 
 ```text
-Project -> Protein -> Sequence -> Artifact
+Project -> Protein -> Artifact
+Project -> Batch -> Experiment -> BatchWell -> Protein
 ```
 
-Project 负责权限边界。Protein 用来组织同一蛋白下的序列变体。Sequence 是核心科研记录。Artifact 用来把文件和生成结果挂载到某条序列上。
+Project 负责权限边界。Protein 是核心科研记录，并且直接携带唯一的氨基酸序列。Batch 是项目内的一次 96 孔板式蛋白集合与孔位映射。Experiment 挂在 Batch 下，目前类型为 FPLC、SPR、HPLC；每个 Experiment 通过 BatchWell 把结果映射回对应 Protein。Artifact 用来把实验资料、分析结果和其他文件挂载到某个蛋白上。
 
 ## 架构目标
 
 - 框架代码和业务规则分离。
 - 业务规则和 SQLite 查询、文件系统写入分离。
 - UI 行为必须通过公开 API 进入后端。
-- 未来更换存储、数据库或工作流时，变更应尽量局部化在某一层。
+- 未来更换存储、数据库或处理流程时，变更应尽量局部化在某一层。
 - 保持 MVP 足够轻量，同时给数据库迁移和类型化领域对象留下空间。
 
 ## 分层
@@ -53,12 +54,13 @@ API 路由中不能写 SQL 查询，也不能直接承载业务策略。
 
 ### `application/`
 
-Application 层负责业务工作流：
+Application 层负责业务用例：
 
 - 用户注册和认证流程
 - 项目成员和 owner 规则
-- project、protein、sequence、artifact 用例
-- sequence 规范化
+- project、protein、artifact 用例
+- batch、experiment 和 batch well 结果回填用例
+- protein sequence 规范化
 - artifact 上传编排
 
 Application 代码可以协调 repository、transaction、权限检查和 file store。它应该用业务语言表达意图。
@@ -130,7 +132,8 @@ SQLite 只存 metadata：
 - projects
 - project members
 - proteins
-- sequences
+- batches
+- batch wells
 - artifact metadata
 
 文件系统把 artifact bytes 存在 `storage/` 下。数据库行只保存相对存储路径。
@@ -142,7 +145,8 @@ SQLite 只存 metadata：
 权限以 project 为边界。
 
 - 任意 project member 可以查看项目数据。
-- 任意 project member 可以创建 protein、sequence 和 artifact。
+- 任意 project member 可以创建 protein 和 artifact。
+- 任意 project member 可以创建 batch 和回填 batch well 结果。
 - 只有 project owner 可以添加成员。
 - 只有 project owner 可以删除 artifact。
 
@@ -173,4 +177,3 @@ Infrastructure 代码可以为意外失败抛出技术异常。如果某个技�
 3. 当 repository 继续变大时，按 aggregate 拆分 SQLite repositories。
 4. 在加入非本地存储前，引入 file store protocol。
 5. 如果 NiceGUI 页面继续增长，把 UI 拆成 package。
-

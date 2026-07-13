@@ -7,7 +7,6 @@ from proteinhub.infrastructure.sqlite.repositories import (
     ArtifactRepository,
     ProjectRepository,
     ProteinRepository,
-    SequenceRepository,
 )
 
 
@@ -39,16 +38,8 @@ def project_for_protein(connection: sqlite3.Connection, protein_id: int) -> int:
     return project_id
 
 
-def protein_for_sequence(connection: sqlite3.Connection, sequence_id: int) -> dict:
-    relation = SequenceRepository(connection).protein_relation_for(sequence_id)
-    if not relation:
-        raise NotFoundError("Sequence not found")
-    return relation
-
-
 def project_for_artifact(connection: sqlite3.Connection, artifact_id: int) -> int:
     project_id = ArtifactRepository(connection).project_id_for(artifact_id)
     if project_id is None:
         raise NotFoundError("Artifact not found")
     return project_id
-

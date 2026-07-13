@@ -7,7 +7,7 @@ from typing import BinaryIO
 
 from proteinhub.application.permissions import (
     project_for_artifact,
-    protein_for_sequence,
+    project_for_protein,
     require_project_role,
 )
 from proteinhub.application.validation import required
@@ -35,27 +35,29 @@ ARTIFACT_TYPES = {
 
 
 def list_artifacts(
-    connection: sqlite3.Connection, *, sequence_id: int, user_id: int
+    connection: sqlite3.Connection,
+    *,
+    user_id: int,
+    protein_id: int,
 ) -> list[dict]:
-    relation = protein_for_sequence(connection, sequence_id)
-    require_project_role(connection, project_id=relation["project_id"], user_id=user_id)
-    return ArtifactRepository(connection).list_for_sequence(sequence_id)
+    project_id = project_for_protein(connection, protein_id)
+    require_project_role(connection, project_id=project_id, user_id=user_id)
+    return ArtifactRepository(connection).list_for_protein(protein_id)
 
 
 def create_artifact(
     connection: sqlite3.Connection,
     *,
     storage_root: Path,
-    sequence_id: int,
     user_id: int,
     filename: str,
     content_type: str,
     source: BinaryIO,
+    protein_id: int,
     artifact_type: str = "file",
     file_store: LocalFileStore | None = None,
 ) -> UploadedArtifact:
-    relation = protein_for_sequence(connection, sequence_id)
-    project_id = int(relation["project_id"])
+    project_id = project_for_protein(connection, protein_id)
     require_project_role(connection, project_id=project_id, user_id=user_id)
     file_name = required(filename, "Filename")
     mime_type = content_type or "application/octet-stream"
@@ -67,7 +69,7 @@ def create_artifact(
 
     with transaction(connection):
         artifact_id = artifacts.insert_pending(
-            sequence_id=sequence_id,
+            protein_id=protein_id,
             uploaded_by=user_id,
             filename=file_name,
             artifact_type=normalized_type,
@@ -75,7 +77,7 @@ def create_artifact(
         )
         stored = store.save_artifact(
             project_id=project_id,
-            sequence_id=sequence_id,
+            protein_id=protein_id,
             artifact_id=artifact_id,
             filename=file_name,
             source=source,

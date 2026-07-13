@@ -51,6 +51,20 @@ def list_project_members(
     return ProjectRepository(connection).list_members(project_id)
 
 
+def search_project_member_candidates(
+    connection: sqlite3.Connection, *, project_id: int, owner_user_id: int, query: str
+) -> list[dict]:
+    require_project_role(
+        connection, project_id=project_id, user_id=owner_user_id, owner_only=True
+    )
+    search_text = query.strip()
+    if len(search_text) < 2:
+        return []
+    return UserRepository(connection).search_available_for_project(
+        project_id=project_id, query=search_text
+    )
+
+
 def add_project_member(
     connection: sqlite3.Connection,
     *,
@@ -86,8 +100,52 @@ def add_project_member(
 
     return {
         "id": user["id"],
+        "name": user["name"],
         "email": user["email"],
         "created_at": user["created_at"],
         "role": role,
         "discipline": discipline,
     }
+
+
+def update_project_member(
+    connection: sqlite3.Connection,
+    *,
+    project_id: int,
+    owner_user_id: int,
+    member_user_id: int,
+    role: str,
+    discipline: str,
+) -> dict:
+    require_project_role(
+        connection, project_id=project_id, user_id=owner_user_id, owner_only=True
+    )
+    if role not in {"owner", "member"}:
+        raise DomainError("Role must be owner or member")
+    if discipline not in {"design", "synthesis", "assay", "other"}:
+        raise DomainError("Discipline must be design, synthesis, assay, or other")
+
+    projects = ProjectRepository(connection)
+    member = projects.get_member(project_id=project_id, user_id=member_user_id)
+    if not member:
+        raise NotFoundError("Project member not found")
+    removing_last_owner = (
+        member["role"] == "owner"
+        and role != "owner"
+        and projects.count_owners(project_id) <= 1
+    )
+    if removing_last_owner:
+        raise DomainError("Project must keep at least one owner")
+
+    with transaction(connection):
+        projects.update_member(
+            project_id=project_id,
+            user_id=member_user_id,
+            role=role,
+            discipline=discipline,
+        )
+
+    updated = projects.get_member(project_id=project_id, user_id=member_user_id)
+    if not updated:
+        raise NotFoundError("Project member not found")
+    return updated

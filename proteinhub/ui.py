@@ -5,41 +5,39 @@ import json
 from nicegui import ui
 
 
-STATUS_OPTIONS = [
-    "draft",
-    "designed",
-    "ready_for_synthesis",
-    "synthesizing",
-    "testing",
-    "validated",
-    "failed",
-]
-PRIORITY_OPTIONS = ["low", "medium", "high"]
-DISCIPLINE_OPTIONS = {
-    "": "Unassigned",
-    "design": "Design",
-    "synthesis": "Synthesis",
-    "assay": "Assay",
-    "other": "Other",
+MEMBER_DISCIPLINE_OPTIONS = {
+    "design": "计算设计",
+    "synthesis": "合成",
+    "assay": "测试",
+    "other": "其他",
 }
-MEMBER_DISCIPLINES = ["design", "synthesis", "assay", "other"]
-ARTIFACT_TYPES = [
-    "design_output",
-    "structure_model",
-    "synthesis_protocol",
-    "experimental_result",
-    "analysis_report",
-    "other",
-]
+ROLE_LABELS = {
+    "owner": "负责人",
+    "member": "成员",
+}
+ARTIFACT_TYPE_OPTIONS = {
+    "design_output": "设计输出",
+    "structure_model": "结构模型",
+    "synthesis_protocol": "合成方案",
+    "experimental_result": "实验结果",
+    "analysis_report": "分析报告",
+    "other": "其他文件",
+}
 ARTIFACT_GROUPS = [
-    ("design_output", "Design outputs"),
-    ("structure_model", "Structure models"),
-    ("synthesis_protocol", "Synthesis files"),
-    ("experimental_result", "Experimental results"),
-    ("analysis_report", "Analysis reports"),
-    ("other", "Other files"),
-    ("file", "Other files"),
+    ("design_output", "设计输出"),
+    ("structure_model", "结构模型"),
+    ("synthesis_protocol", "合成文件"),
+    ("experimental_result", "实验结果"),
+    ("analysis_report", "分析报告"),
+    ("other", "其他文件"),
+    ("file", "其他文件"),
 ]
+DISPLAY_LABELS = (
+    MEMBER_DISCIPLINE_OPTIONS
+    | ROLE_LABELS
+    | ARTIFACT_TYPE_OPTIONS
+    | {"file": "其他文件"}
+)
 
 
 def design_system() -> None:
@@ -95,7 +93,7 @@ def design_system() -> None:
             align-items: flex-end;
             justify-content: space-between;
             gap: 16px;
-            padding-bottom: 16px;
+            padding-bottom: 12px;
             border-bottom: 1px solid var(--ph-border);
         }
 
@@ -138,6 +136,30 @@ def design_system() -> None:
             transform: translateY(-1px);
         }
 
+        .ph-protein-card {
+            height: 164px;
+            min-height: 164px;
+            max-height: 164px;
+            flex: 0 0 164px;
+        }
+
+        .ph-protein-card .ph-card-description,
+        .ph-protein-card .ph-card-title {
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .ph-protein-sequence-preview {
+            display: block;
+            max-width: 100%;
+            overflow: hidden;
+            line-height: 1.6;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
         .ph-icon-box {
             width: 40px;
             height: 40px;
@@ -149,7 +171,6 @@ def design_system() -> None:
 
         .ph-icon-project { background: #eaf1ff; color: var(--ph-blue); }
         .ph-icon-protein { background: #e7f5f1; color: var(--ph-teal); }
-        .ph-icon-sequence { background: #fff6e5; color: var(--ph-amber); }
         .ph-icon-artifact { background: #eef2f7; color: #475569; }
 
         .ph-card-title {
@@ -197,72 +218,122 @@ def design_system() -> None:
             box-shadow: 0 1px 2px rgba(20, 32, 43, 0.04);
         }
 
-        .ph-board-row {
-            width: 100%;
+        .ph-workspace-layout {
             display: grid;
-            grid-template-columns: minmax(190px, 1.5fr) minmax(130px, 1fr) 132px 110px minmax(160px, 1fr) 112px;
-            align-items: center;
-            gap: 12px;
-            padding: 14px 16px;
-            border: 1px solid var(--ph-border);
-            border-radius: 8px;
-            background: var(--ph-surface);
+            grid-template-columns: 240px minmax(0, 1fr);
+            align-items: flex-start;
+            gap: 16px;
+            --ph-workspace-height: calc(100vh - 240px);
         }
 
-        .ph-board-head {
-            background: #f8fafc;
+        .ph-project-sidebar {
+            width: 240px;
+            height: var(--ph-workspace-height);
+            min-height: 420px;
+            flex: 0 0 240px;
+            gap: 12px;
+            padding: 24px 14px;
+            border: 1px solid var(--ph-border);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.72);
+            position: sticky;
+            top: 76px;
+        }
+
+        .ph-side-tabs {
+            align-items: stretch;
+        }
+
+        .ph-side-tabs .q-tabs__content {
+            gap: 6px;
+        }
+
+        .ph-side-tabs .q-tab {
+            min-height: 38px;
+            justify-content: flex-start;
+            border-radius: 8px;
             color: var(--ph-muted);
-            font-size: 12px;
-            font-weight: 700;
-            text-transform: uppercase;
-            box-shadow: none;
         }
 
-        .ph-board-cell {
+        .ph-side-tabs .q-tab--active {
+            background: #eaf1ff;
+            color: var(--ph-blue);
+        }
+
+        .ph-side-tabs .q-tab__content {
+            width: 100%;
+            flex-direction: row;
+            justify-content: flex-start;
+            gap: 10px;
+        }
+
+        .ph-side-tabs .q-tab__icon {
+            width: 22px;
+            margin: 0;
+            font-size: 20px;
+        }
+
+        .ph-side-tabs .q-tab__label {
+            line-height: 1;
+        }
+
+        .ph-workspace-panel {
+            border: 1px solid var(--ph-border);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.72);
+            display: flex;
+            flex-direction: column;
+            height: var(--ph-workspace-height);
+            min-height: 420px;
+            grid-column: 2;
             min-width: 0;
-        }
-
-        .ph-status-strip {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 12px;
             width: 100%;
+            overflow: hidden;
+            padding: 16px 18px;
+            position: sticky;
+            top: 76px;
         }
 
-        .ph-stat {
-            border: 1px solid var(--ph-border);
-            border-radius: 8px;
-            background: #ffffff;
-            padding: 14px;
+        .ph-workspace-panel > .q-panel {
+            height: 100%;
+            min-height: 0;
+            overflow: hidden;
         }
 
-        .ph-stat-value {
-            color: var(--ph-text);
-            font-size: 24px;
-            font-weight: 750;
-            line-height: 1.1;
+        .ph-workspace-panel .q-tab-panel {
+            height: 100%;
+            min-height: 0;
+            padding: 0;
         }
 
-        .ph-workflow-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+        .ph-proteins-panel,
+        .ph-members-panel {
+            display: flex;
+            flex-direction: column;
             gap: 12px;
-            width: 100%;
+            min-height: 0;
         }
 
-        .ph-note-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        .ph-batches-panel {
+            display: flex;
+            flex-direction: column;
             gap: 12px;
-            width: 100%;
+            min-height: 0;
         }
 
-        .ph-note-box {
-            min-height: 116px;
-            border: 1px solid var(--ph-border);
-            border-radius: 8px;
-            background: #fbfcfd;
-            padding: 14px;
+        .ph-proteins-scroll,
+        .ph-batch-scroll {
+            flex: 1;
+            min-height: 0;
+            overflow: auto;
+            padding-right: 4px;
+        }
+
+        .ph-members-scroll {
+            flex: 1;
+            min-height: 0;
+            overflow: auto;
+            padding-right: 4px;
         }
 
         .ph-artifact-group {
@@ -275,8 +346,9 @@ def design_system() -> None:
         }
 
         .ph-member-row,
-        .ph-file-row,
-        .ph-comment-row {
+        .ph-member-candidate-row,
+        .ph-batch-protein-row,
+        .ph-file-row {
             width: 100%;
             align-items: center;
             justify-content: space-between;
@@ -287,9 +359,102 @@ def design_system() -> None:
             background: var(--ph-surface);
         }
 
-        .ph-comment-row {
-            align-items: flex-start;
-            justify-content: flex-start;
+        .ph-batch-protein-list {
+            width: 100%;
+            max-height: 360px;
+            overflow-y: auto;
+            gap: 8px;
+            padding: 12px;
+            border: 1px solid var(--ph-border);
+            border-radius: 8px;
+            background: #fbfcfd;
+        }
+
+        .ph-batch-protein-row {
+            padding: 12px 14px;
+        }
+
+        .ph-batch-mapping {
+            width: 100%;
+            overflow: auto;
+            border: 1px solid var(--ph-border);
+            border-radius: 8px;
+            background: var(--ph-surface);
+        }
+
+        .ph-batch-mapping-scroll {
+            flex: 1;
+            min-height: 260px;
+            max-height: min(48vh, 520px);
+        }
+
+        .ph-batch-upload-actions {
+            display: grid;
+            grid-template-columns: minmax(220px, 320px) minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .ph-mapping-row {
+            display: grid;
+            grid-template-columns: 88px minmax(160px, 1fr) minmax(120px, 0.6fr) minmax(280px, 1.5fr) minmax(100px, 0.5fr);
+            min-width: 820px;
+            border-bottom: 1px solid var(--ph-border);
+        }
+
+        .ph-mapping-row:last-child {
+            border-bottom: 0;
+        }
+
+        .ph-mapping-head {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            background: #f8fafc;
+            color: var(--ph-muted);
+            font-size: 12px;
+            font-weight: 750;
+            text-transform: uppercase;
+        }
+
+        .ph-mapping-cell {
+            min-width: 0;
+            padding: 12px 14px;
+            border-right: 1px solid var(--ph-border);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .ph-mapping-cell:last-child {
+            border-right: 0;
+        }
+
+        .ph-mapping-position {
+            color: var(--ph-teal);
+            font-weight: 750;
+        }
+
+        .ph-mapping-sequence {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+            font-size: 12px;
+            color: #334155;
+        }
+
+        .ph-member-results {
+            width: 100%;
+            min-height: 280px;
+            max-height: 320px;
+            overflow-y: auto;
+            gap: 8px;
+            padding: 12px;
+            border: 1px solid var(--ph-border);
+            border-radius: 8px;
+            background: #fbfcfd;
+        }
+
+        .ph-member-candidate-row {
+            padding: 12px 14px;
         }
 
         .ph-sequence-panel {
@@ -358,13 +523,43 @@ def design_system() -> None:
         }
 
         @media (max-width: 900px) {
-            .ph-board-row {
+            .ph-workspace-layout {
                 grid-template-columns: 1fr;
             }
 
-            .ph-board-head {
-                display: none;
+            .ph-project-sidebar {
+                width: 100%;
+                flex: 0 0 auto;
+                height: auto;
+                min-height: 0;
+                position: static;
             }
+
+            .ph-workspace-panel {
+                grid-column: 1;
+                height: auto;
+                max-height: none;
+                overflow: visible;
+            }
+
+            .ph-workspace-panel > .q-panel {
+                overflow: visible;
+            }
+
+            .ph-proteins-scroll,
+            .ph-batch-scroll,
+            .ph-members-scroll {
+                overflow: visible;
+            }
+
+            .ph-side-tabs .q-tabs__content {
+                flex-direction: row !important;
+            }
+
+            .ph-batch-upload-actions {
+                grid-template-columns: 1fr;
+            }
+
         }
         </style>
         """
@@ -375,6 +570,43 @@ def api_script() -> None:
     ui.add_head_html(
         """
         <script>
+        window.phErrorText = function(detail) {
+            const messages = {
+                'Request failed': '请求失败',
+                'Download failed': '下载失败',
+                'Upload failed': '上传失败',
+            };
+            if (Array.isArray(detail)) {
+                const items = detail.map((item) => {
+                    if (!item) return '';
+                    if (typeof item === 'string') return item;
+                    if (item.msg) return item.msg;
+                    if (item.message) return item.message;
+                    return JSON.stringify(item);
+                }).filter(Boolean);
+                return items.join('；') || '请求参数不完整或格式不正确';
+            }
+            if (detail && typeof detail === 'object') {
+                return detail.message || detail.msg || JSON.stringify(detail);
+            }
+            return messages[detail] || detail || '请求失败';
+        }
+        window.phNotify = function(message, type = 'negative') {
+            const fallback = type === 'negative' ? '操作失败' : '操作完成';
+            const text = message || fallback;
+            if (window.Quasar && Quasar.Notify) {
+                Quasar.Notify.create({message: text, type});
+            } else {
+                alert(text);
+            }
+        }
+        window.phNotifyError = function(error, fallback = '操作失败') {
+            let detail = error && error.message ? error.message : error;
+            if (typeof detail === 'string' && detail.startsWith('Error: ')) {
+                detail = detail.slice(7).trim();
+            }
+            phNotify(phErrorText(detail) || fallback, 'negative');
+        }
         window.phApi = async function(path, options = {}) {
             const token = localStorage.getItem('proteinhub_token');
             const headers = options.headers || {};
@@ -383,13 +615,23 @@ def api_script() -> None:
                 headers['Content-Type'] = 'application/json';
                 options.body = JSON.stringify(options.body);
             }
-            const response = await fetch(path, {...options, headers});
+            let response;
+            try {
+                response = await fetch(path, {...options, headers});
+            } catch (error) {
+                throw new Error('无法连接到服务，请检查服务是否正在运行');
+            }
             if (response.status === 204) return null;
             const contentType = response.headers.get('content-type') || '';
-            const data = contentType.includes('application/json') ? await response.json() : await response.text();
+            let data;
+            try {
+                data = contentType.includes('application/json') ? await response.json() : await response.text();
+            } catch (error) {
+                data = '';
+            }
             if (!response.ok) {
                 const detail = data && data.detail ? data.detail : 'Request failed';
-                throw new Error(detail);
+                throw new Error(phErrorText(detail));
             }
             return data;
         }
@@ -418,38 +660,28 @@ def sequence_display(sequence: str) -> str:
 
 def format_bytes(size: int) -> str:
     if size < 1024:
-        return f"{size} B"
+        return f"{size} 字节"
     if size < 1024 * 1024:
-        return f"{size / 1024:.1f} KB"
-    return f"{size / (1024 * 1024):.1f} MB"
+        return f"{size / 1024:.1f} 千字节"
+    return f"{size / (1024 * 1024):.1f} 兆字节"
 
 
 def humanize(value: str | None) -> str:
     if not value:
-        return "Unassigned"
-    return value.replace("_", " ").title()
+        return "未指定"
+    return DISPLAY_LABELS.get(value, value)
 
 
 def short_email(email: str | None) -> str:
     if not email:
-        return "Unassigned"
+        return "未分配"
     return email.split("@", 1)[0]
 
 
-def status_color(status: str) -> str:
-    return {
-        "draft": "grey",
-        "designed": "blue",
-        "ready_for_synthesis": "orange",
-        "synthesizing": "teal",
-        "testing": "purple",
-        "validated": "green",
-        "failed": "red",
-    }.get(status, "grey")
-
-
-def priority_color(priority: str) -> str:
-    return {"high": "red", "medium": "orange", "low": "grey"}.get(priority, "grey")
+def person_label(name: str | None, email: str | None) -> str:
+    if name:
+        return name
+    return short_email(email)
 
 
 def empty_state(icon: str, title: str, detail: str) -> None:
@@ -457,6 +689,13 @@ def empty_state(icon: str, title: str, detail: str) -> None:
         ui.icon(icon).classes("text-3xl text-slate-400")
         ui.label(title).classes("font-semibold text-slate-800")
         ui.label(detail).classes("ph-muted")
+
+
+def notify_error(error: Exception, fallback: str = "操作失败") -> None:
+    message = str(error).strip()
+    if message.startswith("Error: "):
+        message = message.removeprefix("Error: ").strip()
+    ui.notify(message or fallback, type="negative")
 
 
 def shell() -> None:
@@ -469,8 +708,8 @@ def shell() -> None:
                 ui.icon("hub").classes("text-lg")
             ui.link("ProteinHub", "/").classes("text-lg font-semibold no-underline text-slate-900")
         with ui.row().classes("items-center gap-2"):
-            ui.link("Projects", "/projects").classes("text-sm no-underline text-slate-700")
-            ui.button("Logout", on_click=lambda: ui.run_javascript("phClearToken(); window.location.href='/login'")).props("flat dense")
+            ui.link("项目", "/projects").classes("text-sm no-underline text-slate-700")
+            ui.button("退出登录", on_click=lambda: ui.run_javascript("phClearToken(); window.location.href='/login'")).props("flat dense")
 
 
 async def ensure_logged_in() -> bool:
@@ -482,6 +721,7 @@ async def ensure_logged_in() -> bool:
         await ui.run_javascript("return await phApi('/api/me')")
         return True
     except Exception:
+        ui.notify("登录状态已失效，请重新登录", type="warning")
         ui.navigate.to("/login")
         return False
 
@@ -504,24 +744,29 @@ def install_ui() -> None:
                         ui.icon("hub").classes("text-lg")
                     with ui.column().classes("gap-0"):
                         ui.label("ProteinHub").classes("text-2xl font-semibold text-slate-900")
-                        ui.label("Sequence-centered protein design workspace").classes("ph-muted")
-                email = ui.input("Email").props("outlined").classes("w-full")
-                password = ui.input("Password", password=True, password_toggle_button=True).props("outlined").classes("w-full")
-                mode = ui.toggle(["Login", "Register"], value="Login").props("unelevated")
+                        ui.label("以蛋白为中心的信息与实验资料库").classes("ph-muted")
+                name = ui.input("姓名").props("outlined").classes("w-full")
+                email = ui.input("邮箱").props("outlined").classes("w-full")
+                password = ui.input("密码", password=True, password_toggle_button=True).props("outlined").classes("w-full")
+                mode = ui.toggle(["登录", "注册"], value="登录").props("unelevated")
+                name.bind_visibility_from(mode, "value", lambda value: value == "注册")
 
                 async def submit() -> None:
-                    endpoint = "/api/auth/login" if mode.value == "Login" else "/api/auth/register"
+                    endpoint = "/api/auth/login" if mode.value == "登录" else "/api/auth/register"
+                    body = {"email": email.value, "password": password.value}
+                    if mode.value == "注册":
+                        body["name"] = name.value
                     try:
                         result = await ui.run_javascript(
-                            f"return await phApi('{endpoint}', {{method: 'POST', body: {{email: {email.value!r}, password: {password.value!r}}}}})",
+                            f"return await phApi('{endpoint}', {{method: 'POST', body: {json.dumps(body)}}})",
                             timeout=10,
                         )
                         await ui.run_javascript(f"phSetToken({result['access_token']!r})")
                         ui.navigate.to("/projects")
                     except Exception as error:
-                        ui.notify(str(error), type="negative")
+                        notify_error(error)
 
-                ui.button("Continue", on_click=submit).classes("w-full").props("unelevated")
+                ui.button("继续", on_click=submit).classes("w-full").props("unelevated")
 
     @ui.page("/projects")
     async def projects_page() -> None:
@@ -531,10 +776,10 @@ def install_ui() -> None:
         with ui.column().classes("ph-page"):
             with ui.row().classes("ph-page-header w-full"):
                 with ui.column().classes("gap-1"):
-                    ui.label("Workspace").classes("ph-eyebrow")
-                    ui.label("Projects").classes("ph-title")
-                    ui.label("Project-level permissions protect every protein, sequence, and artifact.").classes("ph-subtitle")
-                ui.button("New Project", icon="add", on_click=lambda: project_dialog.open()).props("unelevated")
+                    ui.label("工作台").classes("ph-eyebrow")
+                    ui.label("项目").classes("ph-title")
+                    ui.label("项目权限会保护每个蛋白记录和实验资料。").classes("ph-subtitle")
+                ui.button("新建项目", icon="add", on_click=lambda: project_dialog.open()).props("unelevated")
 
             project_grid = ui.grid(columns="repeat(auto-fill, minmax(280px, 1fr))").classes("ph-grid w-full")
 
@@ -544,7 +789,7 @@ def install_ui() -> None:
                     projects = await ui.run_javascript("return await phApi('/api/projects')", timeout=10)
                     with project_grid:
                         if not projects:
-                            empty_state("folder_open", "No projects yet", "Create one to start collecting sequences.")
+                            empty_state("folder_open", "还没有项目", "新建一个项目后，就可以开始收集蛋白。")
                         for project in projects:
                             with ui.card().classes("ph-resource-card gap-4 p-4"):
                                 with ui.row().classes("w-full items-start gap-3"):
@@ -552,17 +797,17 @@ def install_ui() -> None:
                                         ui.icon("folder_open")
                                     with ui.column().classes("min-w-0 flex-1 gap-1"):
                                         ui.label(project["name"]).classes("ph-card-title")
-                                        ui.label(project["description"] or "No description").classes("ph-card-description")
+                                        ui.label(project["description"] or "暂无描述").classes("ph-card-description")
                                 with ui.row().classes("w-full items-center justify-between"):
-                                    ui.badge(project["role"]).props("outline")
-                                    ui.button("Open", icon="arrow_forward", on_click=lambda p=project: ui.navigate.to(f"/projects/{p['id']}")).props("flat")
+                                    ui.badge(humanize(project["role"])).props("outline")
+                                    ui.button("打开", icon="arrow_forward", on_click=lambda p=project: ui.navigate.to(f"/projects/{p['id']}")).props("flat")
                 except Exception as error:
-                    ui.notify(str(error), type="negative")
+                    notify_error(error)
 
             with ui.dialog() as project_dialog, ui.card().classes("ph-dialog-card w-full max-w-md gap-4"):
-                ui.label("New Project").classes("text-lg font-semibold")
-                name = ui.input("Name").props("outlined").classes("w-full")
-                description = ui.textarea("Description").props("outlined").classes("w-full")
+                ui.label("新建项目").classes("text-lg font-semibold")
+                name = ui.input("名称").props("outlined").classes("w-full")
+                description = ui.textarea("描述").props("outlined").classes("w-full")
 
                 async def create() -> None:
                     try:
@@ -575,11 +820,11 @@ def install_ui() -> None:
                         description.value = ""
                         await load_projects()
                     except Exception as error:
-                        ui.notify(str(error), type="negative")
+                        notify_error(error)
 
                 with ui.row().classes("justify-end w-full"):
-                    ui.button("Cancel", on_click=project_dialog.close).props("flat")
-                    ui.button("Create", icon="add", on_click=create)
+                    ui.button("取消", on_click=project_dialog.close).props("flat")
+                    ui.button("创建", icon="add", on_click=create)
 
             await load_projects()
 
@@ -591,48 +836,59 @@ def install_ui() -> None:
         with ui.column().classes("ph-page"):
             with ui.row().classes("ph-page-header w-full"):
                 with ui.column().classes("gap-1"):
-                    ui.label("Project").classes("ph-eyebrow")
-                    title = ui.label("Project").classes("ph-title")
+                    ui.label("项目").classes("ph-eyebrow")
+                    title = ui.label("项目").classes("ph-title")
                     description = ui.label().classes("ph-subtitle")
                 role_badge = ui.badge().props("outline")
 
-            with ui.tabs().classes("w-full") as tabs:
-                board_tab = ui.tab("Board")
-                proteins_tab = ui.tab("Proteins")
-                members_tab = ui.tab("Members")
-            with ui.tab_panels(tabs, value=board_tab).classes("ph-panel w-full"):
-                with ui.tab_panel(board_tab).classes("gap-4"):
-                    with ui.row().classes("ph-section-bar w-full"):
-                        with ui.column().classes("gap-0"):
-                            ui.label("Collaboration board").classes("text-xl font-semibold")
-                            ui.label("Track designs as they move from computation to synthesis and testing.").classes("ph-muted")
-                        ui.button("Refresh", icon="refresh", on_click=lambda: load_board()).props("flat")
-                    status_strip = ui.element("div").classes("ph-status-strip")
-                    board_column = ui.column().classes("w-full gap-2")
-                with ui.tab_panel(proteins_tab).classes("gap-4"):
-                    with ui.row().classes("ph-section-bar w-full"):
-                        with ui.column().classes("gap-0"):
-                            ui.label("Proteins").classes("text-xl font-semibold")
-                            ui.label("Protein records inside this project.").classes("ph-muted")
-                        ui.button("New Protein", icon="add", on_click=lambda: protein_dialog.open()).props("unelevated")
-                    proteins_column = ui.column().classes("w-full gap-3")
-                with ui.tab_panel(members_tab).classes("gap-4"):
-                    with ui.row().classes("ph-section-bar w-full"):
-                        with ui.column().classes("gap-0"):
-                            ui.label("Members").classes("text-xl font-semibold")
-                            ui.label("Project access is managed here.").classes("ph-muted")
-                        add_member_button = ui.button("Add Member", icon="person_add", on_click=lambda: member_dialog.open()).props("unelevated")
-                    members_column = ui.column().classes("w-full gap-2")
+            with ui.row().classes("ph-workspace-layout w-full"):
+                with ui.column().classes("ph-project-sidebar"):
+                    with ui.column().classes("gap-1"):
+                        ui.label("项目视图").classes("ph-eyebrow")
+                        ui.label("浏览项目内容").classes("font-semibold text-slate-900")
+                    with ui.tabs().props("vertical").classes("ph-side-tabs w-full") as tabs:
+                        proteins_tab = ui.tab("蛋白信息", icon="science")
+                        batches_tab = ui.tab("实验批次", icon="grid_view")
+                        members_tab = ui.tab("成员", icon="group")
+                with ui.tab_panels(tabs, value=proteins_tab).classes("ph-panel ph-workspace-panel"):
+                    with ui.tab_panel(proteins_tab).classes("ph-proteins-panel"):
+                        with ui.row().classes("ph-section-bar w-full"):
+                            with ui.column().classes("gap-0"):
+                                ui.label("蛋白信息").classes("text-xl font-semibold")
+                                ui.label("查询和管理这个项目中的蛋白记录与实验资料。").classes("ph-muted")
+                            ui.button("新建蛋白", icon="add", on_click=lambda: protein_dialog.open()).props("unelevated")
+                        with ui.element("div").classes("ph-proteins-scroll w-full"):
+                            proteins_column = ui.column().classes("w-full gap-3")
+                    with ui.tab_panel(batches_tab).classes("ph-batches-panel"):
+                        with ui.row().classes("ph-section-bar w-full"):
+                            with ui.column().classes("gap-0"):
+                                ui.label("实验批次").classes("text-xl font-semibold")
+                                ui.label("把项目中的蛋白排入 96 孔板，记录每个孔的实验结果。").classes("ph-muted")
+                            ui.button("新建批次", icon="add", on_click=lambda: batch_dialog.open()).props("unelevated")
+                        with ui.element("div").classes("ph-batch-scroll w-full"):
+                            batches_column = ui.column().classes("w-full gap-3")
+                    with ui.tab_panel(members_tab).classes("ph-members-panel"):
+                        with ui.row().classes("ph-section-bar w-full"):
+                            with ui.column().classes("gap-0"):
+                                ui.label("成员").classes("text-xl font-semibold")
+                                ui.label("在这里管理项目访问权限。").classes("ph-muted")
+                            add_member_button = ui.button("添加成员", icon="person_add", on_click=lambda: member_dialog.open()).props("unelevated")
+                        with ui.element("div").classes("ph-members-scroll w-full"):
+                            members_column = ui.column().classes("w-full gap-2")
+
+            project_proteins = {"items": []}
+            selected_batch_proteins: set[int] = set()
 
             async def load_project() -> None:
                 try:
                     data = await ui.run_javascript(f"return await phApi('/api/projects/{project_id}')", timeout=10)
                     project = data["project"]
                     title.text = project["name"]
-                    description.text = project["description"] or "No description"
-                    role_badge.text = project["role"]
+                    description.text = project["description"] or "暂无描述"
+                    role_badge.text = humanize(project["role"])
                     add_member_button.visible = project["role"] == "owner"
                     members_column.clear()
+                    can_manage_members = project["role"] == "owner"
                     with members_column:
                         for member in data["members"]:
                             with ui.row().classes("ph-member-row"):
@@ -640,124 +896,455 @@ def install_ui() -> None:
                                     with ui.element("div").classes("ph-icon-box ph-icon-project"):
                                         ui.icon("person")
                                     with ui.column().classes("gap-0"):
-                                        ui.label(member["email"]).classes("font-medium")
-                                        ui.label(humanize(member.get("discipline"))).classes("ph-meta")
-                                with ui.row().classes("gap-2"):
-                                    ui.badge(member["role"]).props("outline")
-                                    ui.badge(humanize(member.get("discipline"))).props("outline color=secondary")
+                                        ui.label(person_label(member.get("name"), member.get("email"))).classes("font-medium")
+                                        ui.label(f"{member['email']} · {humanize(member.get('discipline'))}").classes("ph-meta")
+                                if can_manage_members:
+                                    with ui.row().classes("items-center gap-2"):
+                                        role_select = (
+                                            ui.select(
+                                                ROLE_LABELS,
+                                                value=member["role"],
+                                                label="角色",
+                                            )
+                                            .props("outlined dense")
+                                            .classes("min-w-32")
+                                        )
+                                        discipline_select = (
+                                            ui.select(
+                                                MEMBER_DISCIPLINE_OPTIONS,
+                                                value=member.get("discipline") or "other",
+                                                label="学科方向",
+                                            )
+                                            .props("outlined dense")
+                                            .classes("min-w-36")
+                                        )
+                                        ui.button(
+                                            "保存",
+                                            icon="save",
+                                            on_click=lambda m=member, r=role_select, d=discipline_select: update_member(
+                                                m["id"], r.value, d.value
+                                            ),
+                                        ).props("flat dense no-wrap")
+                                else:
+                                    with ui.row().classes("gap-2"):
+                                        ui.badge(humanize(member["role"])).props("outline")
+                                        ui.badge(humanize(member.get("discipline"))).props("outline color=secondary")
                 except Exception as error:
-                    ui.notify(str(error), type="negative")
+                    notify_error(error)
 
-            async def load_board() -> None:
-                board_column.clear()
-                status_strip.clear()
+            async def update_member(member_id: int, role: str, discipline: str) -> None:
                 try:
-                    rows = await ui.run_javascript(f"return await phApi('/api/projects/{project_id}/board')", timeout=10)
-                    counts = {status: 0 for status in STATUS_OPTIONS}
-                    for row in rows:
-                        counts[row["status"]] = counts.get(row["status"], 0) + 1
-                    with status_strip:
-                        for status in ["ready_for_synthesis", "synthesizing", "testing", "validated"]:
-                            with ui.element("div").classes("ph-stat"):
-                                ui.label(str(counts.get(status, 0))).classes("ph-stat-value")
-                                ui.label(humanize(status)).classes("ph-meta")
-                    with board_column:
-                        if not rows:
-                            empty_state("view_kanban", "No candidate sequences", "Create sequences under a protein to start the handoff workflow.")
-                        else:
-                            with ui.element("div").classes("ph-board-row ph-board-head"):
-                                ui.label("Sequence")
-                                ui.label("Protein")
-                                ui.label("Status")
-                                ui.label("Priority")
-                                ui.label("Owner")
-                                ui.label("")
-                            for row in rows:
-                                with ui.element("div").classes("ph-board-row"):
-                                    with ui.column().classes("ph-board-cell gap-1"):
-                                        with ui.row().classes("items-center gap-2"):
-                                            ui.label(row["name"]).classes("font-semibold text-slate-900")
-                                            if row["version_tag"]:
-                                                ui.badge(row["version_tag"]).props("outline")
-                                        ui.label(f"{len(row['sequence'])} aa · {row['artifact_count']} files").classes("ph-meta")
-                                    ui.label(row["protein_name"]).classes("ph-board-cell text-slate-700")
-                                    ui.badge(humanize(row["status"])).props(f"outline color={status_color(row['status'])}")
-                                    ui.badge(humanize(row["priority"])).props(f"outline color={priority_color(row['priority'])}")
-                                    with ui.column().classes("ph-board-cell gap-0"):
-                                        ui.label(short_email(row.get("assigned_to_email"))).classes("text-sm text-slate-800")
-                                        ui.label(humanize(row.get("discipline_owner"))).classes("ph-meta")
-                                    ui.button("Open", icon="open_in_new", on_click=lambda s=row: ui.navigate.to(f"/sequences/{s['id']}")).props("flat")
+                    payload = {"role": role, "discipline": discipline}
+                    await ui.run_javascript(
+                        f"return await phApi('/api/projects/{project_id}/members/{member_id}', "
+                        f"{{method: 'PATCH', body: {json.dumps(payload)}}})",
+                        timeout=10,
+                    )
+                    ui.notify("成员设置已更新", type="positive")
+                    await load_project()
                 except Exception as error:
-                    ui.notify(str(error), type="negative")
+                    notify_error(error)
 
             async def load_proteins() -> None:
                 proteins_column.clear()
                 try:
                     proteins = await ui.run_javascript(f"return await phApi('/api/projects/{project_id}/proteins')", timeout=10)
+                    project_proteins["items"] = proteins
                     with proteins_column:
                         if not proteins:
-                            empty_state("science", "No proteins yet", "Create one, then add sequences.")
+                            empty_state("science", "还没有蛋白", "先创建蛋白并填写序列。")
                         for protein in proteins:
-                            with ui.card().classes("ph-resource-card w-full p-4"):
+                            preview = protein["sequence"][:50] + (
+                                "..." if len(protein["sequence"]) > 50 else ""
+                            )
+                            with ui.card().classes("ph-resource-card ph-protein-card w-full p-4"):
                                 with ui.row().classes("w-full items-center justify-between gap-4"):
                                     with ui.row().classes("min-w-0 flex-1 items-start gap-3"):
                                         with ui.element("div").classes("ph-icon-box ph-icon-protein"):
                                             ui.icon("science")
-                                        with ui.column().classes("min-w-0 gap-1"):
-                                            ui.label(protein["name"]).classes("ph-card-title")
-                                            ui.label(protein["description"] or "No description").classes("ph-card-description")
-                                    ui.button("Sequences", icon="list", on_click=lambda p=protein: ui.navigate.to(f"/proteins/{p['id']}")).props("flat")
+                                        with ui.column().classes("min-w-0 gap-2"):
+                                            with ui.row().classes("items-center gap-2"):
+                                                ui.label(protein["name"]).classes("ph-card-title")
+                                                if protein["version_tag"]:
+                                                    ui.badge(protein["version_tag"]).props("outline")
+                                            ui.label(protein["description"] or "暂无描述").classes("ph-card-description")
+                                            ui.label(f"{len(protein['sequence'])} 个氨基酸 · {protein['artifact_count']} 份资料").classes("ph-meta")
+                                            ui.label(preview).classes("ph-protein-sequence-preview font-mono text-sm text-slate-700")
+                                    ui.button("打开", icon="open_in_new", on_click=lambda p=protein: ui.navigate.to(f"/proteins/{p['id']}")).props("flat")
+                    render_batch_protein_options()
                 except Exception as error:
-                    ui.notify(str(error), type="negative")
+                    notify_error(error)
+
+            async def load_batches() -> None:
+                batches_column.clear()
+                try:
+                    batches = await ui.run_javascript(f"return await phApi('/api/projects/{project_id}/batches')", timeout=10)
+                    with batches_column:
+                        if not batches:
+                            empty_state("grid_view", "还没有实验批次", "选择一批蛋白创建 96 孔板。")
+                        for batch in batches:
+                            with ui.card().classes("ph-resource-card w-full p-4"):
+                                with ui.row().classes("w-full items-center justify-between gap-4"):
+                                    with ui.row().classes("min-w-0 flex-1 items-start gap-3"):
+                                        with ui.element("div").classes("ph-icon-box ph-icon-protein"):
+                                            ui.icon("grid_view")
+                                        with ui.column().classes("min-w-0 gap-2"):
+                                            with ui.row().classes("items-center gap-2"):
+                                                ui.label(batch["name"]).classes("ph-card-title")
+                                                ui.badge(f"{batch['plate_format']} 孔").props("outline")
+                                            ui.label(batch["description"] or "暂无描述").classes("ph-card-description")
+                                            ui.label(
+                                                f"{batch['well_count']} 个孔 · {batch['experiment_count']} 个实验 · {batch['result_count']} 个结果"
+                                            ).classes("ph-meta")
+                                    ui.button(
+                                        "打开",
+                                        icon="open_in_new",
+                                        on_click=lambda b=batch: ui.navigate.to(f"/batches/{b['id']}"),
+                                    ).props("flat")
+                except Exception as error:
+                    notify_error(error)
 
             with ui.dialog() as protein_dialog, ui.card().classes("ph-dialog-card w-full max-w-md gap-4"):
-                ui.label("New Protein").classes("text-lg font-semibold")
-                protein_name = ui.input("Name").props("outlined").classes("w-full")
-                protein_description = ui.textarea("Description").props("outlined").classes("w-full")
+                ui.label("新建蛋白").classes("text-lg font-semibold")
+                protein_name = ui.input("名称").props("outlined").classes("w-full ph-protein-name-input")
+                protein_version_tag = ui.input("版本 / 标签").props("outlined").classes("w-full ph-protein-version-tag-input")
+                protein_sequence = ui.textarea("氨基酸序列").props("outlined").classes("w-full ph-protein-sequence-input")
+                with ui.row().classes("w-full items-center justify-between gap-3"):
+                    protein_import_status = ui.label().classes("ph-meta ph-protein-import-status")
+                    protein_import_button = ui.button("从 PDB/mmCIF 读取", icon="upload_file").props("flat")
+                protein_description = ui.textarea("描述").props("outlined").classes("w-full ph-protein-description-input")
+
+                protein_import_button.on(
+                    "click",
+                    js_handler=f"""
+                    () => {{
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.accept = '.pdb,.ent,.cif,.mmcif,chemical/x-pdb,chemical/x-mmcif';
+                        input.style.display = 'none';
+                        input.addEventListener('change', async () => {{
+                            if (!input.files || input.files.length === 0) {{
+                                input.remove();
+                                return;
+                            }}
+                            const status = document.querySelector('.ph-protein-import-status');
+                            const sequenceInput = document.querySelector('.ph-protein-sequence-input textarea');
+                            const nameInput = document.querySelector('.ph-protein-name-input input');
+                            const updateInput = (element, value) => {{
+                                if (!element) return;
+                                element.value = value;
+                                element.dispatchEvent(new Event('input', {{bubbles: true}}));
+                                element.dispatchEvent(new Event('change', {{bubbles: true}}));
+                            }};
+                            try {{
+                                if (status) status.textContent = '正在读取结构文件...';
+                                const form = new FormData();
+                                form.append('file', input.files[0]);
+                                const data = await phApi('/api/projects/{project_id}/proteins/parse-structure', {{
+                                    method: 'POST',
+                                    body: form,
+                                }});
+                                updateInput(sequenceInput, data.sequence);
+                                if (nameInput && !nameInput.value.trim()) {{
+                                    const fallbackName = (data.filename || 'protein').replace(/\\.[^.]+$/, '') || 'protein';
+                                    updateInput(nameInput, fallbackName);
+                                }}
+                                if (status) status.textContent = `已读取 ${{data.length}} 个氨基酸 · ${{data.source}}`;
+                                phNotify('序列已读取', 'positive');
+                            }} catch (error) {{
+                                if (status) status.textContent = '';
+                                phNotifyError(error, '读取失败');
+                            }} finally {{
+                                input.remove();
+                            }}
+                        }}, {{once: true}});
+                        document.body.appendChild(input);
+                        input.click();
+                    }}
+                    """,
+                )
 
                 async def create_protein() -> None:
                     try:
+                        payload = await ui.run_javascript(
+                            """
+                            const fieldValue = (selector) => {
+                                const element = document.querySelector(selector);
+                                return element ? element.value : '';
+                            };
+                            return {
+                                name: fieldValue('.ph-protein-name-input input'),
+                                sequence: fieldValue('.ph-protein-sequence-input textarea'),
+                                description: fieldValue('.ph-protein-description-input textarea'),
+                                version_tag: fieldValue('.ph-protein-version-tag-input input'),
+                            };
+                            """,
+                            timeout=5,
+                        )
                         await ui.run_javascript(
-                            f"return await phApi('/api/projects/{project_id}/proteins', {{method: 'POST', body: {{name: {protein_name.value!r}, description: {protein_description.value!r}}}}})",
+                            f"return await phApi('/api/projects/{project_id}/proteins', {{method: 'POST', body: {json.dumps(payload)}}})",
                             timeout=10,
                         )
                         protein_dialog.close()
                         protein_name.value = ""
+                        protein_version_tag.value = ""
+                        protein_sequence.value = ""
+                        protein_import_status.text = ""
                         protein_description.value = ""
                         await load_proteins()
                     except Exception as error:
-                        ui.notify(str(error), type="negative")
+                        notify_error(error)
 
                 with ui.row().classes("justify-end w-full"):
-                    ui.button("Cancel", on_click=protein_dialog.close).props("flat")
-                    ui.button("Create", icon="add", on_click=create_protein)
+                    ui.button("取消", on_click=protein_dialog.close).props("flat")
+                    ui.button("创建", icon="add", on_click=create_protein)
 
-            with ui.dialog() as member_dialog, ui.card().classes("ph-dialog-card w-full max-w-md gap-4"):
-                ui.label("Add Member").classes("text-lg font-semibold")
-                member_email = ui.input("Email").props("outlined").classes("w-full")
-                member_role = ui.toggle(["member", "owner"], value="member")
-                member_discipline = ui.select(MEMBER_DISCIPLINES, value="other", label="Discipline").props("outlined").classes("w-full")
+            with ui.dialog() as batch_dialog, ui.card().classes("ph-dialog-card w-full max-w-2xl gap-4"):
+                ui.label("新建实验批次").classes("text-lg font-semibold")
+                batch_name = ui.input("名称").props("outlined").classes("w-full")
+                batch_description = ui.textarea("描述").props("outlined autogrow").classes("w-full")
+                with ui.row().classes("w-full items-center justify-between"):
+                    ui.label("选择蛋白").classes("font-semibold text-slate-800")
+                    selected_batch_label = ui.label("已选择 0 个蛋白").classes("ph-meta")
+                batch_proteins_column = ui.column().classes("ph-batch-protein-list")
+
+                def update_selected_batch_label() -> None:
+                    selected_batch_label.text = f"已选择 {len(selected_batch_proteins)} 个蛋白"
+
+                def toggle_batch_protein(protein_id: int, selected: bool) -> None:
+                    if selected:
+                        selected_batch_proteins.add(protein_id)
+                    else:
+                        selected_batch_proteins.discard(protein_id)
+                    update_selected_batch_label()
+
+                def render_batch_protein_options() -> None:
+                    batch_proteins_column.clear()
+                    with batch_proteins_column:
+                        if not project_proteins["items"]:
+                            ui.label("还没有可加入批次的蛋白。").classes("ph-muted")
+                        for protein in project_proteins["items"]:
+                            with ui.row().classes("ph-batch-protein-row"):
+                                with ui.row().classes("min-w-0 flex-1 items-center gap-3"):
+                                    ui.checkbox(
+                                        value=protein["id"] in selected_batch_proteins,
+                                        on_change=lambda event, protein_id=protein["id"]: toggle_batch_protein(
+                                            protein_id, bool(event.value)
+                                        ),
+                                    )
+                                    with ui.column().classes("min-w-0 gap-0"):
+                                        ui.label(protein["name"]).classes("font-medium")
+                                        ui.label(
+                                            f"{len(protein['sequence'])} 个氨基酸"
+                                        ).classes("ph-meta")
+                                if protein["version_tag"]:
+                                    ui.badge(protein["version_tag"]).props("outline")
+                    update_selected_batch_label()
+
+                async def create_batch_from_selection() -> None:
+                    try:
+                        payload = {
+                            "name": batch_name.value,
+                            "description": batch_description.value or "",
+                            "protein_ids": [
+                                protein["id"]
+                                for protein in project_proteins["items"]
+                                if protein["id"] in selected_batch_proteins
+                            ],
+                            "plate_format": "96",
+                        }
+                        await ui.run_javascript(
+                            f"return await phApi('/api/projects/{project_id}/batches', "
+                            f"{{method: 'POST', body: {json.dumps(payload)}}})",
+                            timeout=10,
+                        )
+                        batch_dialog.close()
+                        batch_name.value = ""
+                        batch_description.value = ""
+                        selected_batch_proteins.clear()
+                        render_batch_protein_options()
+                        await load_batches()
+                    except Exception as error:
+                        notify_error(error)
+
+                with ui.row().classes("justify-end w-full"):
+                    ui.button("取消", on_click=batch_dialog.close).props("flat")
+                    ui.button("创建", icon="add", on_click=create_batch_from_selection).props("unelevated")
+
+            with ui.dialog() as member_dialog, ui.card().classes("ph-dialog-card w-full max-w-2xl gap-4"):
+                ui.label("添加成员").classes("text-lg font-semibold")
+                with ui.row().classes("w-full items-center gap-2"):
+                    member_query = ui.input("按姓名搜索").props("outlined").classes("flex-1")
+                    ui.button("搜索", icon="search", on_click=lambda: search_members()).props("unelevated")
+                selected_member = {"email": None}
+                with ui.column().classes("w-full gap-2"):
+                    with ui.row().classes("w-full items-center justify-between"):
+                        ui.label("搜索结果").classes("font-semibold text-slate-800")
+                        selected_member_label = ui.label("未选择").classes("ph-meta")
+                    member_results = ui.column().classes("ph-member-results")
+                    with member_results:
+                        ui.label("输入姓名并搜索后，候选成员会显示在这里。").classes("ph-muted")
+                with ui.row().classes("w-full items-center gap-3"):
+                    member_role = ui.toggle(["成员", "负责人"], value="成员").props("unelevated")
+                    member_discipline = ui.select(MEMBER_DISCIPLINE_OPTIONS, value="other", label="学科方向").props("outlined").classes("flex-1")
+
+                async def search_members() -> None:
+                    query = (member_query.value or "").strip()
+                    selected_member["email"] = None
+                    selected_member_label.text = "未选择"
+                    member_results.clear()
+                    if len(query) < 2:
+                        with member_results:
+                            ui.label("请输入至少两个字符。").classes("ph-muted")
+                        return
+                    try:
+                        candidates = await ui.run_javascript(
+                            f"return await phApi('/api/projects/{project_id}/member-candidates?query=' + encodeURIComponent({query!r}))",
+                            timeout=10,
+                        )
+                        member_results.clear()
+                        with member_results:
+                            if not candidates:
+                                ui.label("没有找到可添加的成员。").classes("ph-muted")
+                            for candidate in candidates:
+                                def choose(candidate: dict = candidate) -> None:
+                                    selected_member["email"] = candidate["email"]
+                                    selected_member_label.text = (
+                                        f"已选择 {person_label(candidate.get('name'), candidate.get('email'))}"
+                                    )
+
+                                with ui.row().classes("ph-member-candidate-row"):
+                                    with ui.row().classes("min-w-0 flex-1 items-center gap-3"):
+                                        with ui.element("div").classes("ph-icon-box ph-icon-project"):
+                                            ui.icon("person")
+                                        with ui.column().classes("min-w-0 gap-0"):
+                                            ui.label(person_label(candidate.get("name"), candidate.get("email"))).classes("font-medium")
+                                            ui.label(candidate["email"]).classes("ph-meta")
+                                    ui.button("选择", icon="check", on_click=choose).props("flat dense")
+                    except Exception as error:
+                        notify_error(error)
 
                 async def add_member() -> None:
+                    if not selected_member["email"]:
+                        ui.notify("请先搜索并选择成员", type="warning")
+                        return
+                    role_value = "owner" if member_role.value == "负责人" else "member"
                     try:
                         await ui.run_javascript(
-                            f"return await phApi('/api/projects/{project_id}/members', {{method: 'POST', body: {{email: {member_email.value!r}, role: {member_role.value!r}, discipline: {member_discipline.value!r}}}}})",
+                            f"return await phApi('/api/projects/{project_id}/members', {{method: 'POST', body: {{email: {selected_member['email']!r}, role: {role_value!r}, discipline: {member_discipline.value!r}}}}})",
                             timeout=10,
                         )
                         member_dialog.close()
-                        member_email.value = ""
+                        member_query.value = ""
+                        selected_member["email"] = None
+                        selected_member_label.text = "未选择"
+                        member_results.clear()
+                        with member_results:
+                            ui.label("输入姓名并搜索后，候选成员会显示在这里。").classes("ph-muted")
+                        member_role.value = "成员"
                         member_discipline.value = "other"
                         await load_project()
                     except Exception as error:
-                        ui.notify(str(error), type="negative")
+                        notify_error(error)
 
                 with ui.row().classes("justify-end w-full"):
-                    ui.button("Cancel", on_click=member_dialog.close).props("flat")
-                    ui.button("Add", icon="person_add", on_click=add_member)
+                    ui.button("取消", on_click=member_dialog.close).props("flat")
+                    ui.button("添加", icon="person_add", on_click=add_member)
 
             await load_project()
-            await load_board()
             await load_proteins()
+            await load_batches()
+
+    @ui.page("/batches/{batch_id}")
+    async def batch_page(batch_id: int) -> None:
+        shell()
+        if not await ensure_logged_in():
+            return
+        with ui.column().classes("ph-page"):
+            with ui.row().classes("ph-page-header w-full"):
+                with ui.column().classes("gap-1"):
+                    ui.label("实验批次").classes("ph-eyebrow")
+                    batch_title = ui.label("实验批次").classes("ph-title")
+                    batch_description = ui.label().classes("ph-subtitle")
+                with ui.column().classes("items-end gap-2"):
+                    ui.button("返回", icon="arrow_back", on_click=lambda: ui.run_javascript("history.back()")).props("flat")
+                    batch_meta = ui.row().classes("gap-2")
+
+            with ui.column().classes("ph-panel w-full gap-4 p-4"):
+                with ui.row().classes("ph-section-bar w-full"):
+                    with ui.column().classes("gap-0"):
+                        mapping_title = ui.label("批次 Mapping").classes("text-xl font-semibold")
+                        mapping_summary = ui.label().classes("ph-muted")
+                mapping_table = ui.element("div").classes("ph-batch-mapping ph-batch-mapping-scroll")
+
+            with ui.column().classes("ph-panel w-full gap-4 p-4"):
+                with ui.row().classes("ph-section-bar w-full"):
+                    with ui.column().classes("gap-0"):
+                        ui.label("实验结果").classes("text-xl font-semibold")
+                        ui.label("选择实验类型后上传结果文件。").classes("ph-muted")
+                with ui.element("div").classes("ph-batch-upload-actions w-full"):
+                    experiment_type = ui.select(
+                        {"FPLC": "FPLC", "SPR": "SPR", "HPLC": "HPLC"},
+                        value="FPLC",
+                        label="实验类型",
+                    ).props("outlined dense").classes("w-full")
+                    upload_status = ui.label("等待上传").classes("ph-muted")
+
+                    def update_upload_status() -> None:
+                        upload_status.text = f"{experiment_type.value} 结果文件"
+
+                    experiment_type.on_value_change(lambda _: update_upload_status())
+                    ui.button(
+                        "上传结果",
+                        icon="upload_file",
+                        on_click=lambda: ui.notify("实验结果上传流程待接入", type="info"),
+                    ).props("unelevated no-wrap")
+
+            async def load_batch() -> None:
+                mapping_table.clear()
+                try:
+                    data = await ui.run_javascript(f"return await phApi('/api/batches/{batch_id}')", timeout=10)
+                    batch = data["batch"]
+                    wells = data["wells"]
+                    experiments = data["experiments"]
+                    batch_title.text = batch["name"]
+                    batch_description.text = batch["description"] or "暂无描述"
+                    batch_meta.clear()
+                    with batch_meta:
+                        ui.badge(f"{batch['plate_format']} 孔").props("outline")
+                        ui.badge(f"{len(wells)} 个蛋白").props("outline color=secondary")
+                        ui.badge(f"{len(experiments)} 个实验").props("outline color=secondary")
+                    mapping_summary.text = (
+                        f"{batch['plate_format']} 孔 · {len(wells)} 条蛋白映射 · {len(experiments)} 个实验记录"
+                    )
+                    update_upload_status()
+                    with mapping_table:
+                        with ui.element("div").classes("ph-mapping-row ph-mapping-head"):
+                            ui.label("孔位").classes("ph-mapping-cell")
+                            ui.label("蛋白").classes("ph-mapping-cell")
+                            ui.label("标签").classes("ph-mapping-cell")
+                            ui.label("AA 序列").classes("ph-mapping-cell")
+                            ui.label("长度").classes("ph-mapping-cell")
+                        if not wells:
+                            with ui.element("div").classes("ph-mapping-row"):
+                                ui.label("暂无").classes("ph-mapping-cell ph-mapping-position")
+                                ui.label("暂无蛋白映射").classes("ph-mapping-cell")
+                                ui.label("").classes("ph-mapping-cell")
+                                ui.label("").classes("ph-mapping-cell")
+                                ui.label("").classes("ph-mapping-cell")
+                        for well in wells:
+                            sequence = well.get("protein_sequence") or ""
+                            sequence_preview = sequence[:50] + ("..." if len(sequence) > 50 else "")
+                            with ui.element("div").classes("ph-mapping-row"):
+                                ui.label(well["position"]).classes("ph-mapping-cell ph-mapping-position")
+                                ui.label(well["protein_name"]).classes("ph-mapping-cell")
+                                ui.label(well.get("protein_version_tag") or "无").classes("ph-mapping-cell")
+                                ui.label(sequence_preview).classes("ph-mapping-cell ph-mapping-sequence")
+                                ui.label(f"{len(sequence)} aa").classes("ph-mapping-cell")
+                except Exception as error:
+                    notify_error(error)
+
+            await load_batch()
 
     @ui.page("/proteins/{protein_id}")
     async def protein_page(protein_id: int) -> None:
@@ -767,163 +1354,82 @@ def install_ui() -> None:
         with ui.column().classes("ph-page"):
             with ui.row().classes("ph-page-header w-full"):
                 with ui.column().classes("gap-1"):
-                    ui.label("Protein").classes("ph-eyebrow")
-                    ui.label("Sequences").classes("ph-title")
-                    ui.label("Sequences are the center of ProteinHub; artifacts attach here.").classes("ph-subtitle")
-                ui.button("New Sequence", icon="add", on_click=lambda: sequence_dialog.open()).props("unelevated")
-            sequences_column = ui.column().classes("w-full gap-3")
+                    ui.label("蛋白").classes("ph-eyebrow")
+                    protein_title = ui.label("蛋白").classes("ph-title")
+                    protein_description = ui.label().classes("ph-subtitle")
+                with ui.column().classes("items-end gap-2"):
+                    ui.button("返回", icon="arrow_back", on_click=lambda: ui.run_javascript("history.back()")).props("flat")
+                    protein_meta = ui.row().classes("gap-2")
 
-            async def load_sequences() -> None:
-                sequences_column.clear()
-                try:
-                    sequences = await ui.run_javascript(f"return await phApi('/api/proteins/{protein_id}/sequences')", timeout=10)
-                    with sequences_column:
-                        if not sequences:
-                            empty_state("science", "No sequences yet", "Create a sequence before attaching artifacts.")
-                        for sequence in sequences:
-                            preview = sequence_display(sequence["sequence"][:120])
-                            with ui.card().classes("ph-resource-card w-full p-4"):
-                                with ui.row().classes("w-full items-start justify-between gap-4"):
-                                    with ui.row().classes("min-w-0 flex-1 items-start gap-3"):
-                                        with ui.element("div").classes("ph-icon-box ph-icon-sequence"):
-                                            ui.icon("science")
-                                        with ui.column().classes("min-w-0 gap-2"):
-                                            with ui.row().classes("items-center gap-2"):
-                                                ui.label(sequence["name"]).classes("ph-card-title")
-                                                if sequence["version_tag"]:
-                                                    ui.badge(sequence["version_tag"]).props("outline")
-                                                ui.badge(humanize(sequence["status"])).props(f"outline color={status_color(sequence['status'])}")
-                                                ui.badge(humanize(sequence["priority"])).props(f"outline color={priority_color(sequence['priority'])}")
-                                            ui.label(f"{len(sequence['sequence'])} aa").classes("ph-meta")
-                                            ui.label(f"{humanize(sequence.get('discipline_owner'))} · {short_email(sequence.get('assigned_to_email'))}").classes("ph-meta")
-                                            ui.label(preview + (" ..." if len(sequence["sequence"]) > 120 else "")).classes("ph-sequence-preview font-mono text-sm text-slate-700")
-                                    ui.button("Open", icon="science", on_click=lambda s=sequence: ui.navigate.to(f"/sequences/{s['id']}")).props("flat")
-                except Exception as error:
-                    ui.notify(str(error), type="negative")
-
-            with ui.dialog() as sequence_dialog, ui.card().classes("ph-dialog-card w-full max-w-2xl gap-4"):
-                ui.label("New Sequence").classes("text-lg font-semibold")
-                sequence_name = ui.input("Name").props("outlined").classes("w-full")
-                version_tag = ui.input("Version / tag").props("outlined").classes("w-full")
-                sequence_text = ui.textarea("Sequence").props("outlined").classes("w-full")
-                sequence_description = ui.textarea("Description").props("outlined").classes("w-full")
-
-                async def create_sequence() -> None:
-                    try:
-                        await ui.run_javascript(
-                            f"return await phApi('/api/proteins/{protein_id}/sequences', {{method: 'POST', body: {{name: {sequence_name.value!r}, sequence: {sequence_text.value!r}, description: {sequence_description.value!r}, version_tag: {version_tag.value!r}}}}})",
-                            timeout=10,
-                        )
-                        sequence_dialog.close()
-                        sequence_name.value = ""
-                        version_tag.value = ""
-                        sequence_text.value = ""
-                        sequence_description.value = ""
-                        await load_sequences()
-                    except Exception as error:
-                        ui.notify(str(error), type="negative")
-
-                with ui.row().classes("justify-end w-full"):
-                    ui.button("Cancel", on_click=sequence_dialog.close).props("flat")
-                    ui.button("Create", icon="add", on_click=create_sequence)
-
-            await load_sequences()
-
-    @ui.page("/sequences/{sequence_id}")
-    async def sequence_page(sequence_id: int) -> None:
-        shell()
-        if not await ensure_logged_in():
-            return
-        with ui.column().classes("ph-page"):
-            with ui.row().classes("ph-page-header w-full"):
-                with ui.column().classes("gap-1"):
-                    ui.label("Sequence").classes("ph-eyebrow")
-                    sequence_title = ui.label("Sequence").classes("ph-title")
-                    sequence_description = ui.label().classes("ph-subtitle")
-                sequence_meta = ui.row().classes("gap-2")
-
-            with ui.column().classes("ph-panel w-full gap-4 p-4"):
-                with ui.row().classes("ph-section-bar w-full"):
-                    with ui.column().classes("gap-0"):
-                        ui.label("Workflow handoff").classes("text-xl font-semibold")
-                        ui.label("State, responsibility, and notes for the next collaborating group.").classes("ph-muted")
-                    ui.button("Save workflow", icon="save", on_click=lambda: save_workflow()).props("unelevated")
-                with ui.element("div").classes("ph-workflow-grid"):
-                    status_select = ui.select(STATUS_OPTIONS, label="Status").props("outlined").classes("w-full")
-                    priority_select = ui.select(PRIORITY_OPTIONS, label="Priority").props("outlined").classes("w-full")
-                    discipline_select = ui.select(DISCIPLINE_OPTIONS, label="Responsible discipline").props("outlined").classes("w-full")
-                    assigned_select = ui.select({0: "Unassigned"}, label="Assigned to").props("outlined").classes("w-full")
-                with ui.element("div").classes("ph-note-grid"):
-                    design_rationale = ui.textarea("Design rationale").props("outlined autogrow").classes("w-full")
-                    handoff_note = ui.textarea("Handoff note").props("outlined autogrow").classes("w-full")
-                    risk_note = ui.textarea("Risk note").props("outlined autogrow").classes("w-full")
             with ui.column().classes("ph-sequence-panel"):
                 with ui.row().classes("w-full items-center justify-between border-b border-slate-200 px-4 py-3"):
-                    ui.label("Amino acid sequence").classes("font-semibold text-slate-800")
+                    ui.label("氨基酸序列").classes("font-semibold text-slate-800")
                     sequence_length_badge = ui.badge().props("outline")
                 sequence_text = ui.label().classes("ph-sequence-text")
+            with ui.column().classes("ph-sequence-panel"):
+                with ui.row().classes("w-full items-center justify-between border-b border-slate-200 px-4 py-3"):
+                    ui.label("DNA 序列").classes("font-semibold text-slate-800")
+                    dna_sequence_length_badge = ui.badge().props("outline")
+                dna_sequence_text = ui.label().classes("ph-sequence-text")
 
-            notes_column = ui.element("div").classes("ph-note-grid")
             with ui.row().classes("ph-section-bar w-full"):
                 with ui.column().classes("gap-0"):
-                    ui.label("Artifacts").classes("text-xl font-semibold")
-                    ui.label("Files grouped by design, synthesis, and experiment handoff stage.").classes("ph-muted")
+                    ui.label("批次结果").classes("text-xl font-semibold")
+                    ui.label("这个蛋白在实验批次中的孔位和回填结果。").classes("ph-muted")
+            batch_results_column = ui.column().classes("w-full gap-3")
+
+            with ui.row().classes("ph-section-bar w-full"):
+                with ui.column().classes("gap-0"):
+                    ui.label("实验资料").classes("text-xl font-semibold")
+                    ui.label("上传这个蛋白相关的结构模型、实验结果和分析报告。").classes("ph-muted")
                 with ui.row().classes("gap-2"):
-                    artifact_type_select = ui.select(ARTIFACT_TYPES, value="design_output", label="Type").props("outlined dense").classes("min-w-56")
-                    artifact_type_select.props("id=artifact-type-select")
-                    upload_button = ui.button("Upload", icon="upload").props("unelevated")
+                    artifact_type_select = ui.select(ARTIFACT_TYPE_OPTIONS, value="design_output", label="类型").props("outlined dense").classes("min-w-56")
+                    artifact_type_select.props("id=protein-artifact-type-select")
+                    upload_button = ui.button("上传", icon="upload").props("unelevated")
             artifacts_column = ui.column().classes("w-full gap-3")
-            with ui.row().classes("ph-section-bar w-full"):
-                with ui.column().classes("gap-0"):
-                    ui.label("Activity").classes("text-xl font-semibold")
-                    ui.label("Short notes for handoff decisions and experiment feedback.").classes("ph-muted")
-            comments_column = ui.column().classes("w-full gap-2")
-            with ui.row().classes("w-full items-start gap-2"):
-                comment_body = ui.textarea("Add comment").props("outlined autogrow").classes("flex-1")
-                ui.button("Comment", icon="send", on_click=lambda: add_comment()).props("unelevated")
 
-            async def load_sequence() -> None:
+            async def load_protein() -> None:
                 artifacts_column.clear()
-                comments_column.clear()
-                notes_column.clear()
+                batch_results_column.clear()
                 try:
-                    data = await ui.run_javascript(f"return await phApi('/api/sequences/{sequence_id}')", timeout=10)
-                    sequence = data["sequence"]
-                    sequence_title.text = sequence["name"]
-                    sequence_text.text = sequence_display(sequence["sequence"])
-                    sequence_description.text = sequence["description"] or "No description"
-                    sequence_length_badge.text = f"{len(sequence['sequence'])} aa"
-                    sequence_meta.clear()
-                    with sequence_meta:
-                        if sequence["version_tag"]:
-                            ui.badge(sequence["version_tag"]).props("outline")
-                        ui.badge(humanize(sequence["status"])).props(f"outline color={status_color(sequence['status'])}")
-                        ui.badge(humanize(sequence["priority"])).props(f"outline color={priority_color(sequence['priority'])}")
-                        if sequence.get("protein_name"):
-                            ui.badge(sequence["protein_name"]).props("outline color=secondary")
-                    status_select.value = sequence["status"]
-                    priority_select.value = sequence["priority"]
-                    discipline_select.value = sequence.get("discipline_owner") or ""
-                    assignee_options = {0: "Unassigned"}
-                    for member in data.get("project_members", []):
-                        assignee_options[member["id"]] = member["email"]
-                    assigned_select.options = assignee_options
-                    assigned_select.value = sequence.get("assigned_to") or 0
-                    design_rationale.value = sequence.get("design_rationale") or ""
-                    handoff_note.value = sequence.get("handoff_note") or ""
-                    risk_note.value = sequence.get("risk_note") or ""
-                    with notes_column:
-                        for title_text, body_text in [
-                            ("Design rationale", sequence.get("design_rationale") or "No design rationale yet."),
-                            ("Handoff note", sequence.get("handoff_note") or "No handoff note yet."),
-                            ("Risk note", sequence.get("risk_note") or "No risk note yet."),
-                        ]:
-                            with ui.column().classes("ph-note-box gap-2"):
-                                ui.label(title_text).classes("font-semibold text-slate-800")
-                                ui.label(body_text).classes("ph-card-description")
+                    data = await ui.run_javascript(f"return await phApi('/api/proteins/{protein_id}')", timeout=10)
+                    protein = data["protein"]
+                    protein_title.text = protein["name"]
+                    sequence_text.text = sequence_display(protein["sequence"])
+                    protein_description.text = protein["description"] or "暂无描述"
+                    sequence_length_badge.text = f"{len(protein['sequence'])} 个氨基酸"
+                    dna_sequence = protein.get("dna_sequence") or ""
+                    dna_sequence_text.text = sequence_display(dna_sequence) if dna_sequence else "暂未生成"
+                    dna_sequence_length_badge.text = f"{len(dna_sequence)} 个核苷酸"
+                    protein_meta.clear()
+                    with protein_meta:
+                        if protein["version_tag"]:
+                            ui.badge(protein["version_tag"]).props("outline")
+                    with batch_results_column:
+                        if not data["batch_results"]:
+                            empty_state("grid_view", "还没有批次结果", "把这个蛋白加入实验批次后，结果会显示在这里。")
+                        for result in data["batch_results"]:
+                            with ui.row().classes("ph-file-row"):
+                                with ui.row().classes("min-w-0 flex-1 items-center gap-3"):
+                                    with ui.element("div").classes("ph-icon-box ph-icon-protein"):
+                                        ui.icon("grid_view")
+                                    with ui.column().classes("min-w-0 gap-1"):
+                                        ui.label(
+                                            f"{result['batch_name']} · {result['experiment_name']} · {result['position']}"
+                                        ).classes("font-semibold text-slate-900")
+                                        meta = result["experiment_type"]
+                                        ui.label(meta).classes("ph-meta")
+                                        ui.label(result.get("result_value") or "未回填").classes("text-sm text-slate-800")
+                                        if result.get("result_note"):
+                                            ui.label(result["result_note"]).classes("ph-card-description")
+                                ui.button(
+                                    "打开批次",
+                                    icon="open_in_new",
+                                    on_click=lambda r=result: ui.navigate.to(f"/batches/{r['batch_id']}"),
+                                ).props("flat")
                     with artifacts_column:
                         if not data["artifacts"]:
-                            empty_state("upload_file", "No artifacts uploaded yet", "Upload files or generated outputs for this sequence.")
+                            empty_state("upload_file", "还没有上传资料", "上传这个蛋白相关的文件或生成结果。")
                         grouped: dict[str, list[dict]] = {}
                         group_titles: dict[str, str] = {}
                         for key, title_text in ARTIFACT_GROUPS:
@@ -944,54 +1450,12 @@ def install_ui() -> None:
                                                 ui.icon("description")
                                             with ui.column().classes("min-w-0 gap-1"):
                                                 ui.label(artifact["filename"]).classes("font-semibold text-slate-900")
-                                                ui.label(f"{humanize(artifact['artifact_type'])} · {artifact['mime_type']} · {format_bytes(artifact['size_bytes'])}").classes("ph-meta")
+                                                ui.label(f"{humanize(artifact['artifact_type'])} · {format_bytes(artifact['size_bytes'])}").classes("ph-meta")
                                         with ui.row().classes("gap-2"):
-                                            ui.button("Download", icon="download", on_click=lambda a=artifact: download_artifact(a["id"], a["filename"])).props("flat")
-                                            ui.button("Delete", icon="delete", on_click=lambda a=artifact: delete_artifact(a["id"])).props("flat color=negative")
-                    with comments_column:
-                        if not data.get("comments"):
-                            empty_state("chat_bubble", "No activity yet", "Add a short note when ownership or decisions change.")
-                        for comment in data.get("comments", []):
-                            with ui.row().classes("ph-comment-row"):
-                                with ui.element("div").classes("ph-icon-box ph-icon-project"):
-                                    ui.icon("chat_bubble")
-                                with ui.column().classes("min-w-0 gap-1"):
-                                    ui.label(f"{comment['author_email']} · {comment['created_at']}").classes("ph-meta")
-                                    ui.label(comment["body"]).classes("text-sm text-slate-800")
+                                            ui.button("下载", icon="download", on_click=lambda a=artifact: download_artifact(a["id"], a["filename"])).props("flat")
+                                            ui.button("删除", icon="delete", on_click=lambda a=artifact: delete_artifact(a["id"])).props("flat color=negative")
                 except Exception as error:
-                    ui.notify(str(error), type="negative")
-
-            async def save_workflow() -> None:
-                assigned_value = None if assigned_select.value in (None, 0, "0") else assigned_select.value
-                payload = {
-                    "status": status_select.value,
-                    "priority": priority_select.value,
-                    "assigned_to": assigned_value,
-                    "discipline_owner": discipline_select.value or "",
-                    "design_rationale": design_rationale.value or "",
-                    "handoff_note": handoff_note.value or "",
-                    "risk_note": risk_note.value or "",
-                }
-                try:
-                    await ui.run_javascript(
-                        f"return await phApi('/api/sequences/{sequence_id}/workflow', {{method: 'PATCH', body: {json.dumps(payload)}}})",
-                        timeout=10,
-                    )
-                    ui.notify("Workflow saved", type="positive")
-                    await load_sequence()
-                except Exception as error:
-                    ui.notify(str(error), type="negative")
-
-            async def add_comment() -> None:
-                try:
-                    await ui.run_javascript(
-                        f"return await phApi('/api/sequences/{sequence_id}/comments', {{method: 'POST', body: {{body: {comment_body.value!r}}}}})",
-                        timeout=10,
-                    )
-                    comment_body.value = ""
-                    await load_sequence()
-                except Exception as error:
-                    ui.notify(str(error), type="negative")
+                    notify_error(error)
 
             async def download_artifact(artifact_id: int, filename: str) -> None:
                 escaped_filename = filename.replace("\\", "\\\\").replace("'", "\\'")
@@ -1004,7 +1468,12 @@ def install_ui() -> None:
                         }});
                         if (!response.ok) {{
                             const text = await response.text();
-                            throw new Error(text || 'Download failed');
+                            let detail = text || 'Download failed';
+                            try {{
+                                const parsed = JSON.parse(text);
+                                detail = parsed.detail || detail;
+                            }} catch (error) {{}}
+                            throw new Error(phErrorText(detail));
                         }}
                         const blob = await response.blob();
                         const url = URL.createObjectURL(blob);
@@ -1019,19 +1488,20 @@ def install_ui() -> None:
                         timeout=30,
                     )
                 except Exception as error:
-                    ui.notify(str(error), type="negative")
+                    notify_error(error)
 
             async def delete_artifact(artifact_id: int) -> None:
                 try:
                     await ui.run_javascript(f"return await phApi('/api/artifacts/{artifact_id}', {{method: 'DELETE'}})", timeout=10)
-                    await load_sequence()
+                    await load_protein()
                 except Exception as error:
-                    ui.notify(str(error), type="negative")
+                    notify_error(error)
 
             upload_button.on(
                 "click",
                 js_handler=f"""
                 () => {{
+                    const artifactTypeLabels = {json.dumps({label: key for key, label in ARTIFACT_TYPE_OPTIONS.items()}, ensure_ascii=False)};
                     const input = document.createElement('input');
                     input.type = 'file';
                     input.style.display = 'none';
@@ -1043,14 +1513,15 @@ def install_ui() -> None:
                         const form = new FormData();
                         form.append('file', input.files[0]);
                         try {{
-                            const artifactType = document.querySelector('#artifact-type-select input')?.value || 'other';
-                            await phApi('/api/sequences/{sequence_id}/artifacts?artifact_type=' + encodeURIComponent(artifactType), {{
+                            const selectedType = document.querySelector('#protein-artifact-type-select input')?.value || '其他文件';
+                            const artifactType = artifactTypeLabels[selectedType] || selectedType || 'other';
+                            await phApi('/api/proteins/{protein_id}/artifacts?artifact_type=' + encodeURIComponent(artifactType), {{
                                 method: 'POST',
                                 body: form,
                             }});
                             window.location.reload();
                         }} catch (error) {{
-                            alert(error.message || 'Upload failed');
+                            phNotifyError(error, '上传失败');
                         }} finally {{
                             input.remove();
                         }}
@@ -1060,4 +1531,4 @@ def install_ui() -> None:
                 }}
                 """,
             )
-            await load_sequence()
+            await load_protein()

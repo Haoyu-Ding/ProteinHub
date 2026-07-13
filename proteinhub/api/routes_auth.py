@@ -26,7 +26,7 @@ def create_auth_router(
         connection: sqlite3.Connection = Depends(get_connection),
     ) -> dict:
         try:
-            user = register_user(connection, payload.email, payload.password)
+            user = register_user(connection, payload.email, payload.password, payload.name)
             token = create_token(
                 user["id"],
                 context.settings.jwt_secret,

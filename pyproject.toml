@@ -5,6 +5,7 @@ description = "ProteinHub MVP: project-scoped protein sequence and artifact mana
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "dnachisel>=3.2.16",
     "fastapi>=0.115.0",
     "nicegui>=2.0.0",
     "python-multipart>=0.0.9",
@@ -20,4 +21,3 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-

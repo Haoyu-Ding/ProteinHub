@@ -16,8 +16,11 @@ def get_user(connection: sqlite3.Connection, user_id: int) -> dict:
     return user
 
 
-def register_user(connection: sqlite3.Connection, email: str, password: str) -> dict:
+def register_user(
+    connection: sqlite3.Connection, email: str, password: str, name: str
+) -> dict:
     normalized_email = required(email, "Email").lower()
+    display_name = required(name, "Name")
     if len(password) < 8:
         raise DomainError("Password must be at least 8 characters")
 
@@ -25,6 +28,7 @@ def register_user(connection: sqlite3.Connection, email: str, password: str) -> 
     try:
         with transaction(connection):
             user_id = users.insert(
+                name=display_name,
                 email=normalized_email,
                 password_hash=hash_password(password),
             )
@@ -37,4 +41,9 @@ def authenticate_user(connection: sqlite3.Connection, email: str, password: str)
     user = UserRepository(connection).get_by_email(email.strip().lower())
     if not user or not verify_password(password, user["password_hash"]):
         raise AuthenticationError()
-    return {"id": user["id"], "email": user["email"], "created_at": user["created_at"]}
+    return {
+        "id": user["id"],
+        "name": user["name"],
+        "email": user["email"],
+        "created_at": user["created_at"],
+    }

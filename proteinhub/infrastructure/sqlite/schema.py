@@ -6,6 +6,7 @@ PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL DEFAULT '',
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -32,31 +33,75 @@ CREATE TABLE IF NOT EXISTS proteins (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS sequences (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    protein_id INTEGER NOT NULL REFERENCES proteins(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
     sequence TEXT NOT NULL,
+    dna_sequence TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
     version_tag TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'designed', 'ready_for_synthesis', 'synthesizing', 'testing', 'validated', 'failed')),
-    priority TEXT NOT NULL DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high')),
-    assigned_to INTEGER REFERENCES users(id),
-    discipline_owner TEXT NOT NULL DEFAULT '' CHECK (discipline_owner IN ('', 'design', 'synthesis', 'assay', 'other')),
-    design_rationale TEXT NOT NULL DEFAULT '',
-    handoff_note TEXT NOT NULL DEFAULT '',
-    risk_note TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    plate_format TEXT NOT NULL DEFAULT '96' CHECK (plate_format IN ('96')),
+    created_by INTEGER NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS batch_wells (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id INTEGER NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
+    protein_id INTEGER NOT NULL REFERENCES proteins(id) ON DELETE CASCADE,
+    position TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (batch_id, position)
+);
+
+CREATE TABLE IF NOT EXISTS batch_experiments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id INTEGER NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
+    experiment_type TEXT NOT NULL CHECK (experiment_type IN ('FPLC', 'SPR', 'HPLC')),
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    created_by INTEGER NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS fplc_experiments (
+    experiment_id INTEGER PRIMARY KEY REFERENCES batch_experiments(id) ON DELETE CASCADE,
+    details_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS spr_experiments (
+    experiment_id INTEGER PRIMARY KEY REFERENCES batch_experiments(id) ON DELETE CASCADE,
+    details_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS hplc_experiments (
+    experiment_id INTEGER PRIMARY KEY REFERENCES batch_experiments(id) ON DELETE CASCADE,
+    details_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS experiment_well_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    experiment_id INTEGER NOT NULL REFERENCES batch_experiments(id) ON DELETE CASCADE,
+    well_id INTEGER NOT NULL REFERENCES batch_wells(id) ON DELETE CASCADE,
+    result_value TEXT NOT NULL DEFAULT '',
+    result_note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (experiment_id, well_id)
+);
+
 CREATE TABLE IF NOT EXISTS artifacts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    sequence_id INTEGER NOT NULL REFERENCES sequences(id) ON DELETE CASCADE,
+    protein_id INTEGER NOT NULL REFERENCES proteins(id) ON DELETE CASCADE,
     uploaded_by INTEGER NOT NULL REFERENCES users(id),
     filename TEXT NOT NULL,
     artifact_type TEXT NOT NULL DEFAULT 'file',
@@ -67,61 +112,43 @@ CREATE TABLE IF NOT EXISTS artifacts (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted_at TEXT
 );
-
-CREATE TABLE IF NOT EXISTS sequence_comments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    sequence_id INTEGER NOT NULL REFERENCES sequences(id) ON DELETE CASCADE,
-    author_id INTEGER NOT NULL REFERENCES users(id),
-    body TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
 """
 
 
 MIGRATIONS = [
+    (
+        "users",
+        "name",
+        "ALTER TABLE users ADD COLUMN name TEXT NOT NULL DEFAULT ''",
+    ),
     (
         "project_members",
         "discipline",
         "ALTER TABLE project_members ADD COLUMN discipline TEXT NOT NULL DEFAULT 'other' CHECK (discipline IN ('design', 'synthesis', 'assay', 'other'))",
     ),
     (
-        "sequences",
-        "status",
-        "ALTER TABLE sequences ADD COLUMN status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'designed', 'ready_for_synthesis', 'synthesizing', 'testing', 'validated', 'failed'))",
+        "proteins",
+        "sequence",
+        "ALTER TABLE proteins ADD COLUMN sequence TEXT NOT NULL DEFAULT ''",
     ),
     (
-        "sequences",
-        "priority",
-        "ALTER TABLE sequences ADD COLUMN priority TEXT NOT NULL DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high'))",
+        "proteins",
+        "dna_sequence",
+        "ALTER TABLE proteins ADD COLUMN dna_sequence TEXT NOT NULL DEFAULT ''",
     ),
     (
-        "sequences",
-        "assigned_to",
-        "ALTER TABLE sequences ADD COLUMN assigned_to INTEGER REFERENCES users(id)",
+        "proteins",
+        "version_tag",
+        "ALTER TABLE proteins ADD COLUMN version_tag TEXT NOT NULL DEFAULT ''",
     ),
     (
-        "sequences",
-        "discipline_owner",
-        "ALTER TABLE sequences ADD COLUMN discipline_owner TEXT NOT NULL DEFAULT '' CHECK (discipline_owner IN ('', 'design', 'synthesis', 'assay', 'other'))",
-    ),
-    (
-        "sequences",
-        "design_rationale",
-        "ALTER TABLE sequences ADD COLUMN design_rationale TEXT NOT NULL DEFAULT ''",
-    ),
-    (
-        "sequences",
-        "handoff_note",
-        "ALTER TABLE sequences ADD COLUMN handoff_note TEXT NOT NULL DEFAULT ''",
-    ),
-    (
-        "sequences",
-        "risk_note",
-        "ALTER TABLE sequences ADD COLUMN risk_note TEXT NOT NULL DEFAULT ''",
-    ),
-    (
-        "sequences",
+        "proteins",
         "updated_at",
-        "ALTER TABLE sequences ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE proteins ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "artifacts",
+        "protein_id",
+        "ALTER TABLE artifacts ADD COLUMN protein_id INTEGER REFERENCES proteins(id)",
     ),
 ]
