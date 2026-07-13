@@ -4,6 +4,11 @@ from __future__ import annotations
 SCHEMA = """
 PRAGMA foreign_keys = ON;
 
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL DEFAULT '',
@@ -113,6 +118,8 @@ CREATE TABLE IF NOT EXISTS artifacts (
     deleted_at TEXT
 );
 """
+
+BASELINE_MIGRATION = "0001_current_schema"
 
 
 MIGRATIONS = [

@@ -7,8 +7,13 @@ from fastapi import APIRouter, Depends
 
 from proteinhub.api.dependencies import map_domain_error
 from proteinhub.api.schemas import (
+    BatchDetailResponse,
     BatchCreateRequest,
+    BatchSummaryResponse,
+    ExperimentDetailResponse,
     ExperimentCreateRequest,
+    ExperimentSummaryResponse,
+    ExperimentWellResultResponse,
     ExperimentWellResultUpdateRequest,
 )
 from proteinhub.application.batch_service import (
@@ -30,7 +35,10 @@ def create_batches_router(
 ) -> APIRouter:
     router = APIRouter()
 
-    @router.get("/projects/{project_id}/batches")
+    @router.get(
+        "/projects/{project_id}/batches",
+        response_model=list[BatchSummaryResponse],
+    )
     def project_batches(
         project_id: int,
         user: dict = Depends(current_user),
@@ -41,7 +49,7 @@ def create_batches_router(
         except DomainError as error:
             raise map_domain_error(error) from error
 
-    @router.post("/projects/{project_id}/batches")
+    @router.post("/projects/{project_id}/batches", response_model=BatchDetailResponse)
     def create_project_batch(
         project_id: int,
         payload: BatchCreateRequest,
@@ -61,7 +69,7 @@ def create_batches_router(
         except DomainError as error:
             raise map_domain_error(error) from error
 
-    @router.get("/batches/{batch_id}")
+    @router.get("/batches/{batch_id}", response_model=BatchDetailResponse)
     def batch_detail(
         batch_id: int,
         user: dict = Depends(current_user),
@@ -72,7 +80,10 @@ def create_batches_router(
         except DomainError as error:
             raise map_domain_error(error) from error
 
-    @router.get("/batches/{batch_id}/experiments")
+    @router.get(
+        "/batches/{batch_id}/experiments",
+        response_model=list[ExperimentSummaryResponse],
+    )
     def batch_experiments(
         batch_id: int,
         user: dict = Depends(current_user),
@@ -87,7 +98,10 @@ def create_batches_router(
         except DomainError as error:
             raise map_domain_error(error) from error
 
-    @router.post("/batches/{batch_id}/experiments")
+    @router.post(
+        "/batches/{batch_id}/experiments",
+        response_model=ExperimentDetailResponse,
+    )
     def create_experiment(
         batch_id: int,
         payload: ExperimentCreateRequest,
@@ -107,7 +121,7 @@ def create_batches_router(
         except DomainError as error:
             raise map_domain_error(error) from error
 
-    @router.get("/experiments/{experiment_id}")
+    @router.get("/experiments/{experiment_id}", response_model=ExperimentDetailResponse)
     def experiment_detail(
         experiment_id: int,
         user: dict = Depends(current_user),
@@ -120,7 +134,10 @@ def create_batches_router(
         except DomainError as error:
             raise map_domain_error(error) from error
 
-    @router.patch("/experiments/{experiment_id}/wells/{well_id}/result")
+    @router.patch(
+        "/experiments/{experiment_id}/wells/{well_id}/result",
+        response_model=ExperimentWellResultResponse,
+    )
     def update_experiment_result(
         experiment_id: int,
         well_id: int,

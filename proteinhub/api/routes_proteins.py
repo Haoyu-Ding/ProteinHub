@@ -6,6 +6,11 @@ from collections.abc import Callable
 from fastapi import APIRouter, Depends, File, UploadFile
 
 from proteinhub.api.dependencies import ApiContext, map_domain_error
+from proteinhub.api.schemas import (
+    ArtifactResponse,
+    ProteinDetailResponse,
+    StructureSequenceResponse,
+)
 from proteinhub.application.artifact_service import create_artifact, list_artifacts
 from proteinhub.application.batch_service import list_protein_batch_results
 from proteinhub.application.protein_service import (
@@ -23,7 +28,7 @@ def create_proteins_router(
 ) -> APIRouter:
     router = APIRouter()
 
-    @router.get("/proteins/{protein_id}")
+    @router.get("/proteins/{protein_id}", response_model=ProteinDetailResponse)
     def protein_detail(
         protein_id: int,
         user: dict = Depends(current_user),
@@ -43,7 +48,10 @@ def create_proteins_router(
         except DomainError as error:
             raise map_domain_error(error) from error
 
-    @router.get("/proteins/{protein_id}/artifacts")
+    @router.get(
+        "/proteins/{protein_id}/artifacts",
+        response_model=list[ArtifactResponse],
+    )
     def artifacts(
         protein_id: int,
         user: dict = Depends(current_user),
@@ -54,7 +62,10 @@ def create_proteins_router(
         except DomainError as error:
             raise map_domain_error(error) from error
 
-    @router.post("/proteins/{protein_id}/artifacts")
+    @router.post(
+        "/proteins/{protein_id}/artifacts",
+        response_model=ArtifactResponse,
+    )
     def upload_artifact(
         protein_id: int,
         artifact_type: str = "file",
@@ -77,7 +88,10 @@ def create_proteins_router(
         except DomainError as error:
             raise map_domain_error(error) from error
 
-    @router.post("/proteins/{protein_id}/parse-structure")
+    @router.post(
+        "/proteins/{protein_id}/parse-structure",
+        response_model=StructureSequenceResponse,
+    )
     def parse_existing_protein_structure_route(
         protein_id: int,
         file: UploadFile = File(...),

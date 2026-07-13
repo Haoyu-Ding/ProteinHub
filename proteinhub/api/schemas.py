@@ -16,10 +16,17 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class UserResponse(BaseModel):
+    id: int
+    name: str
+    email: str
+    created_at: str
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    user: dict
+    user: UserResponse
 
 
 class ProjectCreateRequest(BaseModel):
@@ -62,3 +69,166 @@ class ExperimentCreateRequest(BaseModel):
 class ExperimentWellResultUpdateRequest(BaseModel):
     result_value: str = ""
     result_note: str = ""
+
+
+class ProjectResponse(BaseModel):
+    id: int
+    name: str
+    description: str
+    owner_id: int
+    created_at: str
+    role: str
+
+
+class ProjectMemberResponse(BaseModel):
+    id: int
+    name: str
+    email: str
+    role: str
+    discipline: str
+    created_at: str
+
+
+class ProjectDetailResponse(BaseModel):
+    project: ProjectResponse
+    members: list[ProjectMemberResponse]
+
+
+class ProteinResponse(BaseModel):
+    id: int
+    project_id: int
+    name: str
+    protein_name: str
+    sequence: str
+    dna_sequence: str
+    description: str
+    version_tag: str
+    created_at: str
+    updated_at: str
+
+
+class ProjectProteinResponse(ProteinResponse):
+    artifact_count: int
+
+
+class StructureSequenceResponse(BaseModel):
+    filename: str
+    sequence: str
+    length: int
+    source: str
+    chain_id: str
+    entity_id: str
+    sequence_count: int
+
+
+class ArtifactResponse(BaseModel):
+    id: int
+    protein_id: int
+    uploaded_by: int
+    filename: str
+    artifact_type: str
+    mime_type: str
+    size_bytes: int
+    storage_path: str
+    is_deleted: int
+    created_at: str
+    deleted_at: str | None
+    uploaded_by_name: str
+    uploaded_by_email: str
+
+
+class BatchResponse(BaseModel):
+    id: int
+    project_id: int
+    name: str
+    description: str
+    plate_format: str
+    created_by: int
+    created_at: str
+    updated_at: str
+    created_by_name: str
+    created_by_email: str
+
+
+class BatchSummaryResponse(BatchResponse):
+    well_count: int
+    experiment_count: int
+    result_count: int
+
+
+class BatchWellResponse(BaseModel):
+    id: int
+    batch_id: int
+    protein_id: int
+    position: str
+    created_at: str
+    updated_at: str
+    protein_name: str
+    protein_sequence: str
+    protein_version_tag: str
+
+
+class ExperimentResponse(BaseModel):
+    id: int
+    batch_id: int
+    experiment_type: str
+    name: str
+    description: str
+    created_by: int
+    created_at: str
+    updated_at: str
+    created_by_name: str
+    created_by_email: str
+    details: dict[str, Any]
+
+
+class ExperimentSummaryResponse(ExperimentResponse):
+    result_count: int
+
+
+class ExperimentWellResultResponse(BaseModel):
+    well_id: int
+    position: str
+    protein_id: int
+    protein_name: str
+    protein_sequence: str
+    protein_version_tag: str
+    result_id: int | None
+    result_value: str
+    result_note: str
+    result_updated_at: str | None
+
+
+class BatchDetailResponse(BaseModel):
+    batch: BatchResponse
+    wells: list[BatchWellResponse]
+    experiments: list[ExperimentSummaryResponse]
+
+
+class ExperimentDetailResponse(BaseModel):
+    experiment: ExperimentResponse
+    results: list[ExperimentWellResultResponse]
+
+
+class ProteinBatchResultResponse(BaseModel):
+    id: int
+    experiment_id: int
+    well_id: int
+    result_value: str
+    result_note: str
+    created_at: str
+    updated_at: str
+    position: str
+    protein_id: int
+    batch_id: int
+    batch_name: str
+    plate_format: str
+    project_id: int
+    experiment_name: str
+    experiment_type: str
+
+
+class ProteinDetailResponse(BaseModel):
+    protein: ProteinResponse
+    artifacts: list[ArtifactResponse]
+    batch_results: list[ProteinBatchResultResponse]

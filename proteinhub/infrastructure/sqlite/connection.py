@@ -5,7 +5,11 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from proteinhub.infrastructure.sqlite.schema import MIGRATIONS, SCHEMA
+from proteinhub.infrastructure.sqlite.schema import (
+    BASELINE_MIGRATION,
+    MIGRATIONS,
+    SCHEMA,
+)
 
 
 RETIRED_PROTEIN_COLUMNS = {
@@ -49,6 +53,17 @@ def apply_migrations(connection: sqlite3.Connection) -> None:
         if column_name not in columns:
             connection.execute(statement)
     drop_retired_schema(connection)
+    mark_migration_applied(connection, BASELINE_MIGRATION)
+
+
+def mark_migration_applied(connection: sqlite3.Connection, version: str) -> None:
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO schema_migrations (version)
+        VALUES (?)
+        """,
+        (version,),
+    )
 
 
 def table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:

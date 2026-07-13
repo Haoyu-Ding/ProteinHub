@@ -10,7 +10,14 @@ from proteinhub.api.schemas import (
     MemberCreateRequest,
     MemberUpdateRequest,
     ProjectCreateRequest,
+    ProjectDetailResponse,
+    ProjectMemberResponse,
+    ProjectProteinResponse,
+    ProjectResponse,
     ProteinCreateRequest,
+    ProteinResponse,
+    StructureSequenceResponse,
+    UserResponse,
 )
 from proteinhub.application.project_service import (
     add_project_member,
@@ -36,14 +43,14 @@ def create_projects_router(
 ) -> APIRouter:
     router = APIRouter()
 
-    @router.get("/projects")
+    @router.get("/projects", response_model=list[ProjectResponse])
     def projects(
         user: dict = Depends(current_user),
         connection: sqlite3.Connection = Depends(get_connection),
     ) -> list[dict]:
         return list_projects(connection, user["id"])
 
-    @router.post("/projects")
+    @router.post("/projects", response_model=ProjectResponse)
     def create_project_route(
         payload: ProjectCreateRequest,
         user: dict = Depends(current_user),
@@ -59,7 +66,7 @@ def create_projects_router(
         except DomainError as error:
             raise map_domain_error(error) from error
 
-    @router.get("/projects/{project_id}")
+    @router.get("/projects/{project_id}", response_model=ProjectDetailResponse)
     def project_detail(
         project_id: int,
         user: dict = Depends(current_user),
@@ -75,7 +82,7 @@ def create_projects_router(
         except DomainError as error:
             raise map_domain_error(error) from error
 
-    @router.post("/projects/{project_id}/members")
+    @router.post("/projects/{project_id}/members", response_model=ProjectMemberResponse)
     def add_member_route(
         project_id: int,
         payload: MemberCreateRequest,
@@ -94,7 +101,10 @@ def create_projects_router(
         except DomainError as error:
             raise map_domain_error(error) from error
 
-    @router.patch("/projects/{project_id}/members/{member_user_id}")
+    @router.patch(
+        "/projects/{project_id}/members/{member_user_id}",
+        response_model=ProjectMemberResponse,
+    )
     def update_member_route(
         project_id: int,
         member_user_id: int,
@@ -114,7 +124,10 @@ def create_projects_router(
         except DomainError as error:
             raise map_domain_error(error) from error
 
-    @router.get("/projects/{project_id}/member-candidates")
+    @router.get(
+        "/projects/{project_id}/member-candidates",
+        response_model=list[UserResponse],
+    )
     def member_candidates(
         project_id: int,
         query: str = Query(default=""),
@@ -131,7 +144,10 @@ def create_projects_router(
         except DomainError as error:
             raise map_domain_error(error) from error
 
-    @router.get("/projects/{project_id}/proteins")
+    @router.get(
+        "/projects/{project_id}/proteins",
+        response_model=list[ProjectProteinResponse],
+    )
     def proteins(
         project_id: int,
         user: dict = Depends(current_user),
@@ -142,7 +158,7 @@ def create_projects_router(
         except DomainError as error:
             raise map_domain_error(error) from error
 
-    @router.post("/projects/{project_id}/proteins")
+    @router.post("/projects/{project_id}/proteins", response_model=ProteinResponse)
     def create_protein_route(
         project_id: int,
         payload: ProteinCreateRequest,
@@ -162,7 +178,10 @@ def create_projects_router(
         except DomainError as error:
             raise map_domain_error(error) from error
 
-    @router.post("/projects/{project_id}/proteins/parse-structure")
+    @router.post(
+        "/projects/{project_id}/proteins/parse-structure",
+        response_model=StructureSequenceResponse,
+    )
     def parse_protein_structure_route(
         project_id: int,
         file: UploadFile = File(...),

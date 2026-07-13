@@ -79,6 +79,9 @@ def test_database_schema_has_no_sequence_or_collaboration_tables(tmp_path: Path)
         batch_well_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(batch_wells)")
         }
+        applied_migrations = {
+            row[0] for row in connection.execute("SELECT version FROM schema_migrations")
+        }
 
     assert "sequences" not in tables
     assert "sequence_comments" not in tables
@@ -90,6 +93,8 @@ def test_database_schema_has_no_sequence_or_collaboration_tables(tmp_path: Path)
     assert "spr_experiments" in tables
     assert "hplc_experiments" in tables
     assert "experiment_well_results" in tables
+    assert "schema_migrations" in tables
+    assert "0001_current_schema" in applied_migrations
     assert "experiment_type" not in batch_columns
     assert "result_value" not in batch_well_columns
     assert "result_note" not in batch_well_columns
