@@ -3,13 +3,17 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Callable
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, Form, Response, UploadFile
 
-from proteinhub.api.dependencies import map_domain_error
+from proteinhub.api.dependencies import ApiContext, map_domain_error
 from proteinhub.api.schemas import (
     BatchDetailResponse,
     BatchCreateRequest,
+    BatchOrderStatusUpdateRequest,
     BatchSummaryResponse,
+    BatchTranslationRequest,
+    BatchTranslationResponse,
+    BatchWellPositionUpdateRequest,
     ExperimentDetailResponse,
     ExperimentCreateRequest,
     ExperimentSummaryResponse,
@@ -19,10 +23,16 @@ from proteinhub.api.schemas import (
 from proteinhub.application.batch_service import (
     create_batch,
     create_batch_experiment,
+    export_batch_plate_workbook,
+    export_batch_summary_workbook,
     get_batch,
     get_batch_experiment,
+    import_akta_results,
     list_batches,
     list_batch_experiments,
+    translate_batch_sequences,
+    update_batch_order_status,
+    update_batch_well_position,
     update_experiment_well_result,
 )
 from proteinhub.domain.errors import DomainError
@@ -30,6 +40,7 @@ from proteinhub.domain.errors import DomainError
 
 def create_batches_router(
     *,
+    context: ApiContext,
     get_connection: Callable,
     current_user: Callable,
 ) -> APIRouter:
@@ -65,6 +76,7 @@ def create_batches_router(
                 protein_ids=payload.protein_ids,
                 description=payload.description,
                 plate_format=payload.plate_format,
+                start_position=payload.start_position,
             )
         except DomainError as error:
             raise map_domain_error(error) from error
@@ -77,6 +89,147 @@ def create_batches_router(
     ) -> dict:
         try:
             return get_batch(connection, batch_id=batch_id, user_id=user["id"])
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.patch(
+        "/batches/{batch_id}/status",
+        response_model=BatchDetailResponse,
+    )
+    def update_batch_status(
+        batch_id: int,
+        payload: BatchOrderStatusUpdateRequest,
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> dict:
+        try:
+            return update_batch_order_status(
+                connection,
+                batch_id=batch_id,
+                user_id=user["id"],
+                order_status=payload.order_status,
+            )
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.patch(
+        "/batches/{batch_id}/wells/{well_id}/position",
+        response_model=BatchDetailResponse,
+    )
+    def update_well_position(
+        batch_id: int,
+        well_id: int,
+        payload: BatchWellPositionUpdateRequest,
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> dict:
+        try:
+            return update_batch_well_position(
+                connection,
+                batch_id=batch_id,
+                well_id=well_id,
+                user_id=user["id"],
+                position=payload.position,
+                mode=payload.mode,
+            )
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.get("/batches/{batch_id}/plate/export")
+    def batch_plate_export(
+        batch_id: int,
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> Response:
+        try:
+            content = export_batch_plate_workbook(
+                connection,
+                batch_id=batch_id,
+                user_id=user["id"],
+            )
+            filename = f"batch-{batch_id}-plate.xlsx"
+            return Response(
+                content=content,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.get("/batches/{batch_id}/summary/export")
+    def batch_summary_export(
+        batch_id: int,
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> Response:
+        try:
+            content = export_batch_summary_workbook(
+                connection,
+                batch_id=batch_id,
+                user_id=user["id"],
+            )
+            filename = f"batch-{batch_id}-summary.xlsx"
+            return Response(
+                content=content,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.post(
+        "/batches/{batch_id}/translations",
+        response_model=BatchTranslationResponse,
+    )
+    def create_batch_translation(
+        batch_id: int,
+        payload: BatchTranslationRequest,
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> dict:
+        try:
+            return translate_batch_sequences(
+                connection,
+                batch_id=batch_id,
+                user_id=user["id"],
+                padding=payload.padding,
+                add_additional_w=payload.add_additional_w,
+                organism=payload.organism,
+                backbone=payload.backbone,
+                resistance=payload.resistance,
+                settings=context.settings,
+            )
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.post(
+        "/batches/{batch_id}/akta-results",
+        response_model=ExperimentDetailResponse,
+    )
+    def import_akta_results_route(
+        batch_id: int,
+        run_date: str = Form(...),
+        files: list[UploadFile] = File(...),
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> dict:
+        try:
+            return import_akta_results(
+                connection,
+                storage_root=context.storage_root,
+                batch_id=batch_id,
+                user_id=user["id"],
+                run_date=run_date,
+                files=[
+                    (
+                        file.filename or "akta.zip",
+                        file.content_type or "application/zip",
+                        file.file.read(),
+                    )
+                    for file in files
+                ],
+                settings=context.settings,
+            )
         except DomainError as error:
             raise map_domain_error(error) from error
 

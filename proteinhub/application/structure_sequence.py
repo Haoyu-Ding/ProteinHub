@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import shlex
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from proteinhub.domain.errors import DomainError
 
@@ -53,22 +53,25 @@ class StructureSequence:
 
 def extract_structure_sequence(filename: str, content: bytes) -> dict:
     text = content.decode("utf-8", errors="replace")
-    sequences = _extract_pdb_seqres(text)
-    if not sequences:
-        sequences = _extract_mmcif_entity_poly(text)
-    if not sequences:
-        raise DomainError("No protein sequence found in PDB or mmCIF file")
+    for extractor in (
+        _extract_pdb_seqres,
+        _extract_mmcif_entity_poly,
+        _extract_pdb_atom_coordinates,
+    ):
+        sequences = extractor(text)
+        selected = _select_chain_a_sequence(sequences)
+        if selected:
+            return {
+                "filename": filename,
+                "sequence": selected.sequence,
+                "length": len(selected.sequence),
+                "source": selected.source,
+                "chain_id": selected.chain_id,
+                "entity_id": selected.entity_id,
+                "sequence_count": len(sequences),
+            }
 
-    selected = max(sequences, key=lambda item: len(item.sequence))
-    return {
-        "filename": filename,
-        "sequence": selected.sequence,
-        "length": len(selected.sequence),
-        "source": selected.source,
-        "chain_id": selected.chain_id,
-        "entity_id": selected.entity_id,
-        "sequence_count": len(sequences),
-    }
+    raise DomainError("No chain A protein sequence found in PDB or mmCIF file")
 
 
 def _extract_pdb_seqres(text: str) -> list[StructureSequence]:
@@ -88,6 +91,61 @@ def _extract_pdb_seqres(text: str) -> list[StructureSequence]:
                 StructureSequence(
                     sequence=sequence,
                     source=f"PDB SEQRES chain {chain_id}",
+                    chain_id=chain_id,
+                )
+            )
+    return sequences
+
+
+def _select_chain_a_sequence(
+    sequences: list[StructureSequence],
+) -> StructureSequence | None:
+    for sequence in sequences:
+        if _chain_ids(sequence.chain_id) == ["A"]:
+            return sequence
+    for sequence in sequences:
+        if "A" in _chain_ids(sequence.chain_id):
+            return replace(
+                sequence,
+                chain_id="A",
+                source=sequence.source.replace(sequence.chain_id, "A"),
+            )
+    return None
+
+
+def _chain_ids(chain_id: str) -> list[str]:
+    return [item.strip() for item in chain_id.split(",") if item.strip()]
+
+
+def _extract_pdb_atom_coordinates(text: str) -> list[StructureSequence]:
+    residues_by_chain: dict[str, list[str]] = {}
+    seen_residues_by_chain: dict[str, set[str]] = {}
+
+    for line in text.splitlines():
+        if line[:6].strip() != "ATOM" or len(line) < 27:
+            continue
+        atom_name = line[12:16].strip()
+        if atom_name != "CA":
+            continue
+        residue_name = line[17:20].strip().upper()
+        chain_id = line[21:22].strip() or "?"
+        residue_id = line[22:27].strip()
+        if not residue_id:
+            continue
+        seen_residues = seen_residues_by_chain.setdefault(chain_id, set())
+        if residue_id in seen_residues:
+            continue
+        seen_residues.add(residue_id)
+        residues_by_chain.setdefault(chain_id, []).append(residue_name)
+
+    sequences = []
+    for chain_id, residues in residues_by_chain.items():
+        sequence = "".join(THREE_TO_ONE.get(residue, "X") for residue in residues)
+        if sequence:
+            sequences.append(
+                StructureSequence(
+                    sequence=sequence,
+                    source=f"PDB ATOM chain {chain_id}",
                     chain_id=chain_id,
                 )
             )

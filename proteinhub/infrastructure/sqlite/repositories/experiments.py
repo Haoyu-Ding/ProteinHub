@@ -9,6 +9,7 @@ class ExperimentRepository:
         "FPLC": "fplc_experiments",
         "SPR": "spr_experiments",
         "HPLC": "hplc_experiments",
+        "AKTA": "akta_experiments",
     }
 
     def __init__(self, connection: sqlite3.Connection) -> None:
@@ -92,6 +93,31 @@ class ExperimentRepository:
         ).fetchall()
         return [self._with_details(experiment) for experiment in experiments]
 
+    def result_positions_for_batch_type(
+        self, *, batch_id: int, experiment_type: str, positions: set[str]
+    ) -> set[str]:
+        if not positions:
+            return set()
+        placeholders = ",".join("?" for _ in positions)
+        rows = self.connection.execute(
+            f"""
+            SELECT DISTINCT batch_wells.position
+            FROM batch_experiments
+            JOIN experiment_well_results
+                ON experiment_well_results.experiment_id = batch_experiments.id
+            JOIN batch_wells ON batch_wells.id = experiment_well_results.well_id
+            WHERE batch_experiments.batch_id = ?
+              AND batch_experiments.experiment_type = ?
+              AND batch_wells.position IN ({placeholders})
+              AND (
+                  experiment_well_results.result_value != ''
+                  OR experiment_well_results.result_note != ''
+              )
+            """,
+            (batch_id, experiment_type, *sorted(positions)),
+        ).fetchall()
+        return {row["position"] for row in rows}
+
     def list_well_results(self, experiment_id: int) -> list[dict]:
         return self.connection.execute(
             """
@@ -101,7 +127,7 @@ class ExperimentRepository:
                 batch_wells.protein_id,
                 proteins.name AS protein_name,
                 proteins.sequence AS protein_sequence,
-                proteins.version_tag AS protein_version_tag,
+                proteins.protein_type AS protein_type,
                 experiment_well_results.id AS result_id,
                 COALESCE(experiment_well_results.result_value, '') AS result_value,
                 COALESCE(experiment_well_results.result_note, '') AS result_note,

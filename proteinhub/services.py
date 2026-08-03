@@ -17,9 +17,11 @@ from proteinhub.application.batch_service import (
     create_batch_experiment,
     get_batch,
     get_batch_experiment,
+    import_akta_results,
     list_batches,
     list_batch_experiments,
     list_protein_batch_results,
+    update_batch_order_status,
     update_experiment_well_result,
 )
 from proteinhub.application.permissions import (
@@ -72,6 +74,7 @@ __all__ = [
     "get_project_role",
     "get_protein",
     "get_user",
+    "import_akta_results",
     "list_artifacts",
     "list_batches",
     "list_batch_experiments",
@@ -86,6 +89,7 @@ __all__ = [
     "register_user",
     "require_project_role",
     "soft_delete_artifact",
+    "update_batch_order_status",
     "update_experiment_well_result",
     "update_protein_sequence",
 ]

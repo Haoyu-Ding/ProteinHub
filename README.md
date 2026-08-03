@@ -9,7 +9,7 @@ Project -> Protein -> Artifact
 Project -> Batch -> Experiment -> BatchWell -> Protein
 ```
 
-Each protein owns exactly one amino-acid sequence. Batches group project proteins into 96-well plate positions. Each batch can have multiple experiments, currently FPLC, SPR, and HPLC, and each experiment maps results back through wells to proteins. Artifacts manage all file types. Files are stored under `storage/`, while SQLite stores only metadata and relative file paths. Permissions are enforced at the Project level with JWT authentication.
+Each protein owns exactly one amino-acid sequence. Batches group project proteins into 96-well plate positions. Each batch can have multiple experiments, currently FPLC, SPR, HPLC, and AKTA imports, and each experiment maps results back through wells to proteins. Artifacts manage all file types. Files are stored under `storage/`, while SQLite stores only metadata and relative file paths. Permissions are enforced at the Project level with JWT authentication.
 
 ## Run
 
@@ -21,6 +21,25 @@ python main.py
 ```
 
 Then open the NiceGUI URL printed in the terminal, usually `http://127.0.0.1:8080`.
+
+Batch DNA translation shells out to the legacy xiaopang/domesticator workflow.
+ProteinHub auto-discovers `~/Downloads/domesticator.py`,
+`~/Documents/SMARTS_intern/database`, and common `envs/trans/bin/python` paths.
+If the legacy Python environment is elsewhere, configure it before using the
+translation button:
+
+```bash
+export PROTEINHUB_LEGACY_DOMESTICATOR_PYTHON=/home/yuguo/software/miniconda3/envs/trans/bin/python
+```
+
+AKTA result imports shell out to `akta_hap.py` and expect zip filenames
+that are well positions such as `A01.zip`. ProteinHub auto-discovers
+`~/Documents/SMARTS_intern/LJW-AKTAResults/akta_hap.py`. If its Python
+environment is elsewhere, configure it before importing AKTA results:
+
+```bash
+export PROTEINHUB_AKTA_HAP_PYTHON=/path/to/akta/python
+```
 
 ## Code layout
 
@@ -52,11 +71,20 @@ Detailed project standards live in:
 - `POST /api/projects/{project_id}/members`
 - `GET /api/projects/{project_id}/proteins`
 - `POST /api/projects/{project_id}/proteins`
+- `POST /api/projects/{project_id}/proteins/with-structure`
+- `POST /api/projects/{project_id}/proteins/import-structures`
 - `POST /api/projects/{project_id}/proteins/parse-structure`
 - `GET /api/projects/{project_id}/batches`
 - `POST /api/projects/{project_id}/batches`
 - `GET /api/proteins/{protein_id}`
+- `GET /api/proteins/{protein_id}/structure/download`
 - `GET /api/batches/{batch_id}`
+- `PATCH /api/batches/{batch_id}/status`
+- `PATCH /api/batches/{batch_id}/wells/{well_id}/position`
+- `GET /api/batches/{batch_id}/plate/export`
+- `GET /api/batches/{batch_id}/summary/export`
+- `POST /api/batches/{batch_id}/translations`
+- `POST /api/batches/{batch_id}/akta-results`
 - `GET /api/batches/{batch_id}/experiments`
 - `POST /api/batches/{batch_id}/experiments`
 - `GET /api/experiments/{experiment_id}`

@@ -3,7 +3,8 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Callable
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
 from proteinhub.api.dependencies import ApiContext, map_domain_error
 from proteinhub.api.schemas import (
@@ -15,9 +16,11 @@ from proteinhub.application.artifact_service import create_artifact, list_artifa
 from proteinhub.application.batch_service import list_protein_batch_results
 from proteinhub.application.protein_service import (
     get_protein,
+    get_protein_structure_file,
     parse_protein_structure_for_existing,
 )
 from proteinhub.domain.errors import DomainError
+from proteinhub.infrastructure.storage.local_file_store import LocalFileStore
 
 
 def create_proteins_router(
@@ -59,6 +62,29 @@ def create_proteins_router(
     ) -> list[dict]:
         try:
             return list_artifacts(connection, protein_id=protein_id, user_id=user["id"])
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.get("/proteins/{protein_id}/structure/download")
+    def download_protein_structure(
+        protein_id: int,
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> FileResponse:
+        try:
+            protein = get_protein_structure_file(
+                connection, protein_id=protein_id, user_id=user["id"]
+            )
+            path = LocalFileStore(context.storage_root).resolve(
+                protein["structure_storage_path"]
+            )
+            if not path.exists():
+                raise HTTPException(status_code=404, detail="Protein structure file missing")
+            return FileResponse(
+                path,
+                media_type=protein["structure_mime_type"],
+                filename=protein["structure_filename"],
+            )
         except DomainError as error:
             raise map_domain_error(error) from error
 

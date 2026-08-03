@@ -21,6 +21,34 @@ ARTIFACT_TYPE_OPTIONS = {
     "analysis_report": "分析报告",
     "other": "其他文件",
 }
+PROTEIN_TYPE_OPTIONS = {
+    "TCR": "TCR",
+    "cyclic peptide": "cyclic peptide",
+    "nanobody": "nanobody",
+    "minibinder": "minibinder",
+    "enzymes": "enzymes",
+}
+PLATE_96_POSITION_OPTIONS = {
+    f"{row}{column:02d}": f"{row}{column:02d}"
+    for row in "ABCDEFGH"
+    for column in range(1, 13)
+}
+TRANSLATION_ORGANISM_OPTIONS = {
+    "E. coli": "E. coli",
+}
+TRANSLATION_RESISTANCE_OPTIONS = {
+    "Amp": "Amp",
+    "Kan": "Kan",
+    "Tet": "Tet",
+    "Cam": "Cam",
+    "Sep": "Sep",
+}
+BATCH_ORDER_STATUS_OPTIONS = {
+    "not_ordered": "未order",
+    "ordered": "已order",
+    "partially_received": "部分收货",
+    "fully_received": "已全部收到",
+}
 ARTIFACT_GROUPS = [
     ("design_output", "设计输出"),
     ("structure_model", "结构模型"),
@@ -34,6 +62,8 @@ DISPLAY_LABELS = (
     MEMBER_DISCIPLINE_OPTIONS
     | ROLE_LABELS
     | ARTIFACT_TYPE_OPTIONS
+    | PROTEIN_TYPE_OPTIONS
+    | BATCH_ORDER_STATUS_OPTIONS
     | {"file": "其他文件"}
 )
 
@@ -117,6 +147,7 @@ def design_system() -> None:
         }
 
         .ph-grid {
+            align-items: stretch;
             gap: 16px;
         }
 
@@ -132,6 +163,50 @@ def design_system() -> None:
             border-color: var(--ph-border-strong);
             box-shadow: 0 12px 26px rgba(20, 32, 43, 0.08);
             transform: translateY(-1px);
+        }
+
+        .ph-project-card {
+            height: 184px;
+            min-height: 184px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .ph-project-card-main {
+            align-items: flex-start;
+            gap: 12px;
+            flex: 1 1 auto;
+            min-height: 0;
+            min-width: 0;
+        }
+
+        .ph-project-card-text {
+            flex: 1 1 auto;
+            min-width: 0;
+            gap: 4px;
+        }
+
+        .ph-project-card-footer {
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: auto;
+        }
+
+        .ph-project-card .ph-card-title {
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .ph-project-card .ph-card-description {
+            min-height: 58px;
+            overflow: hidden;
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 3;
         }
 
         .ph-protein-card {
@@ -374,16 +449,18 @@ def design_system() -> None:
 
         .ph-batch-mapping {
             width: 100%;
-            overflow: auto;
             border: 1px solid var(--ph-border);
             border-radius: 8px;
             background: var(--ph-surface);
+            overflow-x: auto;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            scrollbar-gutter: stable;
         }
 
         .ph-batch-mapping-scroll {
-            flex: 1;
-            min-height: 260px;
-            max-height: min(48vh, 520px);
+            min-height: 0;
+            max-height: min(52vh, 520px);
         }
 
         .ph-batch-upload-actions {
@@ -393,15 +470,25 @@ def design_system() -> None:
             gap: 12px;
         }
 
+        .ph-translation-actions {
+            display: grid;
+            grid-template-columns: minmax(130px, 1fr) minmax(150px, 1fr) minmax(180px, 1fr) minmax(120px, 0.8fr) minmax(120px, 0.8fr) auto;
+            align-items: center;
+            gap: 12px;
+        }
+
         .ph-mapping-row {
             display: grid;
-            grid-template-columns: 88px minmax(160px, 1fr) minmax(120px, 0.6fr) minmax(280px, 1.5fr) minmax(100px, 0.5fr);
-            min-width: 820px;
+            grid-template-columns: 128px minmax(160px, 1fr) minmax(120px, 0.6fr) minmax(280px, 1.5fr) minmax(100px, 0.5fr) 96px;
+            min-width: 960px;
             border-bottom: 1px solid var(--ph-border);
         }
 
-        .ph-mapping-row:last-child {
-            border-bottom: 0;
+        .ph-translation-row {
+            display: grid;
+            grid-template-columns: 88px minmax(160px, 1fr) minmax(92px, 0.4fr) minmax(360px, 1.7fr) minmax(100px, 0.4fr);
+            min-width: 900px;
+            border-bottom: 1px solid var(--ph-border);
         }
 
         .ph-mapping-head {
@@ -556,6 +643,14 @@ def design_system() -> None:
 
             .ph-batch-upload-actions {
                 grid-template-columns: 1fr;
+            }
+
+            .ph-translation-actions {
+                grid-template-columns: 1fr;
+            }
+
+            .ph-batch-mapping-scroll {
+                max-height: min(56vh, 420px);
             }
 
         }
@@ -722,5 +817,3 @@ async def ensure_logged_in() -> bool:
         ui.notify("登录状态已失效，请重新登录", type="warning")
         ui.navigate.to("/login")
         return False
-
-

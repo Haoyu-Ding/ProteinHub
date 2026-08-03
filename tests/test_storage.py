@@ -1,6 +1,11 @@
 from pathlib import Path
 
-from proteinhub.storage import artifact_relative_path, resolve_storage_path, safe_filename
+from proteinhub.storage import (
+    artifact_relative_path,
+    protein_structure_relative_path,
+    resolve_storage_path,
+    safe_filename,
+)
 
 
 def test_safe_filename_removes_path_and_unsafe_characters() -> None:
@@ -20,6 +25,17 @@ def test_artifact_relative_path_stays_under_project_protein_artifact() -> None:
     )
 
     assert path == Path("projects/1/proteins/2/artifacts/3/model.pdb")
+    assert not path.is_absolute()
+
+
+def test_protein_structure_relative_path_stays_under_project_protein() -> None:
+    path = protein_structure_relative_path(
+        project_id=1,
+        protein_id=2,
+        filename="../model.pdb",
+    )
+
+    assert path == Path("projects/1/proteins/2/structure/model.pdb")
     assert not path.is_absolute()
 
 

@@ -31,6 +31,23 @@ def artifact_relative_path(
     )
 
 
+def protein_structure_relative_path(
+    *,
+    project_id: int,
+    protein_id: int,
+    filename: str,
+) -> Path:
+    safe_name = safe_filename(filename)
+    return (
+        Path("projects")
+        / str(project_id)
+        / "proteins"
+        / str(protein_id)
+        / "structure"
+        / safe_name
+    )
+
+
 def resolve_storage_path(storage_root: Path, relative_path: str | Path) -> Path:
     root = storage_root.resolve()
     path = (root / relative_path).resolve()

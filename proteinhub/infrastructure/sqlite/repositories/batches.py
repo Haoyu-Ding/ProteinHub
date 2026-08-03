@@ -98,6 +98,74 @@ class BatchRepository:
             [(batch_id, position, protein_id) for position, protein_id in wells],
         )
 
+    def update_translation_settings(
+        self,
+        *,
+        batch_id: int,
+        padding: bool,
+        add_additional_w: bool,
+        organism: str,
+        backbone: str,
+        resistance: str,
+    ) -> None:
+        self.connection.execute(
+            """
+            UPDATE batches
+            SET
+                translation_padding = ?,
+                translation_additional_w = ?,
+                translation_organism = ?,
+                translation_backbone = ?,
+                translation_resistance = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                int(bool(padding)),
+                int(bool(add_additional_w)),
+                organism,
+                backbone,
+                resistance,
+                batch_id,
+            ),
+        )
+
+    def update_order_status(self, *, batch_id: int, order_status: str) -> None:
+        self.connection.execute(
+            """
+            UPDATE batches
+            SET order_status = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (order_status, batch_id),
+        )
+
+    def update_well_translation_result(
+        self,
+        *,
+        well_id: int,
+        source_aa_sequence: str,
+        translated_aa_sequence: str,
+        dna_sequence: str,
+    ) -> None:
+        self.connection.execute(
+            """
+            UPDATE batch_wells
+            SET
+                source_aa_sequence = ?,
+                translated_aa_sequence = ?,
+                dna_sequence = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                source_aa_sequence,
+                translated_aa_sequence,
+                dna_sequence,
+                well_id,
+            ),
+        )
+
     def list_wells(self, batch_id: int) -> list[dict]:
         return self.connection.execute(
             """
@@ -105,7 +173,24 @@ class BatchRepository:
                 batch_wells.*,
                 proteins.name AS protein_name,
                 proteins.sequence AS protein_sequence,
-                proteins.version_tag AS protein_version_tag
+                proteins.protein_type AS protein_type
+            FROM batch_wells
+            JOIN proteins ON proteins.id = batch_wells.protein_id
+            WHERE batch_wells.batch_id = ?
+            ORDER BY batch_wells.position ASC
+            """,
+            (batch_id,),
+        ).fetchall()
+
+    def list_sequence_exports(self, batch_id: int) -> list[dict]:
+        return self.connection.execute(
+            """
+            SELECT
+                batch_wells.id AS well_id,
+                batch_wells.position,
+                batch_wells.protein_id,
+                proteins.name AS protein_name,
+                proteins.sequence AS protein_sequence
             FROM batch_wells
             JOIN proteins ON proteins.id = batch_wells.protein_id
             WHERE batch_wells.batch_id = ?
@@ -126,6 +211,56 @@ class BatchRepository:
             """,
             (batch_id, well_id),
         ).fetchone()
+
+    def get_well_by_position(self, *, batch_id: int, position: str) -> dict | None:
+        return self.connection.execute(
+            """
+            SELECT *
+            FROM batch_wells
+            WHERE batch_id = ? AND position = ?
+            """,
+            (batch_id, position),
+        ).fetchone()
+
+    def has_recorded_results(self, batch_id: int) -> bool:
+        row = self.connection.execute(
+            """
+            SELECT 1
+            FROM experiment_well_results
+            JOIN batch_experiments
+                ON batch_experiments.id = experiment_well_results.experiment_id
+            WHERE batch_experiments.batch_id = ?
+              AND (
+                  experiment_well_results.result_value != ''
+                  OR experiment_well_results.result_note != ''
+              )
+            LIMIT 1
+            """,
+            (batch_id,),
+        ).fetchone()
+        return row is not None
+
+    def update_well_position(self, *, well_id: int, position: str) -> None:
+        self.connection.execute(
+            """
+            UPDATE batch_wells
+            SET position = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (position, well_id),
+        )
+
+    def swap_well_positions(self, *, first_well: dict, second_well: dict) -> None:
+        temporary_position = f"__swap_{first_well['id']}_{second_well['id']}__"
+        self.update_well_position(well_id=first_well["id"], position=temporary_position)
+        self.update_well_position(
+            well_id=second_well["id"],
+            position=first_well["position"],
+        )
+        self.update_well_position(
+            well_id=first_well["id"],
+            position=second_well["position"],
+        )
 
     def update_well_result(
         self, *, well_id: int, result_value: str, result_note: str

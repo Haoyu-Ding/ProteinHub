@@ -3,9 +3,9 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Callable
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 
-from proteinhub.api.dependencies import map_domain_error
+from proteinhub.api.dependencies import ApiContext, map_domain_error
 from proteinhub.api.schemas import (
     MemberCreateRequest,
     MemberUpdateRequest,
@@ -30,6 +30,8 @@ from proteinhub.application.project_service import (
 )
 from proteinhub.application.protein_service import (
     create_protein,
+    create_protein_with_structure_file,
+    import_proteins_from_structures,
     list_proteins,
     parse_protein_sequence,
 )
@@ -38,6 +40,7 @@ from proteinhub.domain.errors import DomainError
 
 def create_projects_router(
     *,
+    context: ApiContext,
     get_connection: Callable,
     current_user: Callable,
 ) -> APIRouter:
@@ -173,7 +176,75 @@ def create_projects_router(
                 name=payload.name,
                 sequence=payload.sequence,
                 description=payload.description,
-                version_tag=payload.version_tag,
+                protein_type=payload.protein_type,
+                target=payload.target,
+            )
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.post(
+        "/projects/{project_id}/proteins/import-structures",
+        response_model=list[ProteinResponse],
+    )
+    def import_protein_structures_route(
+        project_id: int,
+        files: list[UploadFile] = File(...),
+        protein_type: str = Form(default="TCR"),
+        target: str = Form(default=""),
+        description: str = Form(default=""),
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> list[dict]:
+        try:
+            return import_proteins_from_structures(
+                connection,
+                storage_root=context.storage_root,
+                project_id=project_id,
+                user_id=user["id"],
+                files=[
+                    (
+                        file.filename or "protein.pdb",
+                        file.content_type or "application/octet-stream",
+                        file.file.read(),
+                    )
+                    for file in files
+                ],
+                description=description,
+                protein_type=protein_type,
+                target=target,
+            )
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.post(
+        "/projects/{project_id}/proteins/with-structure",
+        response_model=ProteinResponse,
+    )
+    def create_protein_with_structure_route(
+        project_id: int,
+        name: str = Form(...),
+        sequence: str = Form(...),
+        protein_type: str = Form(default="TCR"),
+        target: str = Form(default=""),
+        description: str = Form(default=""),
+        file: UploadFile = File(...),
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> dict:
+        try:
+            return create_protein_with_structure_file(
+                connection,
+                storage_root=context.storage_root,
+                project_id=project_id,
+                user_id=user["id"],
+                name=name,
+                sequence=sequence,
+                description=description,
+                protein_type=protein_type,
+                target=target,
+                filename=file.filename or "structure.pdb",
+                content_type=file.content_type or "application/octet-stream",
+                content=file.file.read(),
             )
         except DomainError as error:
             raise map_domain_error(error) from error

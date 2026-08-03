@@ -36,6 +36,7 @@ def create_api_router(
     )
     router.include_router(
         create_projects_router(
+            context=context,
             get_connection=get_connection,
             current_user=current_user,
         )
@@ -49,6 +50,7 @@ def create_api_router(
     )
     router.include_router(
         create_batches_router(
+            context=context,
             get_connection=get_connection,
             current_user=current_user,
         )

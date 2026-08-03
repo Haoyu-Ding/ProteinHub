@@ -30,3 +30,12 @@ class AuthenticationError(DomainError):
     status_code = 401
     message = "Invalid credentials"
 
+
+class ConfigurationError(DomainError):
+    status_code = 500
+    message = "Configuration error"
+
+
+class ExternalToolError(DomainError):
+    status_code = 500
+    message = "External tool failed"

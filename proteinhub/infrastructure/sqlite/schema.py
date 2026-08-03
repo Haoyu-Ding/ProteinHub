@@ -41,7 +41,12 @@ CREATE TABLE IF NOT EXISTS proteins (
     sequence TEXT NOT NULL,
     dna_sequence TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
-    version_tag TEXT NOT NULL DEFAULT '',
+    protein_type TEXT NOT NULL DEFAULT 'TCR',
+    target TEXT NOT NULL DEFAULT '',
+    structure_filename TEXT NOT NULL DEFAULT '',
+    structure_mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+    structure_size_bytes INTEGER NOT NULL DEFAULT 0,
+    structure_storage_path TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -52,6 +57,12 @@ CREATE TABLE IF NOT EXISTS batches (
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     plate_format TEXT NOT NULL DEFAULT '96' CHECK (plate_format IN ('96')),
+    order_status TEXT NOT NULL DEFAULT 'not_ordered' CHECK (order_status IN ('not_ordered', 'ordered', 'partially_received', 'fully_received')),
+    translation_padding INTEGER NOT NULL DEFAULT 0,
+    translation_additional_w INTEGER NOT NULL DEFAULT 0,
+    translation_organism TEXT NOT NULL DEFAULT '',
+    translation_backbone TEXT NOT NULL DEFAULT '',
+    translation_resistance TEXT NOT NULL DEFAULT '',
     created_by INTEGER NOT NULL REFERENCES users(id),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -62,6 +73,9 @@ CREATE TABLE IF NOT EXISTS batch_wells (
     batch_id INTEGER NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
     protein_id INTEGER NOT NULL REFERENCES proteins(id) ON DELETE CASCADE,
     position TEXT NOT NULL,
+    source_aa_sequence TEXT NOT NULL DEFAULT '',
+    translated_aa_sequence TEXT NOT NULL DEFAULT '',
+    dna_sequence TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (batch_id, position)
@@ -70,7 +84,7 @@ CREATE TABLE IF NOT EXISTS batch_wells (
 CREATE TABLE IF NOT EXISTS batch_experiments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     batch_id INTEGER NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
-    experiment_type TEXT NOT NULL CHECK (experiment_type IN ('FPLC', 'SPR', 'HPLC')),
+    experiment_type TEXT NOT NULL CHECK (experiment_type IN ('FPLC', 'SPR', 'HPLC', 'AKTA')),
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     created_by INTEGER NOT NULL REFERENCES users(id),
@@ -89,6 +103,11 @@ CREATE TABLE IF NOT EXISTS spr_experiments (
 );
 
 CREATE TABLE IF NOT EXISTS hplc_experiments (
+    experiment_id INTEGER PRIMARY KEY REFERENCES batch_experiments(id) ON DELETE CASCADE,
+    details_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS akta_experiments (
     experiment_id INTEGER PRIMARY KEY REFERENCES batch_experiments(id) ON DELETE CASCADE,
     details_json TEXT NOT NULL DEFAULT '{}'
 );
@@ -145,13 +164,83 @@ MIGRATIONS = [
     ),
     (
         "proteins",
-        "version_tag",
-        "ALTER TABLE proteins ADD COLUMN version_tag TEXT NOT NULL DEFAULT ''",
+        "protein_type",
+        "ALTER TABLE proteins ADD COLUMN protein_type TEXT NOT NULL DEFAULT 'TCR'",
+    ),
+    (
+        "proteins",
+        "target",
+        "ALTER TABLE proteins ADD COLUMN target TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "proteins",
+        "structure_filename",
+        "ALTER TABLE proteins ADD COLUMN structure_filename TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "proteins",
+        "structure_mime_type",
+        "ALTER TABLE proteins ADD COLUMN structure_mime_type TEXT NOT NULL DEFAULT 'application/octet-stream'",
+    ),
+    (
+        "proteins",
+        "structure_size_bytes",
+        "ALTER TABLE proteins ADD COLUMN structure_size_bytes INTEGER NOT NULL DEFAULT 0",
+    ),
+    (
+        "proteins",
+        "structure_storage_path",
+        "ALTER TABLE proteins ADD COLUMN structure_storage_path TEXT NOT NULL DEFAULT ''",
     ),
     (
         "proteins",
         "updated_at",
         "ALTER TABLE proteins ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "batches",
+        "order_status",
+        "ALTER TABLE batches ADD COLUMN order_status TEXT NOT NULL DEFAULT 'not_ordered' CHECK (order_status IN ('not_ordered', 'ordered', 'partially_received', 'fully_received'))",
+    ),
+    (
+        "batches",
+        "translation_padding",
+        "ALTER TABLE batches ADD COLUMN translation_padding INTEGER NOT NULL DEFAULT 0",
+    ),
+    (
+        "batches",
+        "translation_additional_w",
+        "ALTER TABLE batches ADD COLUMN translation_additional_w INTEGER NOT NULL DEFAULT 0",
+    ),
+    (
+        "batches",
+        "translation_organism",
+        "ALTER TABLE batches ADD COLUMN translation_organism TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "batches",
+        "translation_backbone",
+        "ALTER TABLE batches ADD COLUMN translation_backbone TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "batches",
+        "translation_resistance",
+        "ALTER TABLE batches ADD COLUMN translation_resistance TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "batch_wells",
+        "source_aa_sequence",
+        "ALTER TABLE batch_wells ADD COLUMN source_aa_sequence TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "batch_wells",
+        "translated_aa_sequence",
+        "ALTER TABLE batch_wells ADD COLUMN translated_aa_sequence TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "batch_wells",
+        "dna_sequence",
+        "ALTER TABLE batch_wells ADD COLUMN dna_sequence TEXT NOT NULL DEFAULT ''",
     ),
     (
         "artifacts",

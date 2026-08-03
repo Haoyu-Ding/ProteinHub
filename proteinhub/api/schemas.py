@@ -49,7 +49,8 @@ class ProteinCreateRequest(BaseModel):
     name: str
     sequence: str
     description: str = ""
-    version_tag: str = ""
+    protein_type: str = "TCR"
+    target: str = ""
 
 
 class BatchCreateRequest(BaseModel):
@@ -57,6 +58,24 @@ class BatchCreateRequest(BaseModel):
     protein_ids: list[int]
     description: str = ""
     plate_format: str = "96"
+    start_position: str = "A01"
+
+
+class BatchWellPositionUpdateRequest(BaseModel):
+    position: str
+    mode: str = "move"
+
+
+class BatchOrderStatusUpdateRequest(BaseModel):
+    order_status: str
+
+
+class BatchTranslationRequest(BaseModel):
+    padding: bool = False
+    add_additional_w: bool = False
+    organism: str = "E. coli"
+    backbone: str = "5"
+    resistance: str = "Amp"
 
 
 class ExperimentCreateRequest(BaseModel):
@@ -100,9 +119,13 @@ class ProteinResponse(BaseModel):
     name: str
     protein_name: str
     sequence: str
-    dna_sequence: str
     description: str
-    version_tag: str
+    protein_type: str
+    target: str
+    structure_filename: str
+    structure_mime_type: str
+    structure_size_bytes: int
+    structure_storage_path: str
     created_at: str
     updated_at: str
 
@@ -143,6 +166,12 @@ class BatchResponse(BaseModel):
     name: str
     description: str
     plate_format: str
+    order_status: str
+    translation_padding: bool = False
+    translation_additional_w: bool = False
+    translation_organism: str = ""
+    translation_backbone: str = ""
+    translation_resistance: str = ""
     created_by: int
     created_at: str
     updated_at: str
@@ -161,11 +190,14 @@ class BatchWellResponse(BaseModel):
     batch_id: int
     protein_id: int
     position: str
+    source_aa_sequence: str
+    translated_aa_sequence: str
+    dna_sequence: str
     created_at: str
     updated_at: str
     protein_name: str
     protein_sequence: str
-    protein_version_tag: str
+    protein_type: str
 
 
 class ExperimentResponse(BaseModel):
@@ -192,7 +224,7 @@ class ExperimentWellResultResponse(BaseModel):
     protein_id: int
     protein_name: str
     protein_sequence: str
-    protein_version_tag: str
+    protein_type: str
     result_id: int | None
     result_value: str
     result_note: str
@@ -203,6 +235,26 @@ class BatchDetailResponse(BaseModel):
     batch: BatchResponse
     wells: list[BatchWellResponse]
     experiments: list[ExperimentSummaryResponse]
+
+
+class BatchTranslationSequenceResponse(BaseModel):
+    well_id: int
+    position: str
+    protein_id: int
+    protein_name: str
+    source_aa_sequence: str
+    translated_aa_sequence: str
+    dna_sequence: str
+
+
+class BatchTranslationResponse(BaseModel):
+    padding: bool
+    add_additional_w: bool
+    organism: str
+    backbone: str
+    resistance: str
+    sequences: list[BatchTranslationSequenceResponse]
+    dna_fasta: str
 
 
 class ExperimentDetailResponse(BaseModel):

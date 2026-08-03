@@ -52,16 +52,24 @@ class ProteinRepository:
         sequence: str,
         dna_sequence: str,
         description: str,
-        version_tag: str,
+        protein_type: str,
+        target: str,
     ) -> int:
         cursor = self.connection.execute(
             """
             INSERT INTO proteins (
-                project_id, name, sequence, dna_sequence, description, version_tag, updated_at
+                project_id,
+                name,
+                sequence,
+                dna_sequence,
+                description,
+                protein_type,
+                target,
+                updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
-            (project_id, name, sequence, dna_sequence, description, version_tag),
+            (project_id, name, sequence, dna_sequence, description, protein_type, target),
         )
         return int(cursor.lastrowid)
 
@@ -88,7 +96,8 @@ class ProteinRepository:
         sequence: str,
         dna_sequence: str,
         description: str,
-        version_tag: str,
+        protein_type: str,
+        target: str,
     ) -> None:
         self.connection.execute(
             """
@@ -98,9 +107,33 @@ class ProteinRepository:
                 sequence = ?,
                 dna_sequence = ?,
                 description = ?,
-                version_tag = ?,
+                protein_type = ?,
+                target = ?,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """,
-            (name, sequence, dna_sequence, description, version_tag, protein_id),
+            (name, sequence, dna_sequence, description, protein_type, target, protein_id),
+        )
+
+    def update_structure_file(
+        self,
+        *,
+        protein_id: int,
+        filename: str,
+        mime_type: str,
+        size_bytes: int,
+        storage_path: str,
+    ) -> None:
+        self.connection.execute(
+            """
+            UPDATE proteins
+            SET
+                structure_filename = ?,
+                structure_mime_type = ?,
+                structure_size_bytes = ?,
+                structure_storage_path = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (filename, mime_type, size_bytes, storage_path, protein_id),
         )
