@@ -456,7 +456,7 @@ PROTEINHUB_DATA_DIR=/var/lib/proteinhub
 PROTEINHUB_STORAGE_DIR=/var/lib/proteinhub/storage</code></pre>
       <p>
         保存后按下面第 5-8 步继续：外部工具检查、安装 systemd service、健康检查、
-        配置 Caddy HTTPS、设置备份。
+        选择访问方式、设置备份。
       </p>
     </section>
 
@@ -511,18 +511,52 @@ sudo systemctl status proteinhub</code></pre>
     </section>
 
     <section id="https">
-      <h2>7. HTTPS 和域名</h2>
+      <h2>7. 访问方式：公网域名或只用内网</h2>
       <p>
-        先把域名 A 记录解析到服务器公网 IP。然后复制 Caddy 模板，
-        把 <code>your-domain.example.com</code> 改成真实域名。
+        先确认服务本机可用。如果这一步返回 <code>status: ok</code>，
+        再选择“只在内网使用”或“公网域名访问”。
       </p>
+      <pre><code>curl http://127.0.0.1:8080/api/health</code></pre>
+      <h3>只在内网使用</h3>
+      <p>
+        这种方式不需要域名，也不需要公网 IP。适合先在实验室、办公室、同一局域网
+        或 VPN/Tailscale 网络里给少数人使用。
+      </p>
+      <p>查看服务器内网 IP：</p>
+      <pre><code>hostname -I</code></pre>
+      <p>假设看到的内网 IP 是 <code>10.6.108.62</code>，复制内网 Caddy 模板：</p>
+      <pre><code>sudo cp /opt/proteinhub/deploy/Caddyfile.lan.example /etc/caddy/Caddyfile
+sudo systemctl reload caddy</code></pre>
+      <p>如果服务器启用了 UFW 防火墙，放行 80 端口：</p>
+      <pre><code>sudo ufw allow 80/tcp
+sudo ufw status</code></pre>
+      <p>同一内网的用户访问：</p>
+      <pre><code>http://10.6.108.62/</code></pre>
+      <div class="callout ok">
+        意义：内网模式最省事，不依赖域名和公网入站能力，很适合第一版先给小团队试用。
+      </div>
+      <h3>用公网域名访问</h3>
+      <p>
+        在域名服务商的 DNS 控制台添加一条 A 记录：主机记录填 <code>proteinhub</code>，
+        记录值填服务器公网 IP。生效后用户访问 <code>https://proteinhub.example.com/</code>。
+      </p>
+      <div class="callout warn">
+        如果服务器在家里、学校或公司内网里，通常没有公网入站能力；这时只配 DNS 不会生效，
+        还需要路由器端口转发、云服务器、公网反向代理、frp、Tailscale 或 Cloudflare Tunnel 这类方案。
+      </div>
+      <p>确认 80/443 端口可从公网访问后，复制公网 Caddy 模板：</p>
       <pre><code>sudo cp /opt/proteinhub/deploy/Caddyfile.example /etc/caddy/Caddyfile
 sudo editor /etc/caddy/Caddyfile
 sudo systemctl reload caddy</code></pre>
+      <p>把 <code>your-domain.example.com</code> 替换成真实域名。Caddy 会自动申请和续期 HTTPS 证书。</p>
+      <p>如果服务器启用了 UFW 防火墙，放行 80/443：</p>
+      <pre><code>sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw status</code></pre>
       <p>检查外网访问：</p>
       <pre><code>curl https://your-domain.example.com/api/health</code></pre>
       <div class="callout ok">
-        意义：Caddy 自动申请和续期 HTTPS 证书，应用本身只需要监听本机 8080。
+        意义：公网域名适合正式给外部用户使用；应用本身仍然只监听本机 8080。
       </div>
     </section>
 

@@ -1,0 +1,6 @@
+# Internal/LAN-only access.
+# Visit http://<server-lan-ip>/ from another machine on the same network.
+:80 {
+    encode gzip zstd
+    reverse_proxy 127.0.0.1:8080
+}

@@ -171,8 +171,8 @@ PROTEINHUB_DATA_DIR=/var/lib/proteinhub
 PROTEINHUB_STORAGE_DIR=/var/lib/proteinhub/storage
 ```
 
-保存后继续第 4-7 步：外部工具检查、安装 systemd service、健康检查、
-配置 Caddy HTTPS、设置备份。
+保存后继续第 4-8 步：外部工具检查、安装 systemd service、健康检查、
+选择访问方式、设置备份。
 
 ## 4. AKTA 和反向翻译外部工具
 
@@ -243,9 +243,71 @@ curl http://127.0.0.1:8080/api/health
 
 期望返回 `status: ok`。
 
-## 6. HTTPS 反向代理
+## 6. 访问方式：公网域名或只用内网
 
-复制 Caddy 模板：
+先确认服务本机可用：
+
+```bash
+curl http://127.0.0.1:8080/api/health
+```
+
+如果这一步返回 `status: ok`，再选择下面两种访问方式之一。
+
+### 6.1 只在内网使用
+
+这种方式不需要域名，也不需要公网 IP。适合先在实验室、办公室、同一局域网
+或 VPN/Tailscale 网络里给少数人使用。
+
+查看服务器内网 IP：
+
+```bash
+hostname -I
+```
+
+假设看到的内网 IP 是 `10.6.108.62`，复制内网 Caddy 模板：
+
+```bash
+sudo cp /opt/proteinhub/deploy/Caddyfile.lan.example /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+```
+
+如果服务器启用了 UFW 防火墙，放行 80 端口：
+
+```bash
+sudo ufw allow 80/tcp
+sudo ufw status
+```
+
+同一内网的用户访问：
+
+```text
+http://10.6.108.62/
+```
+
+如果你想临时绕过 Caddy，也可以访问 Uvicorn 端口，但需要把 systemd 里的
+`--host 127.0.0.1` 改成 `--host 0.0.0.0`，不建议作为正式方式。
+
+### 6.2 用公网域名访问
+
+这种方式适合让外网用户直接访问，例如：
+
+```text
+https://proteinhub.example.com/
+```
+
+你需要在域名服务商的 DNS 控制台添加一条 A 记录：
+
+```text
+类型: A
+主机记录: proteinhub
+记录值: 服务器公网 IP
+```
+
+如果服务器在家里、学校或公司内网里，通常没有公网入站能力；这时只配 DNS
+不会生效，还需要路由器端口转发、云服务器、公网反向代理、frp、Tailscale
+或 Cloudflare Tunnel 这类方案。
+
+确认 80/443 端口可从公网访问后，复制公网 Caddy 模板：
 
 ```bash
 sudo cp /opt/proteinhub/deploy/Caddyfile.example /etc/caddy/Caddyfile
@@ -254,7 +316,19 @@ sudo systemctl reload caddy
 ```
 
 把 `your-domain.example.com` 替换成真实域名。Caddy 会自动申请和续期 HTTPS
-证书。
+证书。如果服务器启用了 UFW 防火墙，放行 80/443：
+
+```bash
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw status
+```
+
+检查外网访问：
+
+```bash
+curl https://your-domain.example.com/api/health
+```
 
 ## 7. 备份和恢复
 
