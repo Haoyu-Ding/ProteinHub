@@ -507,11 +507,16 @@ PROTEINHUB_LEGACY_DOMESTICATOR_DATABASE=/opt/proteinhub-tools/domesticator/datab
       </p>
       <pre><code>sudo rm -rf /opt/proteinhub-tools/domesticator-env
 sudo chown -R zhaojiao:zhaojiao /opt/proteinhub-tools
-~/anaconda3/bin/conda create -y -p /opt/proteinhub-tools/domesticator-env python=3.7 pip
+~/anaconda3/bin/conda create -y --override-channels -c conda-forge -p /opt/proteinhub-tools/domesticator-env python=3.7 pip
 /opt/proteinhub-tools/domesticator-env/bin/pip install dnachisel==1.1 biopython==1.72 CAI==1.0.3 scipy==1.4.1 tqdm==4.64.1
 sudo chown -R proteinhub:proteinhub /opt/proteinhub-tools</code></pre>
       <p>如果你用的是 miniforge，把 conda 命令换成：</p>
-      <pre><code>~/miniforge3/bin/conda create -y -p /opt/proteinhub-tools/domesticator-env python=3.7 pip</code></pre>
+      <pre><code>~/miniforge3/bin/conda create -y --override-channels -c conda-forge -p /opt/proteinhub-tools/domesticator-env python=3.7 pip</code></pre>
+      <p>
+        <code>--override-channels</code> 用来绕过服务器本机 conda 配置里的失效镜像源。
+        不要再检查 <code>/opt/proteinhub-tools/domesticator/bin/python</code>；
+        正确 Python 路径是 <code>/opt/proteinhub-tools/domesticator-env/bin/python</code>。
+      </p>
       <p>然后确认这些文件真的存在：</p>
       <pre><code>sudo -u proteinhub test -x /opt/proteinhub-tools/akta/bin/python
 sudo -u proteinhub test -f /opt/proteinhub-tools/akta/akta_hap.py
