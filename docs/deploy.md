@@ -9,6 +9,7 @@
 推荐配置：
 
 - Ubuntu 22.04 或 24.04
+- Python 3.11 或更高版本
 - 2 vCPU / 4 GB RAM 起步
 - 80 GB 以上 SSD；如果实验原始文件很多，优先扩磁盘
 - 域名解析到服务器公网 IP
@@ -17,8 +18,30 @@
 
 ```bash
 sudo apt update
-sudo apt install -y git python3 python3-venv postgresql postgresql-contrib curl gnupg
+sudo apt install -y git postgresql postgresql-contrib curl gnupg software-properties-common
 python3 --version
+```
+
+ProteinHub 要求 Python 3.11 或更高版本。Ubuntu 22.04 / Pop!_OS 常见默认
+`python3` 是 3.10，需要额外安装 Python 3.11：
+
+```bash
+python3.11 --version
+```
+
+如果上面命令提示找不到 `python3.11`，先尝试：
+
+```bash
+sudo apt install -y python3.11 python3.11-venv python3.11-dev
+```
+
+如果 apt 源里也找不到，再添加 deadsnakes PPA 后安装：
+
+```bash
+sudo add-apt-repository -y ppa:deadsnakes/ppa
+sudo apt update
+sudo apt install -y python3.11 python3.11-venv python3.11-dev
+python3.11 --version
 ```
 
 Pop!_OS/Ubuntu 默认 apt 源里可能没有 `caddy` 包。按 Caddy 官方 Debian/Ubuntu
@@ -72,7 +95,7 @@ sudo chown -R "$USER":"$USER" /opt/proteinhub
 git clone https://github.com/Haoyu-Ding/ProteinHub.git /opt/proteinhub
 sudo chown -R proteinhub:proteinhub /opt/proteinhub
 cd /opt/proteinhub
-sudo -u proteinhub python3 -m venv .venv
+sudo -u proteinhub python3.11 -m venv .venv
 sudo -u proteinhub .venv/bin/pip install -e ".[dev]"
 ```
 
