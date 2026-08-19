@@ -226,6 +226,7 @@ PROTEINHUB_LEGACY_DOMESTICATOR_DATABASE=/opt/proteinhub-tools/domesticator/datab
 sudo rm -rf /opt/proteinhub-tools/domesticator-env
 sudo chown -R zhaojiao:zhaojiao /opt/proteinhub-tools
 ~/anaconda3/bin/conda create -y --override-channels -c conda-forge -p /opt/proteinhub-tools/domesticator-env python=3.7 pip
+/opt/proteinhub-tools/domesticator-env/bin/python -m pip install "pip<24.1" "setuptools==57.5.0" wheel
 /opt/proteinhub-tools/domesticator-env/bin/pip install dnachisel==1.1 biopython==1.72 CAI==1.0.3 scipy==1.4.1 tqdm==4.64.1
 sudo chown -R proteinhub:proteinhub /opt/proteinhub-tools
 ```
@@ -239,6 +240,8 @@ sudo chown -R proteinhub:proteinhub /opt/proteinhub-tools
 `--override-channels` 用来绕过服务器本机 conda 配置里的失效镜像源。
 不要再检查 `/opt/proteinhub-tools/domesticator/bin/python`；正确 Python 路径是
 `/opt/proteinhub-tools/domesticator-env/bin/python`。
+`CAI==1.0.3` 是旧包，所以 domesticator 环境需要先固定
+`setuptools==57.5.0`。
 
 然后确认这些文件真的存在：
 
