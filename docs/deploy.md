@@ -171,11 +171,26 @@ PROTEINHUB_DATA_DIR=/var/lib/proteinhub
 PROTEINHUB_STORAGE_DIR=/var/lib/proteinhub/storage
 ```
 
-保存后继续第 4-8 步：外部工具检查、安装 systemd service、健康检查、
+保存后继续第 4-8 步：可选外部工具、安装 systemd service、健康检查、
 选择访问方式、设置备份。
 
 ## 4. AKTA 和反向翻译外部工具
 
+这一节是可选步骤。先部署主系统时可以不配置；ProteinHub 仍然可以登录、
+建项目、建蛋白、上传 HPLC/SPR 等数据。
+
+如果你现在只是先把网站跑起来，就执行这个检查命令，然后继续第 5 步：
+
+```bash
+cd /opt/proteinhub
+sudo -u proteinhub .venv/bin/python scripts/check-external-tools.py \
+  --env-file /etc/proteinhub.env
+```
+
+看到 AKTA 或 domesticator 显示未配置也没关系，只要命令没有失败即可。
+不要在 `/etc/proteinhub.env` 里填写不存在的路径。
+
+如果你现在就要启用 AKTA zip 渲染或批次 DNA 优化，再继续下面的配置。
 不要把 `.legacy/` 里的本地虚拟环境直接提交到主仓库。推荐在服务器上单独放置：
 
 ```text
@@ -198,6 +213,16 @@ PROTEINHUB_AKTA_HAP_SCRIPT=/opt/proteinhub-tools/akta/akta_hap.py
 PROTEINHUB_LEGACY_DOMESTICATOR_PYTHON=/opt/proteinhub-tools/domesticator/bin/python
 PROTEINHUB_LEGACY_DOMESTICATOR_SCRIPT=/opt/proteinhub-tools/domesticator/domesticator.py
 PROTEINHUB_LEGACY_DOMESTICATOR_DATABASE=/opt/proteinhub-tools/domesticator/database
+```
+
+然后确认这些文件真的存在：
+
+```bash
+sudo -u proteinhub test -x /opt/proteinhub-tools/akta/bin/python
+sudo -u proteinhub test -f /opt/proteinhub-tools/akta/akta_hap.py
+sudo -u proteinhub test -x /opt/proteinhub-tools/domesticator/bin/python
+sudo -u proteinhub test -f /opt/proteinhub-tools/domesticator/domesticator.py
+sudo -u proteinhub test -d /opt/proteinhub-tools/domesticator/database
 ```
 
 说明：
