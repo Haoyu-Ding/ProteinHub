@@ -191,15 +191,16 @@ sudo -u proteinhub .venv/bin/python scripts/check-external-tools.py \
 不要在 `/etc/proteinhub.env` 里填写不存在的路径。
 
 如果你现在就要启用 AKTA zip 渲染或批次 DNA 优化，再继续下面的配置。
-不要把 `.legacy/` 里的本地虚拟环境直接提交到主仓库。推荐在服务器上单独放置：
+不要把 `.legacy/` 里的本地虚拟环境直接提交到主仓库。推荐在服务器上这样放置：
 
 ```text
 /opt/proteinhub-tools/
   akta/
     bin/python
     akta_hap.py
-  domesticator/
+  domesticator-env/
     bin/python
+  domesticator/
     domesticator.py
     database/
 ```
@@ -210,9 +211,29 @@ sudo -u proteinhub .venv/bin/python scripts/check-external-tools.py \
 PROTEINHUB_AKTA_HAP_PYTHON=/opt/proteinhub-tools/akta/bin/python
 PROTEINHUB_AKTA_HAP_SCRIPT=/opt/proteinhub-tools/akta/akta_hap.py
 
-PROTEINHUB_LEGACY_DOMESTICATOR_PYTHON=/opt/proteinhub-tools/domesticator/bin/python
+PROTEINHUB_LEGACY_DOMESTICATOR_PYTHON=/opt/proteinhub-tools/domesticator-env/bin/python
 PROTEINHUB_LEGACY_DOMESTICATOR_SCRIPT=/opt/proteinhub-tools/domesticator/domesticator.py
 PROTEINHUB_LEGACY_DOMESTICATOR_DATABASE=/opt/proteinhub-tools/domesticator/database
+```
+
+`domesticator-env` 是 Python/conda 环境；`domesticator` 是脚本和 database 目录。
+不要把 conda 环境直接建在已有 `domesticator.py` 和 `database/` 的目录里。
+
+如果服务器上已经有 `domesticator.py` 和 `database/`，但
+`/opt/proteinhub-tools/domesticator/bin/python` 不存在，按下面方式创建单独环境：
+
+```bash
+sudo rm -rf /opt/proteinhub-tools/domesticator-env
+sudo chown -R zhaojiao:zhaojiao /opt/proteinhub-tools
+~/anaconda3/bin/conda create -y -p /opt/proteinhub-tools/domesticator-env python=3.7 pip
+/opt/proteinhub-tools/domesticator-env/bin/pip install dnachisel==1.1 biopython==1.72 CAI==1.0.3 scipy==1.4.1 tqdm==4.64.1
+sudo chown -R proteinhub:proteinhub /opt/proteinhub-tools
+```
+
+如果你用的是 miniforge，把 conda 命令换成：
+
+```bash
+~/miniforge3/bin/conda create -y -p /opt/proteinhub-tools/domesticator-env python=3.7 pip
 ```
 
 然后确认这些文件真的存在：
@@ -220,7 +241,7 @@ PROTEINHUB_LEGACY_DOMESTICATOR_DATABASE=/opt/proteinhub-tools/domesticator/datab
 ```bash
 sudo -u proteinhub test -x /opt/proteinhub-tools/akta/bin/python
 sudo -u proteinhub test -f /opt/proteinhub-tools/akta/akta_hap.py
-sudo -u proteinhub test -x /opt/proteinhub-tools/domesticator/bin/python
+sudo -u proteinhub test -x /opt/proteinhub-tools/domesticator-env/bin/python
 sudo -u proteinhub test -f /opt/proteinhub-tools/domesticator/domesticator.py
 sudo -u proteinhub test -d /opt/proteinhub-tools/domesticator/database
 ```

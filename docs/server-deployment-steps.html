@@ -475,7 +475,7 @@ sudo -u proteinhub .venv/bin/python scripts/check-external-tools.py \
         看到 AKTA 或 domesticator 显示未配置也没关系，只要命令没有失败即可。
         不要在 <code>/etc/proteinhub.env</code> 里填写不存在的路径。
       </p>
-      <h3>以后启用 AKTA/domesticator</h3>
+      <h3>启用 AKTA/domesticator</h3>
       <p>
         如果你现在就要启用 AKTA zip 渲染或批次 DNA 优化，再继续下面的配置。
         不建议把本地 <code>.legacy/</code> 虚拟环境直接提交到主仓库。服务器上单独准备外部工具目录：
@@ -484,21 +484,38 @@ sudo -u proteinhub .venv/bin/python scripts/check-external-tools.py \
   akta/
     bin/python
     akta_hap.py
-  domesticator/
+  domesticator-env/
     bin/python
+  domesticator/
     domesticator.py
     database/</code></pre>
       <p>然后在 <code>/etc/proteinhub.env</code> 中配置实际路径：</p>
       <pre><code>PROTEINHUB_AKTA_HAP_PYTHON=/opt/proteinhub-tools/akta/bin/python
 PROTEINHUB_AKTA_HAP_SCRIPT=/opt/proteinhub-tools/akta/akta_hap.py
 
-PROTEINHUB_LEGACY_DOMESTICATOR_PYTHON=/opt/proteinhub-tools/domesticator/bin/python
+PROTEINHUB_LEGACY_DOMESTICATOR_PYTHON=/opt/proteinhub-tools/domesticator-env/bin/python
 PROTEINHUB_LEGACY_DOMESTICATOR_SCRIPT=/opt/proteinhub-tools/domesticator/domesticator.py
 PROTEINHUB_LEGACY_DOMESTICATOR_DATABASE=/opt/proteinhub-tools/domesticator/database</code></pre>
+      <p>
+        <code>domesticator-env</code> 是 Python/conda 环境；<code>domesticator</code>
+        是脚本和 database 目录。不要把 conda 环境直接建在已有
+        <code>domesticator.py</code> 和 <code>database/</code> 的目录里。
+      </p>
+      <p>
+        如果服务器上已经有 <code>domesticator.py</code> 和 <code>database/</code>，
+        但 <code>/opt/proteinhub-tools/domesticator/bin/python</code> 不存在，按下面方式创建单独环境：
+      </p>
+      <pre><code>sudo rm -rf /opt/proteinhub-tools/domesticator-env
+sudo chown -R zhaojiao:zhaojiao /opt/proteinhub-tools
+~/anaconda3/bin/conda create -y -p /opt/proteinhub-tools/domesticator-env python=3.7 pip
+/opt/proteinhub-tools/domesticator-env/bin/pip install dnachisel==1.1 biopython==1.72 CAI==1.0.3 scipy==1.4.1 tqdm==4.64.1
+sudo chown -R proteinhub:proteinhub /opt/proteinhub-tools</code></pre>
+      <p>如果你用的是 miniforge，把 conda 命令换成：</p>
+      <pre><code>~/miniforge3/bin/conda create -y -p /opt/proteinhub-tools/domesticator-env python=3.7 pip</code></pre>
       <p>然后确认这些文件真的存在：</p>
       <pre><code>sudo -u proteinhub test -x /opt/proteinhub-tools/akta/bin/python
 sudo -u proteinhub test -f /opt/proteinhub-tools/akta/akta_hap.py
-sudo -u proteinhub test -x /opt/proteinhub-tools/domesticator/bin/python
+sudo -u proteinhub test -x /opt/proteinhub-tools/domesticator-env/bin/python
 sudo -u proteinhub test -f /opt/proteinhub-tools/domesticator/domesticator.py
 sudo -u proteinhub test -d /opt/proteinhub-tools/domesticator/database</code></pre>
       <p>上线前检查外部工具是否可用：</p>
