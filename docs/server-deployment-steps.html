@@ -375,10 +375,27 @@ sudo chown -R "$USER":"$USER" /opt/proteinhub
 git clone https://github.com/Haoyu-Ding/ProteinHub.git /opt/proteinhub
 sudo chown -R proteinhub:proteinhub /opt/proteinhub
 cd /opt/proteinhub
-sudo -u proteinhub git checkout codex-architecture-cleanup</code></pre>
-      <p>创建虚拟环境并安装依赖：</p>
-      <pre><code>sudo -u proteinhub python3.11 -m venv .venv
+sudo -u proteinhub git checkout codex-architecture-cleanup
+sudo -u proteinhub git pull --ff-only</code></pre>
+      <p>
+        创建 Python 3.11 虚拟环境并安装依赖。如果之前误用 Python 3.10 创建过
+        <code>.venv</code>，先删掉旧环境再重建：
+      </p>
+      <pre><code>cd /opt/proteinhub
+sudo rm -rf .venv
+sudo -u proteinhub python3.11 -m venv .venv
+sudo -u proteinhub .venv/bin/python -m pip install -U pip setuptools wheel
 sudo -u proteinhub .venv/bin/pip install -e ".[dev]"</code></pre>
+      <p>安装完成后先确认虚拟环境确实是 Python 3.11+，再跑一次项目检查：</p>
+      <pre><code>cd /opt/proteinhub
+sudo -u proteinhub .venv/bin/python --version
+sudo -u proteinhub .venv/bin/python -m pytest
+sudo -u proteinhub .venv/bin/python -m compileall -q proteinhub tests main.py</code></pre>
+      <p>
+        后续在 <code>/opt/proteinhub</code> 里拉代码时，也用 <code>proteinhub</code> 用户执行，
+        避免 Git 因为目录所有者不同报 <code>dubious ownership</code>：
+      </p>
+      <pre><code>sudo -u proteinhub git -C /opt/proteinhub pull --ff-only</code></pre>
       <p>复制环境变量模板：</p>
       <pre><code>sudo cp /opt/proteinhub/.env.example /etc/proteinhub.env
 sudo chmod 600 /etc/proteinhub.env
@@ -422,7 +439,25 @@ sudo editor /etc/proteinhub.env</code></pre>
         </tbody>
       </table>
       <p>生成 secret 的命令：</p>
-      <pre><code>python3 -c "import secrets; print(secrets.token_urlsafe(48))"</code></pre>
+      <pre><code>python3.11 -c "import secrets; print(secrets.token_urlsafe(48))"</code></pre>
+      <h3>如果你已经完成依赖安装，从这里继续</h3>
+      <p>你刚执行完 <code>pip install -e ".[dev]"</code> 后，下一步就是创建并编辑生产环境变量文件：</p>
+      <pre><code>sudo cp /opt/proteinhub/.env.example /etc/proteinhub.env
+sudo chmod 600 /etc/proteinhub.env
+sudo chown root:root /etc/proteinhub.env
+sudo editor /etc/proteinhub.env</code></pre>
+      <p>编辑时至少替换成你的真实值：</p>
+      <pre><code>PROTEINHUB_DATABASE_URL=postgresql://proteinhub:&lt;真实数据库密码&gt;@127.0.0.1:5432/proteinhub
+PROTEINHUB_ARTIFACT_STORAGE_BACKEND=database
+PROTEINHUB_JWT_SECRET=&lt;python3.11 生成的长随机字符串&gt;
+PROTEINHUB_NICEGUI_STORAGE_SECRET=&lt;另一个长随机字符串&gt;
+PROTEINHUB_ADMIN_EMAILS=&lt;你的管理员邮箱&gt;
+PROTEINHUB_DATA_DIR=/var/lib/proteinhub
+PROTEINHUB_STORAGE_DIR=/var/lib/proteinhub/storage</code></pre>
+      <p>
+        保存后按下面第 5-8 步继续：外部工具检查、安装 systemd service、健康检查、
+        配置 Caddy HTTPS、设置备份。
+      </p>
     </section>
 
     <section id="external-tools">

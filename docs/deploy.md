@@ -95,8 +95,35 @@ sudo chown -R "$USER":"$USER" /opt/proteinhub
 git clone https://github.com/Haoyu-Ding/ProteinHub.git /opt/proteinhub
 sudo chown -R proteinhub:proteinhub /opt/proteinhub
 cd /opt/proteinhub
+sudo -u proteinhub git checkout codex-architecture-cleanup
+sudo -u proteinhub git pull --ff-only
+```
+
+创建 Python 3.11 虚拟环境并安装依赖。如果之前误用 Python 3.10 创建过
+`.venv`，先删掉旧环境再重建：
+
+```bash
+cd /opt/proteinhub
+sudo rm -rf .venv
 sudo -u proteinhub python3.11 -m venv .venv
+sudo -u proteinhub .venv/bin/python -m pip install -U pip setuptools wheel
 sudo -u proteinhub .venv/bin/pip install -e ".[dev]"
+```
+
+安装完成后先确认虚拟环境确实是 Python 3.11+，再跑一次项目检查：
+
+```bash
+cd /opt/proteinhub
+sudo -u proteinhub .venv/bin/python --version
+sudo -u proteinhub .venv/bin/python -m pytest
+sudo -u proteinhub .venv/bin/python -m compileall -q proteinhub tests main.py
+```
+
+后续在 `/opt/proteinhub` 里拉代码时，也用 `proteinhub` 用户执行，避免 Git
+因为目录所有者不同报 `dubious ownership`：
+
+```bash
+sudo -u proteinhub git -C /opt/proteinhub pull --ff-only
 ```
 
 复制环境变量模板：
@@ -117,11 +144,35 @@ sudo chown root:root /etc/proteinhub.env
 生成 secret 可以用：
 
 ```bash
-python3 - <<'PY'
+python3.11 - <<'PY'
 import secrets
 print(secrets.token_urlsafe(48))
 PY
 ```
+
+如果你已经完成上面的 `pip install -e ".[dev]"`，接下来就从这里继续：
+
+```bash
+sudo cp /opt/proteinhub/.env.example /etc/proteinhub.env
+sudo chmod 600 /etc/proteinhub.env
+sudo chown root:root /etc/proteinhub.env
+sudo editor /etc/proteinhub.env
+```
+
+编辑时至少替换这些值：
+
+```bash
+PROTEINHUB_DATABASE_URL=postgresql://proteinhub:<真实数据库密码>@127.0.0.1:5432/proteinhub
+PROTEINHUB_ARTIFACT_STORAGE_BACKEND=database
+PROTEINHUB_JWT_SECRET=<python3.11 生成的长随机字符串>
+PROTEINHUB_NICEGUI_STORAGE_SECRET=<另一个长随机字符串>
+PROTEINHUB_ADMIN_EMAILS=<你的管理员邮箱>
+PROTEINHUB_DATA_DIR=/var/lib/proteinhub
+PROTEINHUB_STORAGE_DIR=/var/lib/proteinhub/storage
+```
+
+保存后继续第 4-7 步：外部工具检查、安装 systemd service、健康检查、
+配置 Caddy HTTPS、设置备份。
 
 ## 4. AKTA 和反向翻译外部工具
 
