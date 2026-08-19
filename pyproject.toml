@@ -8,6 +8,7 @@ dependencies = [
     "dnachisel>=3.2.16",
     "fastapi>=0.115.0",
     "nicegui>=2.0.0",
+    "psycopg[binary]>=3.2.0",
     "python-multipart>=0.0.9",
     "uvicorn[standard]>=0.30.0",
 ]

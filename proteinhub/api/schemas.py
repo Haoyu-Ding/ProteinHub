@@ -5,6 +5,14 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class HealthResponse(BaseModel):
+    status: str
+    database: str
+    database_backend: str
+    storage: str
+    artifact_storage_backend: str
+
+
 class RegisterRequest(BaseModel):
     name: str
     email: str
@@ -20,6 +28,7 @@ class UserResponse(BaseModel):
     id: int
     name: str
     email: str
+    global_role: str = "user"
     created_at: str
 
 
@@ -37,12 +46,10 @@ class ProjectCreateRequest(BaseModel):
 class MemberCreateRequest(BaseModel):
     email: str
     role: str = "member"
-    discipline: str = "other"
 
 
 class MemberUpdateRequest(BaseModel):
     role: str = "member"
-    discipline: str = "other"
 
 
 class ProteinCreateRequest(BaseModel):
@@ -51,6 +58,46 @@ class ProteinCreateRequest(BaseModel):
     description: str = ""
     protein_type: str = "TCR"
     target: str = ""
+    allow_high_similarity: bool = False
+
+
+class ProteinManualRatingUpdateRequest(BaseModel):
+    manual_rating: str = "unrated"
+
+
+class ProteinSequenceCheckItemRequest(BaseModel):
+    name: str
+    sequence: str
+
+
+class ProteinSequenceCheckRequest(BaseModel):
+    items: list[ProteinSequenceCheckItemRequest]
+    similarity_threshold: float = 0.9
+
+
+class ProteinSequenceMatchResponse(BaseModel):
+    protein_id: int | None
+    protein_name: str
+    scope: str
+    match_type: str
+    identity: float
+    alignment_length: int
+
+
+class ProteinSequenceCheckItemResponse(BaseModel):
+    name: str
+    sequence: str
+    sequence_length: int
+    matches: list[ProteinSequenceMatchResponse]
+    has_duplicate: bool
+    has_high_similarity: bool
+
+
+class ProteinSequenceCheckResponse(BaseModel):
+    items: list[ProteinSequenceCheckItemResponse]
+    has_blocking_duplicates: bool
+    has_warnings: bool
+    similarity_threshold: float
 
 
 class BatchCreateRequest(BaseModel):
@@ -90,6 +137,24 @@ class ExperimentWellResultUpdateRequest(BaseModel):
     result_note: str = ""
 
 
+class ExperimentRawFileResponse(BaseModel):
+    id: int
+    experiment_id: int
+    uploaded_by: int
+    well_id: int | None
+    filename: str
+    raw_file_type: str
+    mime_type: str
+    size_bytes: int
+    content_sha256: str
+    created_at: str
+    position: str | None = None
+    protein_id: int | None = None
+    protein_name: str | None = None
+    uploaded_by_name: str
+    uploaded_by_email: str
+
+
 class ProjectResponse(BaseModel):
     id: int
     name: str
@@ -104,7 +169,6 @@ class ProjectMemberResponse(BaseModel):
     name: str
     email: str
     role: str
-    discipline: str
     created_at: str
 
 
@@ -122,10 +186,17 @@ class ProteinResponse(BaseModel):
     description: str
     protein_type: str
     target: str
+    manual_rating: str = "unrated"
+    score_details: dict[str, Any] = Field(default_factory=dict)
+    sequence_similarity_status: str = ""
+    sequence_similarity_matches: list[ProteinSequenceMatchResponse] = Field(default_factory=list)
     structure_filename: str
     structure_mime_type: str
     structure_size_bytes: int
     structure_storage_path: str
+    structure_deposit_date: str = ""
+    effective_date: str = ""
+    effective_date_source: str = ""
     created_at: str
     updated_at: str
 
@@ -167,6 +238,7 @@ class BatchResponse(BaseModel):
     description: str
     plate_format: str
     order_status: str
+    ordered_at: str = ""
     translation_padding: bool = False
     translation_additional_w: bool = False
     translation_organism: str = ""
@@ -183,6 +255,57 @@ class BatchSummaryResponse(BatchResponse):
     well_count: int
     experiment_count: int
     result_count: int
+
+
+class OrderMonitorSummaryResponse(BaseModel):
+    total_ordered_batches: int
+    total_ordered_proteins: int
+    last_ordered_at: str
+    days_since_last_order: int | None
+    cadence_target_days: int
+    cadence_status: str
+    cadence_text: str
+
+
+class WeeklyOrderResponse(BaseModel):
+    week_start: str
+    week_label: str
+    order_count: int
+    protein_count: int
+    batch_ids: list[int]
+
+
+class OrderMonitorBatchResponse(BaseModel):
+    id: int
+    project_id: int
+    project_name: str
+    name: str
+    description: str
+    plate_format: str
+    order_status: str
+    ordered_at: str
+    ordered_week: str
+    days_since_order: int | None
+    well_count: int
+    created_at: str
+    updated_at: str
+    created_by_name: str
+    created_by_email: str
+
+
+class OrderMonitorResponse(BaseModel):
+    summary: OrderMonitorSummaryResponse
+    weekly_orders: list[WeeklyOrderResponse]
+    range_start: str
+    range_end: str
+    batches: list[OrderMonitorBatchResponse]
+
+
+class BatchScoreDensityPlotResponse(BaseModel):
+    metric: str
+    label: str
+    sample_count: int
+    svg: str
 
 
 class BatchWellResponse(BaseModel):
@@ -235,6 +358,8 @@ class BatchDetailResponse(BaseModel):
     batch: BatchResponse
     wells: list[BatchWellResponse]
     experiments: list[ExperimentSummaryResponse]
+    score_density_plots: list[BatchScoreDensityPlotResponse] = Field(default_factory=list)
+    access_role: str = ""
 
 
 class BatchTranslationSequenceResponse(BaseModel):
@@ -260,6 +385,7 @@ class BatchTranslationResponse(BaseModel):
 class ExperimentDetailResponse(BaseModel):
     experiment: ExperimentResponse
     results: list[ExperimentWellResultResponse]
+    access_role: str = ""
 
 
 class ProteinBatchResultResponse(BaseModel):
@@ -284,3 +410,4 @@ class ProteinDetailResponse(BaseModel):
     protein: ProteinResponse
     artifacts: list[ArtifactResponse]
     batch_results: list[ProteinBatchResultResponse]
+    access_role: str = ""

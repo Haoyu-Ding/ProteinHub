@@ -120,6 +120,15 @@ def rebuild_proteins_without_retired_columns(connection: sqlite3.Connection) -> 
                 ELSE protein_type
             END
         """
+    manual_rating_expression = "'unrated'"
+    if "manual_rating" in columns:
+        manual_rating_expression = """
+            CASE
+                WHEN manual_rating IN ('unrated', 'normal', 'rare', 'epic', 'legendary')
+                THEN manual_rating
+                ELSE 'unrated'
+            END
+        """
 
     connection.execute(
         """
@@ -132,14 +141,59 @@ def rebuild_proteins_without_retired_columns(connection: sqlite3.Connection) -> 
             description TEXT NOT NULL DEFAULT '',
             protein_type TEXT NOT NULL DEFAULT 'TCR',
             target TEXT NOT NULL DEFAULT '',
+            manual_rating TEXT NOT NULL DEFAULT 'unrated' CHECK (manual_rating IN ('unrated', 'normal', 'rare', 'epic', 'legendary')),
+            score_details_json TEXT NOT NULL DEFAULT '{}',
+            sequence_similarity_status TEXT NOT NULL DEFAULT '',
+            sequence_similarity_matches_json TEXT NOT NULL DEFAULT '[]',
             structure_filename TEXT NOT NULL DEFAULT '',
             structure_mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
             structure_size_bytes INTEGER NOT NULL DEFAULT 0,
             structure_storage_path TEXT NOT NULL DEFAULT '',
+            structure_storage_backend TEXT NOT NULL DEFAULT 'filesystem' CHECK (structure_storage_backend IN ('filesystem', 'database')),
+            structure_content BLOB,
+            structure_content_sha256 TEXT NOT NULL DEFAULT '',
+            structure_deposit_date TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
         """
+    )
+    score_details_expression = "'{}'"
+    if "score_details_json" in columns:
+        score_details_expression = "COALESCE(NULLIF(score_details_json, ''), '{}')"
+    similarity_status_expression = (
+        "sequence_similarity_status"
+        if "sequence_similarity_status" in columns
+        else "''"
+    )
+    similarity_matches_expression = (
+        "COALESCE(NULLIF(sequence_similarity_matches_json, ''), '[]')"
+        if "sequence_similarity_matches_json" in columns
+        else "'[]'"
+    )
+    structure_deposit_date_expression = (
+        "COALESCE(structure_deposit_date, '')"
+        if "structure_deposit_date" in columns
+        else "''"
+    )
+    structure_storage_backend_expression = (
+        """
+            CASE
+                WHEN structure_storage_backend IN ('filesystem', 'database')
+                THEN structure_storage_backend
+                ELSE 'filesystem'
+            END
+        """
+        if "structure_storage_backend" in columns
+        else "'filesystem'"
+    )
+    structure_content_expression = (
+        "structure_content" if "structure_content" in columns else "NULL"
+    )
+    structure_content_sha256_expression = (
+        "COALESCE(structure_content_sha256, '')"
+        if "structure_content_sha256" in columns
+        else "''"
     )
     connection.execute(
         f"""
@@ -152,10 +206,18 @@ def rebuild_proteins_without_retired_columns(connection: sqlite3.Connection) -> 
             description,
             protein_type,
             target,
+            manual_rating,
+            score_details_json,
+            sequence_similarity_status,
+            sequence_similarity_matches_json,
             structure_filename,
             structure_mime_type,
             structure_size_bytes,
             structure_storage_path,
+            structure_storage_backend,
+            structure_content,
+            structure_content_sha256,
+            structure_deposit_date,
             created_at,
             updated_at
         )
@@ -168,10 +230,18 @@ def rebuild_proteins_without_retired_columns(connection: sqlite3.Connection) -> 
             description,
             {protein_type_expression},
             target,
+            {manual_rating_expression},
+            {score_details_expression},
+            {similarity_status_expression},
+            {similarity_matches_expression},
             structure_filename,
             structure_mime_type,
             structure_size_bytes,
             structure_storage_path,
+            {structure_storage_backend_expression},
+            {structure_content_expression},
+            {structure_content_sha256_expression},
+            {structure_deposit_date_expression},
             created_at,
             COALESCE(NULLIF(updated_at, ''), created_at, CURRENT_TIMESTAMP)
         FROM proteins
@@ -187,6 +257,7 @@ def rebuild_batches_without_retired_columns(connection: sqlite3.Connection) -> N
     columns = table_columns(connection, "batches")
     if not columns.intersection(RETIRED_BATCH_COLUMNS):
         return
+    ordered_at_expression = "ordered_at" if "ordered_at" in columns else "''"
 
     connection.execute(
         """
@@ -197,6 +268,7 @@ def rebuild_batches_without_retired_columns(connection: sqlite3.Connection) -> N
             description TEXT NOT NULL DEFAULT '',
             plate_format TEXT NOT NULL DEFAULT '96' CHECK (plate_format IN ('96')),
             order_status TEXT NOT NULL DEFAULT 'not_ordered' CHECK (order_status IN ('not_ordered', 'ordered', 'partially_received', 'fully_received')),
+            ordered_at TEXT NOT NULL DEFAULT '',
             translation_padding INTEGER NOT NULL DEFAULT 0,
             translation_additional_w INTEGER NOT NULL DEFAULT 0,
             translation_organism TEXT NOT NULL DEFAULT '',
@@ -209,7 +281,7 @@ def rebuild_batches_without_retired_columns(connection: sqlite3.Connection) -> N
         """
     )
     connection.execute(
-        """
+        f"""
         INSERT INTO batches_new (
             id,
             project_id,
@@ -217,6 +289,7 @@ def rebuild_batches_without_retired_columns(connection: sqlite3.Connection) -> N
             description,
             plate_format,
             order_status,
+            ordered_at,
             translation_padding,
             translation_additional_w,
             translation_organism,
@@ -233,6 +306,7 @@ def rebuild_batches_without_retired_columns(connection: sqlite3.Connection) -> N
             description,
             plate_format,
             COALESCE(NULLIF(order_status, ''), 'not_ordered'),
+            COALESCE(NULLIF({ordered_at_expression}, ''), ''),
             translation_padding,
             translation_additional_w,
             translation_organism,

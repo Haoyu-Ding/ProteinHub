@@ -33,6 +33,7 @@ AKTA_HAP_PYTHON_CANDIDATES = (
 AKTA_HAP_SCRIPT_CANDIDATES = (
     HOME_DIR / "Documents/SMARTS_intern/LJW-AKTAResults/akta_hap.py",
 )
+DEFAULT_ADMIN_EMAILS = ("ruolan.chen@northstar-bio.local",)
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,9 @@ class Settings:
     storage_root: Path
     jwt_secret: str
     nicegui_storage_secret: str
+    database_url: str = ""
+    artifact_storage_backend: str = "filesystem"
+    admin_emails: tuple[str, ...] = DEFAULT_ADMIN_EMAILS
     jwt_issuer: str = "proteinhub"
     token_ttl_seconds: int = 60 * 60 * 24
     legacy_domesticator_python: Path | None = None
@@ -56,11 +60,16 @@ def get_settings() -> Settings:
     data_dir = Path(os.getenv("PROTEINHUB_DATA_DIR", BASE_DIR / "data"))
     storage_root = Path(os.getenv("PROTEINHUB_STORAGE_DIR", BASE_DIR / "storage"))
     database_path = Path(os.getenv("PROTEINHUB_DATABASE", data_dir / "proteinhub.sqlite3"))
+    database_url = os.getenv("PROTEINHUB_DATABASE_URL", "")
+    artifact_storage_backend = os.getenv("PROTEINHUB_ARTIFACT_STORAGE_BACKEND", "").strip()
+    if not artifact_storage_backend:
+        artifact_storage_backend = "database" if database_url else "filesystem"
     jwt_secret = os.getenv("PROTEINHUB_JWT_SECRET", "dev-only-change-me")
     nicegui_storage_secret = os.getenv(
         "PROTEINHUB_NICEGUI_STORAGE_SECRET",
         "dev-storage-secret",
     )
+    admin_emails = _admin_emails_from_env(os.getenv("PROTEINHUB_ADMIN_EMAILS"))
     legacy_domesticator_python = _path_from_env_or_candidates(
         "PROTEINHUB_LEGACY_DOMESTICATOR_PYTHON",
         LEGACY_DOMESTICATOR_PYTHON_CANDIDATES,
@@ -92,9 +101,12 @@ def get_settings() -> Settings:
     )
     return Settings(
         database_path=database_path,
+        database_url=database_url,
         storage_root=storage_root,
+        artifact_storage_backend=artifact_storage_backend,
         jwt_secret=jwt_secret,
         nicegui_storage_secret=nicegui_storage_secret,
+        admin_emails=admin_emails,
         legacy_domesticator_python=legacy_domesticator_python,
         legacy_domesticator_script=legacy_domesticator_script,
         legacy_domesticator_database=legacy_domesticator_database,
@@ -103,6 +115,17 @@ def get_settings() -> Settings:
         akta_hap_script=akta_hap_script,
         akta_hap_timeout_seconds=akta_hap_timeout_seconds,
     )
+
+
+def _admin_emails_from_env(value: str | None) -> tuple[str, ...]:
+    emails = {email.lower() for email in DEFAULT_ADMIN_EMAILS}
+    if value:
+        emails.update(
+            email.strip().lower()
+            for email in value.replace(";", ",").split(",")
+            if email.strip()
+        )
+    return tuple(sorted(emails))
 
 
 def _optional_path(value: str | None) -> Path | None:

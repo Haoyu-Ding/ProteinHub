@@ -5,13 +5,13 @@ from nicegui import ui
 
 from proteinhub.api import create_api_router
 from proteinhub.config import get_settings
-from proteinhub.infrastructure.sqlite.connection import init_db
+from proteinhub.infrastructure.database.connection import init_db
 from proteinhub.ui import install_ui
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    init_db(settings.database_path)
+    init_db(settings)
     settings.storage_root.mkdir(parents=True, exist_ok=True)
 
     app = FastAPI(title="ProteinHub MVP")

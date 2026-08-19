@@ -134,11 +134,54 @@ class BatchRepository:
         self.connection.execute(
             """
             UPDATE batches
-            SET order_status = ?, updated_at = CURRENT_TIMESTAMP
+            SET
+                order_status = ?,
+                ordered_at = CASE
+                    WHEN ? IN ('ordered', 'partially_received', 'fully_received')
+                     AND ordered_at = ''
+                    THEN CURRENT_TIMESTAMP
+                    ELSE ordered_at
+                END,
+                updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """,
-            (order_status, batch_id),
+            (order_status, order_status, batch_id),
         )
+
+    def list_order_monitor_batches(self) -> list[dict]:
+        return self.connection.execute(
+            """
+            SELECT
+                batches.id,
+                batches.project_id,
+                projects.name AS project_name,
+                batches.name,
+                batches.description,
+                batches.plate_format,
+                batches.order_status,
+                batches.ordered_at,
+                CASE
+                    WHEN batches.ordered_at != '' THEN batches.ordered_at
+                    WHEN batches.order_status IN ('ordered', 'partially_received', 'fully_received')
+                    THEN batches.updated_at
+                    ELSE ''
+                END AS order_monitor_ordered_at,
+                batches.created_at,
+                batches.updated_at,
+                users.name AS created_by_name,
+                users.email AS created_by_email,
+                (
+                    SELECT COUNT(*)
+                    FROM batch_wells
+                    WHERE batch_wells.batch_id = batches.id
+                ) AS well_count
+            FROM batches
+            JOIN projects ON projects.id = batches.project_id
+            JOIN users ON users.id = batches.created_by
+            WHERE batches.order_status IN ('ordered', 'partially_received', 'fully_received')
+            ORDER BY order_monitor_ordered_at DESC, batches.id DESC
+            """,
+        ).fetchall()
 
     def update_well_translation_result(
         self,
@@ -173,7 +216,8 @@ class BatchRepository:
                 batch_wells.*,
                 proteins.name AS protein_name,
                 proteins.sequence AS protein_sequence,
-                proteins.protein_type AS protein_type
+                proteins.protein_type AS protein_type,
+                proteins.score_details_json AS score_details_json
             FROM batch_wells
             JOIN proteins ON proteins.id = batch_wells.protein_id
             WHERE batch_wells.batch_id = ?
@@ -260,21 +304,6 @@ class BatchRepository:
         self.update_well_position(
             well_id=first_well["id"],
             position=second_well["position"],
-        )
-
-    def update_well_result(
-        self, *, well_id: int, result_value: str, result_note: str
-    ) -> None:
-        self.connection.execute(
-            """
-            UPDATE batch_wells
-            SET
-                result_value = ?,
-                result_note = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-            """,
-            (result_value, result_note, well_id),
         )
 
     def list_results_for_protein(self, protein_id: int) -> list[dict]:

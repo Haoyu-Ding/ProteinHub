@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,7 +9,7 @@ from fastapi import Depends, Header, HTTPException
 
 from proteinhub.config import Settings
 from proteinhub.domain.errors import DomainError
-from proteinhub.infrastructure.sqlite.connection import connect
+from proteinhub.infrastructure.database.connection import connect
 from proteinhub.security import decode_token
 from proteinhub.application.auth_service import get_user
 
@@ -27,8 +26,8 @@ def map_domain_error(error: DomainError) -> HTTPException:
 
 
 def build_dependencies(context: ApiContext):
-    def get_connection() -> Iterator[sqlite3.Connection]:
-        connection = connect(context.database_path)
+    def get_connection() -> Iterator:
+        connection = connect(context.settings)
         try:
             yield connection
         finally:
@@ -36,7 +35,7 @@ def build_dependencies(context: ApiContext):
 
     def current_user(
         authorization: Annotated[str | None, Header()] = None,
-        connection: sqlite3.Connection = Depends(get_connection),
+        connection = Depends(get_connection),
     ) -> dict:
         if not authorization or not authorization.lower().startswith("bearer "):
             raise HTTPException(status_code=401, detail="Missing bearer token")
@@ -47,7 +46,11 @@ def build_dependencies(context: ApiContext):
                 context.settings.jwt_secret,
                 issuer=context.settings.jwt_issuer,
             )
-            return get_user(connection, int(payload["sub"]))
+            return get_user(
+                connection,
+                int(payload["sub"]),
+                admin_emails=context.settings.admin_emails,
+            )
         except (DomainError, ValueError, KeyError):
             raise HTTPException(status_code=401, detail="Invalid bearer token") from None
 

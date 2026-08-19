@@ -7,12 +7,12 @@ Project -> Protein -> Artifact
 Project -> Batch -> Experiment -> BatchWell -> Protein
 ```
 
-Project 负责权限边界。Protein 是核心科研记录，并且直接携带唯一的氨基酸序列。Batch 是项目内的一次 96 孔板式蛋白集合与孔位映射。Experiment 挂在 Batch 下，目前类型为 FPLC、SPR、HPLC；每个 Experiment 通过 BatchWell 把结果映射回对应 Protein。Artifact 用来把实验资料、分析结果和其他文件挂载到某个蛋白上。
+Project 负责权限边界。Protein 是核心科研记录，并且直接携带唯一的氨基酸序列。Batch 是项目内的一次 96 孔板式蛋白集合与孔位映射。Experiment 挂在 Batch 下，目前类型为 FPLC、SPR、HPLC、AKTA；每个 Experiment 通过 BatchWell 把结果映射回对应 Protein。Artifact 用来把实验资料、分析结果和其他文件挂载到某个蛋白上。Experiment raw files 用来保存不适合直接挂到某一个 protein 的原始上传文件，以及 HPLC 这类需要复算的 per-well 输入文件。
 
 ## 架构目标
 
 - 框架代码和业务规则分离。
-- 业务规则和 SQLite 查询、文件系统写入分离。
+- 业务规则和数据库查询、文件/bytes 写入分离。
 - UI 行为必须通过公开 API 进入后端。
 - 未来更换存储、数据库或处理流程时，变更应尽量局部化在某一层。
 - 保持 MVP 足够轻量，同时给数据库迁移和类型化领域对象留下空间。
@@ -83,9 +83,10 @@ Domain 代码不应 import `api`、`application`、`infrastructure` 或 `ui`。
 
 Infrastructure 层负责外部实现细节：
 
-- SQLite connection 和 schema
-- repository SQL
-- 本地文件存储
+- database connection 选择和 schema 初始化
+- SQLite repository SQL
+- PostgreSQL schema setup
+- 本地文件存储与数据库内 bytes 存储
 - 安全的存储路径解析
 
 Infrastructure 代码不应该编码产品策略，除非该规则是技术不变量，例如阻止 storage path escape。
@@ -126,7 +127,7 @@ ui -> api -> application -> infrastructure
 
 ## 数据归属
 
-SQLite 只存 metadata：
+数据库存储以下结构化数据：
 
 - users
 - projects
@@ -135,10 +136,18 @@ SQLite 只存 metadata：
 - batches
 - batch wells
 - artifact metadata
+- experiment raw-file metadata and bytes
 
-文件系统把 artifact bytes 存在 `storage/` 下。数据库行只保存相对存储路径。
+本地开发默认使用 SQLite 和文件系统。服务器部署可以通过
+`PROTEINHUB_DATABASE_URL` 切换到 PostgreSQL；该模式默认把 artifact bytes
+和 protein structure bytes 存入数据库 BLOB/BYTEA 字段，同时保留相对路径
+metadata 用于命名、审计和兼容已有 API。Experiment raw files 始终直接存入
+数据库 BLOB/BYTEA 字段。AKTA zip 已经作为 protein artifact 存储，不在
+experiment raw-file 表重复存储。
 
-所有 artifact 路径都必须由 infrastructure storage helper 生成。用户提供的 filename 在参与路径构造前必须被 sanitize。
+所有 artifact 路径都必须由 infrastructure storage helper 生成。用户提供的
+filename 在参与路径构造前必须被 sanitize。Repository 查询不应把 bytes 字段
+带入普通 API 响应；下载 bytes 必须单独经过 API 授权检查。
 
 ## 权限
 
@@ -149,6 +158,7 @@ SQLite 只存 metadata：
 - 任意 project member 可以创建 batch 和回填 batch well 结果。
 - 只有 project owner 可以添加成员。
 - 只有 project owner 可以删除 artifact。
+- 只有全局 admin 可以删除 project。
 
 权限检查应放在 `application/permissions.py` 或 application service 中，不应在 API 路由或 UI 页面里重复实现。
 
@@ -175,5 +185,4 @@ Infrastructure 代码可以为意外失败抛出技术异常。如果某个技�
 1. 在 schema 变更变频繁之前加入数据库 migration。
 2. 引入 typed domain models 或 DTOs，减少跨层 `dict` 使用。
 3. 当 repository 继续变大时，按 aggregate 拆分 SQLite repositories。
-4. 在加入非本地存储前，引入 file store protocol。
-5. 如果 NiceGUI 页面继续增长，把 UI 拆成 package。
+4. 如果 NiceGUI 页面继续增长，把 UI 拆成 package。

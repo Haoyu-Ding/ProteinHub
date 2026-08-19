@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import re
 import shlex
 from dataclasses import dataclass, replace
+from datetime import date
 
 from proteinhub.domain.errors import DomainError
 
@@ -41,6 +43,21 @@ THREE_TO_ONE = {
     "CSO": "C",
     "CME": "C",
 }
+PDB_DATE_MONTHS = {
+    "JAN": 1,
+    "FEB": 2,
+    "MAR": 3,
+    "APR": 4,
+    "MAY": 5,
+    "JUN": 6,
+    "JUL": 7,
+    "AUG": 8,
+    "SEP": 9,
+    "OCT": 10,
+    "NOV": 11,
+    "DEC": 12,
+}
+MMCIF_DEPOSIT_DATE_FIELD = "_pdbx_database_status.recvd_initial_deposition_date"
 
 
 @dataclass(frozen=True)
@@ -72,6 +89,91 @@ def extract_structure_sequence(filename: str, content: bytes) -> dict:
             }
 
     raise DomainError("No chain A protein sequence found in PDB or mmCIF file")
+
+
+def extract_structure_deposit_date(filename: str, content: bytes) -> str:
+    text = content.decode("utf-8", errors="replace")
+    if filename.lower().endswith((".cif", ".mmcif")):
+        return _extract_mmcif_deposit_date(text)
+    return _extract_pdb_deposit_date(text)
+
+
+def _extract_pdb_deposit_date(text: str) -> str:
+    for line in text.splitlines():
+        if line[:6].strip() != "HEADER":
+            continue
+        candidates = [line[50:59], line]
+        for candidate in candidates:
+            match = re.search(r"\b(\d{2})-([A-Za-z]{3})-(\d{2})\b", candidate)
+            if not match:
+                continue
+            day_text, month_text, year_text = match.groups()
+            month = PDB_DATE_MONTHS.get(month_text.upper())
+            if not month:
+                continue
+            year = int(year_text)
+            full_year = 1900 + year if year >= 70 else 2000 + year
+            try:
+                return date(full_year, month, int(day_text)).isoformat()
+            except ValueError:
+                continue
+    return ""
+
+
+def _extract_mmcif_deposit_date(text: str) -> str:
+    tokens = _cif_tokens(text)
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        lower_token = token.lower()
+        if lower_token == "loop_":
+            index = _consume_deposit_date_loop(tokens, index + 1)
+            if isinstance(index, tuple):
+                return index[1]
+            continue
+        if lower_token == MMCIF_DEPOSIT_DATE_FIELD:
+            value = tokens[index + 1] if index + 1 < len(tokens) else ""
+            return _normalize_iso_date(value)
+        index += 1
+    return ""
+
+
+def _consume_deposit_date_loop(tokens: list[str], index: int) -> int | tuple[int, str]:
+    headers: list[str] = []
+    while index < len(tokens) and tokens[index].startswith("_"):
+        headers.append(tokens[index].lower())
+        index += 1
+
+    values: list[str] = []
+    while index < len(tokens):
+        token = tokens[index]
+        if token.lower() == "loop_" or token.lower().startswith("data_"):
+            break
+        if token.startswith("_") and (not headers or len(values) % len(headers) == 0):
+            break
+        values.append(token)
+        index += 1
+
+    if MMCIF_DEPOSIT_DATE_FIELD not in headers:
+        return index
+    column_count = len(headers)
+    date_index = headers.index(MMCIF_DEPOSIT_DATE_FIELD)
+    for row_start in range(0, len(values) - column_count + 1, column_count):
+        value = values[row_start + date_index]
+        deposit_date = _normalize_iso_date(value)
+        if deposit_date:
+            return index, deposit_date
+    return index
+
+
+def _normalize_iso_date(value: str) -> str:
+    text = value.strip()
+    if not text or text in {".", "?"}:
+        return ""
+    try:
+        return date.fromisoformat(text[:10]).isoformat()
+    except ValueError:
+        return ""
 
 
 def _extract_pdb_seqres(text: str) -> list[StructureSequence]:

@@ -16,12 +16,15 @@ from proteinhub.api.schemas import (
     ProjectResponse,
     ProteinCreateRequest,
     ProteinResponse,
+    ProteinSequenceCheckRequest,
+    ProteinSequenceCheckResponse,
     StructureSequenceResponse,
     UserResponse,
 )
 from proteinhub.application.project_service import (
     add_project_member,
     create_project,
+    delete_project,
     get_project,
     list_project_members,
     list_projects,
@@ -29,6 +32,7 @@ from proteinhub.application.project_service import (
     update_project_member,
 )
 from proteinhub.application.protein_service import (
+    check_project_protein_sequences,
     create_protein,
     create_protein_with_structure_file,
     import_proteins_from_structures,
@@ -69,6 +73,17 @@ def create_projects_router(
         except DomainError as error:
             raise map_domain_error(error) from error
 
+    @router.delete("/projects/{project_id}", status_code=204)
+    def delete_project_route(
+        project_id: int,
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> None:
+        try:
+            delete_project(connection, project_id=project_id, user_id=user["id"])
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
     @router.get("/projects/{project_id}", response_model=ProjectDetailResponse)
     def project_detail(
         project_id: int,
@@ -99,7 +114,6 @@ def create_projects_router(
                 owner_user_id=user["id"],
                 email=payload.email,
                 role=payload.role,
-                discipline=payload.discipline,
             )
         except DomainError as error:
             raise map_domain_error(error) from error
@@ -122,7 +136,6 @@ def create_projects_router(
                 owner_user_id=user["id"],
                 member_user_id=member_user_id,
                 role=payload.role,
-                discipline=payload.discipline,
             )
         except DomainError as error:
             raise map_domain_error(error) from error
@@ -153,11 +166,23 @@ def create_projects_router(
     )
     def proteins(
         project_id: int,
+        ratings: list[str] = Query(default=[]),
+        date_from: str = Query(default=""),
+        date_to: str = Query(default=""),
+        sort: str = Query(default="time_desc"),
         user: dict = Depends(current_user),
         connection: sqlite3.Connection = Depends(get_connection),
     ) -> list[dict]:
         try:
-            return list_proteins(connection, project_id=project_id, user_id=user["id"])
+            return list_proteins(
+                connection,
+                project_id=project_id,
+                user_id=user["id"],
+                manual_ratings=ratings,
+                date_from=date_from,
+                date_to=date_to,
+                sort=sort,
+            )
         except DomainError as error:
             raise map_domain_error(error) from error
 
@@ -178,6 +203,31 @@ def create_projects_router(
                 description=payload.description,
                 protein_type=payload.protein_type,
                 target=payload.target,
+                allow_high_similarity=payload.allow_high_similarity,
+            )
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.post(
+        "/projects/{project_id}/proteins/sequence-check",
+        response_model=ProteinSequenceCheckResponse,
+    )
+    def check_protein_sequences_route(
+        project_id: int,
+        payload: ProteinSequenceCheckRequest,
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> dict:
+        try:
+            return check_project_protein_sequences(
+                connection,
+                project_id=project_id,
+                user_id=user["id"],
+                items=[
+                    {"name": item.name, "sequence": item.sequence}
+                    for item in payload.items
+                ],
+                similarity_threshold=payload.similarity_threshold,
             )
         except DomainError as error:
             raise map_domain_error(error) from error
@@ -189,9 +239,11 @@ def create_projects_router(
     def import_protein_structures_route(
         project_id: int,
         files: list[UploadFile] = File(...),
+        score_file: UploadFile | None = File(default=None),
         protein_type: str = Form(default="TCR"),
         target: str = Form(default=""),
         description: str = Form(default=""),
+        allow_high_similarity: bool = Form(default=False),
         user: dict = Depends(current_user),
         connection: sqlite3.Connection = Depends(get_connection),
     ) -> list[dict]:
@@ -209,9 +261,19 @@ def create_projects_router(
                     )
                     for file in files
                 ],
+                score_file=(
+                    (
+                        score_file.filename or "scores.csv",
+                        score_file.content_type or "text/csv",
+                        score_file.file.read(),
+                    )
+                    if score_file is not None
+                    else None
+                ),
                 description=description,
                 protein_type=protein_type,
                 target=target,
+                allow_high_similarity=allow_high_similarity,
             )
         except DomainError as error:
             raise map_domain_error(error) from error
@@ -227,6 +289,7 @@ def create_projects_router(
         protein_type: str = Form(default="TCR"),
         target: str = Form(default=""),
         description: str = Form(default=""),
+        allow_high_similarity: bool = Form(default=False),
         file: UploadFile = File(...),
         user: dict = Depends(current_user),
         connection: sqlite3.Connection = Depends(get_connection),
@@ -245,6 +308,7 @@ def create_projects_router(
                 filename=file.filename or "structure.pdb",
                 content_type=file.content_type or "application/octet-stream",
                 content=file.file.read(),
+                allow_high_similarity=allow_high_similarity,
             )
         except DomainError as error:
             raise map_domain_error(error) from error

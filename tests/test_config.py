@@ -97,3 +97,32 @@ def test_get_settings_prefers_explicit_akta_hap_env(
 
     assert settings.akta_hap_python == python_path
     assert settings.akta_hap_script == script_path
+
+
+def test_get_settings_defaults_to_database_file_storage_for_postgres(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "PROTEINHUB_DATABASE_URL",
+        "postgresql://proteinhub:secret@localhost/proteinhub",
+    )
+    monkeypatch.delenv("PROTEINHUB_ARTIFACT_STORAGE_BACKEND", raising=False)
+
+    settings = config.get_settings()
+
+    assert settings.database_url == "postgresql://proteinhub:secret@localhost/proteinhub"
+    assert settings.artifact_storage_backend == "database"
+
+
+def test_get_settings_allows_filesystem_storage_with_postgres(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "PROTEINHUB_DATABASE_URL",
+        "postgresql://proteinhub:secret@localhost/proteinhub",
+    )
+    monkeypatch.setenv("PROTEINHUB_ARTIFACT_STORAGE_BACKEND", "filesystem")
+
+    settings = config.get_settings()
+
+    assert settings.artifact_storage_backend == "filesystem"

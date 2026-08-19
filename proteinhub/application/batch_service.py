@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import math
 import re
 import sqlite3
 from collections.abc import Mapping
@@ -8,7 +10,11 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-from proteinhub.application.permissions import project_for_protein, require_project_role
+from proteinhub.application.permissions import (
+    project_for_protein,
+    require_project_read,
+    require_project_write,
+)
 from proteinhub.application.plate_workbook import (
     build_plate_workbook,
     build_summary_workbook,
@@ -17,23 +23,34 @@ from proteinhub.application.validation import required
 from proteinhub.config import Settings
 from proteinhub.domain.errors import ConflictError, DomainError, NotFoundError
 from proteinhub.domain.experiments import experiment_class_for
-from proteinhub.infrastructure.sqlite.connection import transaction
+from proteinhub.domain.plate_positions import (
+    PLATE_96_POSITIONS,
+    extract_unique_plate_position,
+)
+from proteinhub.infrastructure.database.connection import transaction
 from proteinhub.infrastructure.sqlite.repositories import (
     ArtifactRepository,
     BatchRepository,
     ExperimentRepository,
+    ExperimentRawFileRepository,
     ProteinRepository,
 )
 from proteinhub.infrastructure.akta import render_akta_pngs
-from proteinhub.infrastructure.storage.local_file_store import LocalFileStore
+from proteinhub.infrastructure.plots import render_score_density_svg
+from proteinhub.infrastructure.storage.database_file_store import DatabaseFileStore
+from proteinhub.infrastructure.storage.file_store import file_store_for
+from proteinhub.infrastructure.spr import (
+    extract_spr_chart_spec,
+    format_spr_concentration_text,
+    read_spr_concentration_csv,
+    read_spr_pptx,
+    render_spr_chart_svg,
+)
 from proteinhub.infrastructure.translation.legacy_domesticator import (
     optimize_with_legacy_domesticator,
 )
 
 
-PLATE_96_POSITIONS = [
-    f"{row}{column:02d}" for row in "ABCDEFGH" for column in range(1, 13)
-]
 POSITION_UPDATE_MODES = {"move", "swap"}
 TRANSLATION_ORGANISMS = {"E. coli"}
 TRANSLATION_RESISTANCES = {"Amp", "Kan", "Tet", "Cam", "Sep"}
@@ -49,15 +66,34 @@ BATCH_ORDER_STATUS_TRANSITIONS = {
     "partially_received": {"partially_received", "fully_received"},
     "fully_received": {"fully_received"},
 }
+SCORE_DENSITY_PREFERRED_ORDER = (
+    "plddt_binder",
+    "binder_aligned_rmsd",
+    "pae_interaction",
+    "target_aligned_rmsd",
+    "contact_molecular_surface",
+    "ddg",
+    "sap_score",
+    "norm_ddg",
+)
+SCORE_DENSITY_LABELS = {
+    "plddt_binder": "pLDDT binder",
+    "binder_aligned_rmsd": "binder aligned RMSD",
+    "pae_interaction": "PAE interaction",
+    "target_aligned_rmsd": "target aligned RMSD",
+    "contact_molecular_surface": "contact molecular surface",
+    "ddg": "ddG",
+    "sap_score": "SAP score",
+    "norm_ddg": "normalized ddG",
+}
 PADDING_FILLER = "GGSGGSGGS"
 LONG_PADDING_PREFIX = "GSHHHHHH*"
-AKTA_POSITION_FILENAME_RE = re.compile(r"^([A-H])0?([1-9]|1[0-2])$", re.IGNORECASE)
 
 
 def list_batches(
     connection: sqlite3.Connection, *, project_id: int, user_id: int
 ) -> list[dict]:
-    require_project_role(connection, project_id=project_id, user_id=user_id)
+    require_project_read(connection, project_id=project_id, user_id=user_id)
     return BatchRepository(connection).list_for_project(project_id)
 
 
@@ -72,7 +108,7 @@ def create_batch(
     plate_format: str = "96",
     start_position: str = "A01",
 ) -> dict:
-    require_project_role(connection, project_id=project_id, user_id=user_id)
+    require_project_write(connection, project_id=project_id, user_id=user_id)
     batch_name = required(name, "Batch name")
     normalized_plate_format = plate_format.strip() or "96"
     if normalized_plate_format != "96":
@@ -109,15 +145,22 @@ def get_batch(
     connection: sqlite3.Connection, *, batch_id: int, user_id: int
 ) -> dict:
     project_id = project_for_batch(connection, batch_id)
-    require_project_role(connection, project_id=project_id, user_id=user_id)
+    access_role = require_project_read(
+        connection,
+        project_id=project_id,
+        user_id=user_id,
+    )
     batch_repository = BatchRepository(connection)
     batch = batch_repository.get(batch_id)
     if not batch:
         raise NotFoundError("Batch not found")
+    wells = batch_repository.list_wells(batch_id)
     return {
         "batch": batch,
-        "wells": batch_repository.list_wells(batch_id),
+        "wells": wells,
         "experiments": ExperimentRepository(connection).list_for_batch(batch_id),
+        "score_density_plots": _batch_score_density_plots(wells),
+        "access_role": access_role,
     }
 
 
@@ -131,7 +174,7 @@ def update_batch_well_position(
     mode: str = "move",
 ) -> dict:
     project_id = project_for_batch(connection, batch_id)
-    require_project_role(connection, project_id=project_id, user_id=user_id)
+    require_project_write(connection, project_id=project_id, user_id=user_id)
     normalized_position = _normalize_plate_position(position)
     normalized_mode = mode.strip().lower() or "move"
     if normalized_mode not in POSITION_UPDATE_MODES:
@@ -179,7 +222,7 @@ def update_batch_order_status(
     order_status: str,
 ) -> dict:
     project_id = project_for_batch(connection, batch_id)
-    require_project_role(connection, project_id=project_id, user_id=user_id)
+    require_project_write(connection, project_id=project_id, user_id=user_id)
     batch_repository = BatchRepository(connection)
     batch = batch_repository.get(batch_id)
     if not batch:
@@ -208,7 +251,7 @@ def list_batch_experiments(
     user_id: int,
 ) -> list[dict]:
     project_id = project_for_batch(connection, batch_id)
-    require_project_role(connection, project_id=project_id, user_id=user_id)
+    require_project_read(connection, project_id=project_id, user_id=user_id)
     return ExperimentRepository(connection).list_for_batch(batch_id)
 
 
@@ -223,7 +266,7 @@ def create_batch_experiment(
     details: Mapping[str, Any] | None = None,
 ) -> dict:
     project_id = project_for_batch(connection, batch_id)
-    require_project_role(connection, project_id=project_id, user_id=user_id)
+    require_project_write(connection, project_id=project_id, user_id=user_id)
     experiment_class = experiment_class_for(experiment_type)
     experiment_name = required(name, "Experiment name")
     normalized_details = experiment_class.normalize_details(details)
@@ -250,7 +293,11 @@ def get_batch_experiment(
     user_id: int,
 ) -> dict:
     project_id = project_for_experiment(connection, experiment_id)
-    require_project_role(connection, project_id=project_id, user_id=user_id)
+    access_role = require_project_read(
+        connection,
+        project_id=project_id,
+        user_id=user_id,
+    )
     experiments = ExperimentRepository(connection)
     experiment = experiments.get(experiment_id)
     if not experiment:
@@ -258,6 +305,7 @@ def get_batch_experiment(
     return {
         "experiment": experiment,
         "results": experiments.list_well_results(experiment_id),
+        "access_role": access_role,
     }
 
 
@@ -271,7 +319,7 @@ def update_experiment_well_result(
     result_note: str = "",
 ) -> dict:
     project_id = project_for_experiment(connection, experiment_id)
-    require_project_role(connection, project_id=project_id, user_id=user_id)
+    require_project_write(connection, project_id=project_id, user_id=user_id)
     experiments = ExperimentRepository(connection)
     well = experiments.get_well_for_experiment(
         experiment_id=experiment_id, well_id=well_id
@@ -304,8 +352,8 @@ def import_akta_results(
     settings: Settings,
 ) -> dict:
     project_id = project_for_batch(connection, batch_id)
-    require_project_role(connection, project_id=project_id, user_id=user_id)
-    normalized_run_date = _normalize_run_date(run_date)
+    require_project_write(connection, project_id=project_id, user_id=user_id)
+    normalized_run_date = _normalize_run_date(run_date, source="AKTA")
     if not files:
         raise DomainError("At least one AKTA zip file is required")
 
@@ -318,16 +366,27 @@ def import_akta_results(
         well["position"]: well for well in batch_repository.list_wells(batch_id)
     }
     uploads = _normalize_akta_uploads(files, wells_by_position)
-    existing_positions = experiments.result_positions_for_batch_type(
+    upload_positions = {upload["position"] for upload in uploads}
+    existing_experiment = experiments.find_for_batch_type_run_date(
         batch_id=batch_id,
         experiment_type="AKTA",
-        positions={upload["position"] for upload in uploads},
+        run_date=normalized_run_date,
+    )
+    existing_positions = (
+        experiments.result_positions_for_experiment(
+            experiment_id=existing_experiment["id"],
+            positions=upload_positions,
+        )
+        if existing_experiment
+        else set()
     )
     uploads_to_import = [
         upload for upload in uploads if upload["position"] not in existing_positions
     ]
     if not uploads_to_import:
-        raise ConflictError(_akta_duplicate_message(existing_positions))
+        raise ConflictError(
+            _duplicate_result_message("AKTA", existing_positions, normalized_run_date)
+        )
     rendered_pngs = render_akta_pngs(
         {
             upload["adapter_filename"]: upload["content"]
@@ -337,13 +396,24 @@ def import_akta_results(
     )
 
     artifacts = ArtifactRepository(connection)
-    store = LocalFileStore(storage_root)
+    store = file_store_for(connection, storage_root)
     with transaction(connection):
-        later_existing_positions = experiments.result_positions_for_batch_type(
+        current_experiment = experiments.find_for_batch_type_run_date(
             batch_id=batch_id,
             experiment_type="AKTA",
-            positions={upload["position"] for upload in uploads_to_import},
+            run_date=normalized_run_date,
         )
+        if current_experiment:
+            experiment_id = current_experiment["id"]
+            previous_details = current_experiment.get("details") or {}
+            later_existing_positions = experiments.result_positions_for_experiment(
+                experiment_id=experiment_id,
+                positions={upload["position"] for upload in uploads_to_import},
+            )
+        else:
+            previous_details = {}
+            later_existing_positions = set()
+            experiment_id = 0
         skipped_positions = existing_positions | later_existing_positions
         uploads_to_import = [
             upload
@@ -351,24 +421,34 @@ def import_akta_results(
             if upload["position"] not in later_existing_positions
         ]
         if not uploads_to_import:
-            raise ConflictError(_akta_duplicate_message(skipped_positions))
-        experiment_id = experiments.insert(
-            batch_id=batch_id,
-            experiment_type="AKTA",
-            name=f"AKTA {normalized_run_date}",
-            description="AKTA result import",
-            created_by=user_id,
-            details={
-                "source": "AKTA",
-                "run_date": normalized_run_date,
-                "file_count": len(uploads_to_import),
-                "requested_file_count": len(uploads),
-                "uploaded_positions": sorted(
-                    upload["position"] for upload in uploads_to_import
-                ),
-                "skipped_positions": sorted(skipped_positions),
-            },
+            raise ConflictError(
+                _duplicate_result_message("AKTA", skipped_positions, normalized_run_date)
+            )
+        current_uploaded_positions = sorted(
+            upload["position"] for upload in uploads_to_import
         )
+        details = _akta_import_details(
+            previous_details,
+            run_date=normalized_run_date,
+            uploaded_positions=current_uploaded_positions,
+            skipped_positions=sorted(skipped_positions),
+            requested_file_count=len(uploads),
+        )
+        if experiment_id:
+            experiments.update_details(
+                experiment_id=experiment_id,
+                experiment_type="AKTA",
+                details=details,
+            )
+        else:
+            experiment_id = experiments.insert(
+                batch_id=batch_id,
+                experiment_type="AKTA",
+                name=f"AKTA {normalized_run_date}",
+                description="AKTA result import",
+                created_by=user_id,
+                details=details,
+            )
         for upload in uploads_to_import:
             well = upload["well"]
             position = upload["position"]
@@ -398,11 +478,294 @@ def import_akta_results(
                 experiment_id=experiment_id,
                 well_id=well["id"],
                 result_value=f"AKTA {normalized_run_date}",
-                result_note=(
-                    f"AKTA PNG artifact #{png_artifact_id}; "
-                    f"raw ZIP artifact #{zip_artifact_id}"
+                result_note=json.dumps(
+                    {
+                        "source": "AKTA",
+                        "run_date": normalized_run_date,
+                        "png_artifact_id": png_artifact_id,
+                        "raw_zip_artifact_id": zip_artifact_id,
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
                 ),
             )
+
+    return get_batch_experiment(
+        connection,
+        experiment_id=experiment_id,
+        user_id=user_id,
+    )
+
+
+def import_spr_results(
+    connection: sqlite3.Connection,
+    *,
+    storage_root: Path,
+    batch_id: int,
+    user_id: int,
+    run_date: str,
+    filename: str,
+    content_type: str,
+    content: bytes,
+) -> dict:
+    project_id = project_for_batch(connection, batch_id)
+    require_project_write(connection, project_id=project_id, user_id=user_id)
+    normalized_run_date = _normalize_run_date(run_date, source="SPR")
+    file_name = required(Path(filename.replace("\\", "/")).name, "SPR filename")
+    if not file_name.lower().endswith(".pptx"):
+        raise DomainError("SPR result file must be a PowerPoint .pptx file")
+
+    batch_repository = BatchRepository(connection)
+    batch = batch_repository.get(batch_id)
+    if not batch:
+        raise NotFoundError("Batch not found")
+    wells_by_position = {
+        well["position"]: well for well in batch_repository.list_wells(batch_id)
+    }
+    experiments = ExperimentRepository(connection)
+    existing_experiment = experiments.find_for_batch_type_run_date(
+        batch_id=batch_id,
+        experiment_type="SPR",
+        run_date=normalized_run_date,
+    )
+    previous_details = (
+        dict(existing_experiment.get("details") or {}) if existing_experiment else {}
+    )
+    concentration_details_by_protein = _spr_concentrations_from_details(previous_details)
+    concentration_filename = str(previous_details.get("concentration_filename") or "")
+    spr_results = read_spr_pptx(
+        content,
+        sample_annotation_for_id=lambda sample_id: _spr_concentration_text_for_sample_id(
+            sample_id,
+            wells_by_position=wells_by_position,
+            concentrations_by_protein=concentration_details_by_protein,
+        ),
+    )
+    mapped_results = _map_spr_results_to_wells(spr_results, wells_by_position)
+    mapped_positions = {result["position"] for result in mapped_results}
+    existing_positions = (
+        experiments.result_positions_for_experiment(
+            experiment_id=existing_experiment["id"],
+            positions=mapped_positions,
+        )
+        if existing_experiment
+        else set()
+    )
+    results_to_import = [
+        result
+        for result in mapped_results
+        if result["position"] not in existing_positions
+    ]
+    if not results_to_import:
+        raise ConflictError(
+            _duplicate_result_message("SPR", existing_positions, normalized_run_date)
+        )
+
+    artifacts = ArtifactRepository(connection)
+    raw_files = ExperimentRawFileRepository(connection)
+    store = file_store_for(connection, storage_root)
+    with transaction(connection):
+        current_experiment = experiments.find_for_batch_type_run_date(
+            batch_id=batch_id,
+            experiment_type="SPR",
+            run_date=normalized_run_date,
+        )
+        if current_experiment:
+            experiment_id = current_experiment["id"]
+            later_existing_positions = experiments.result_positions_for_experiment(
+                experiment_id=experiment_id,
+                positions={result["position"] for result in results_to_import},
+            )
+        else:
+            later_existing_positions = set()
+            experiment_id = 0
+        skipped_positions = existing_positions | later_existing_positions
+        results_to_import = [
+            result
+            for result in results_to_import
+            if result["position"] not in later_existing_positions
+        ]
+        if not results_to_import:
+            raise ConflictError(
+                _duplicate_result_message("SPR", skipped_positions, normalized_run_date)
+            )
+        current_uploaded_positions = sorted(
+            result["position"] for result in results_to_import
+        )
+        current_sample_ids = [result["sample_id"] for result in results_to_import]
+        details = _spr_import_details(
+            previous_details,
+            run_date=normalized_run_date,
+            filename=file_name,
+            content_type=content_type
+            or "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            uploaded_positions=current_uploaded_positions,
+            skipped_positions=sorted(skipped_positions),
+            sample_ids=current_sample_ids,
+            requested_sample_count=len(mapped_results),
+            concentration_filename=concentration_filename,
+            concentrations_by_protein=concentration_details_by_protein,
+        )
+        if experiment_id:
+            experiments.update_details(
+                experiment_id=experiment_id,
+                experiment_type="SPR",
+                details=details,
+            )
+        else:
+            experiment_id = experiments.insert(
+                batch_id=batch_id,
+                experiment_type="SPR",
+                name=f"SPR {normalized_run_date}",
+                description="SPR result import",
+                created_by=user_id,
+                details=details,
+            )
+        raw_files.insert(
+            experiment_id=experiment_id,
+            uploaded_by=user_id,
+            filename=file_name,
+            raw_file_type="spr_results_pptx",
+            mime_type=content_type
+            or "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            content=content,
+        )
+        for result in results_to_import:
+            well = result["well"]
+            position = result["position"]
+            sample_id = result["sample_id"]
+            concentration_row = concentration_details_by_protein.get(
+                _spr_concentration_key(well["protein_name"]),
+                {},
+            )
+            artifact_id = _store_experiment_artifact(
+                artifacts=artifacts,
+                store=store,
+                project_id=project_id,
+                protein_id=well["protein_id"],
+                user_id=user_id,
+                filename=(
+                    f"SPR_{normalized_run_date}_"
+                    f"{_safe_artifact_token(sample_id)}_{position}.svg"
+                ),
+                mime_type="image/svg+xml",
+                content=result["svg"],
+            )
+            experiments.upsert_well_result(
+                experiment_id=experiment_id,
+                well_id=well["id"],
+                result_value=f"SPR {sample_id}",
+                result_note=json.dumps(
+                    {
+                        "source": "SPR",
+                        "run_date": normalized_run_date,
+                        "sample_id": sample_id,
+                        "chart_artifact_id": artifact_id,
+                        "slide_number": result["slide_number"],
+                        "table_row": result["table_row"],
+                        "concentrations": concentration_row,
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+            )
+
+    return get_batch_experiment(
+        connection,
+        experiment_id=experiment_id,
+        user_id=user_id,
+    )
+
+
+def import_spr_concentrations(
+    connection: sqlite3.Connection,
+    *,
+    storage_root: Path,
+    batch_id: int,
+    user_id: int,
+    run_date: str,
+    filename: str,
+    content_type: str,
+    content: bytes,
+) -> dict:
+    project_id = project_for_batch(connection, batch_id)
+    require_project_write(connection, project_id=project_id, user_id=user_id)
+    normalized_run_date = _normalize_run_date(run_date, source="SPR")
+    file_name = required(
+        Path(filename.replace("\\", "/")).name, "SPR concentration filename"
+    )
+    if not file_name.lower().endswith(".csv"):
+        raise DomainError("SPR concentration table must be a CSV file")
+
+    batch_repository = BatchRepository(connection)
+    batch = batch_repository.get(batch_id)
+    if not batch:
+        raise NotFoundError("Batch not found")
+
+    parsed_concentrations = read_spr_concentration_csv((file_name, content_type, content))
+    experiments = ExperimentRepository(connection)
+    artifacts = ArtifactRepository(connection)
+    raw_files = ExperimentRawFileRepository(connection)
+    store = file_store_for(connection, storage_root)
+
+    with transaction(connection):
+        current_experiment = experiments.find_for_batch_type_run_date(
+            batch_id=batch_id,
+            experiment_type="SPR",
+            run_date=normalized_run_date,
+        )
+        if current_experiment:
+            experiment_id = current_experiment["id"]
+            previous_details = dict(current_experiment.get("details") or {})
+        else:
+            experiment_id = 0
+            previous_details = {}
+
+        concentration_details_by_protein = _spr_concentrations_from_details(
+            previous_details
+        )
+        concentration_details_by_protein.update(parsed_concentrations)
+        details = dict(previous_details)
+        details.update(
+            {
+                "source": "SPR",
+                "run_date": normalized_run_date,
+                "concentration_filename": file_name,
+                "concentrations_by_protein": concentration_details_by_protein,
+                "concentration_count": len(concentration_details_by_protein),
+            }
+        )
+        if experiment_id:
+            experiments.update_details(
+                experiment_id=experiment_id,
+                experiment_type="SPR",
+                details=details,
+            )
+        else:
+            experiment_id = experiments.insert(
+                batch_id=batch_id,
+                experiment_type="SPR",
+                name=f"SPR {normalized_run_date}",
+                description="SPR concentration table import",
+                created_by=user_id,
+                details=details,
+            )
+
+        _refresh_spr_artifacts_for_concentrations(
+            experiments=experiments,
+            artifacts=artifacts,
+            store=store,
+            experiment_id=experiment_id,
+            concentrations_by_protein=concentration_details_by_protein,
+        )
+        raw_files.insert(
+            experiment_id=experiment_id,
+            uploaded_by=user_id,
+            filename=file_name,
+            raw_file_type="spr_concentrations_csv",
+            mime_type=content_type or "text/csv",
+            content=content,
+        )
 
     return get_batch_experiment(
         connection,
@@ -415,7 +778,7 @@ def list_protein_batch_results(
     connection: sqlite3.Connection, *, protein_id: int, user_id: int
 ) -> list[dict]:
     project_id = project_for_protein(connection, protein_id)
-    require_project_role(connection, project_id=project_id, user_id=user_id)
+    require_project_read(connection, project_id=project_id, user_id=user_id)
     return BatchRepository(connection).list_results_for_protein(protein_id)
 
 
@@ -426,7 +789,7 @@ def export_batch_plate_workbook(
     user_id: int,
 ) -> bytes:
     project_id = project_for_batch(connection, batch_id)
-    require_project_role(connection, project_id=project_id, user_id=user_id)
+    require_project_read(connection, project_id=project_id, user_id=user_id)
     batch_repository = BatchRepository(connection)
     batch = batch_repository.get(batch_id)
     if not batch:
@@ -441,7 +804,7 @@ def export_batch_summary_workbook(
     user_id: int,
 ) -> bytes:
     project_id = project_for_batch(connection, batch_id)
-    require_project_role(connection, project_id=project_id, user_id=user_id)
+    require_project_read(connection, project_id=project_id, user_id=user_id)
     batch_repository = BatchRepository(connection)
     batch = batch_repository.get(batch_id)
     if not batch:
@@ -462,7 +825,7 @@ def translate_batch_sequences(
     resistance: str = "Amp",
 ) -> dict:
     project_id = project_for_batch(connection, batch_id)
-    require_project_role(connection, project_id=project_id, user_id=user_id)
+    require_project_write(connection, project_id=project_id, user_id=user_id)
     normalized_organism = _normalize_translation_organism(organism)
     normalized_backbone = required(str(backbone), "Backbone")
     normalized_resistance = _normalize_translation_resistance(resistance)
@@ -566,12 +929,301 @@ def _normalize_plate_position(position: str) -> str:
     return normalized
 
 
-def _normalize_run_date(value: str) -> str:
-    normalized = required(value, "AKTA run date")
+def _normalize_run_date(value: str, *, source: str) -> str:
+    normalized = required(value, f"{source} run date")
     try:
         return date.fromisoformat(normalized).isoformat()
     except ValueError as exc:
-        raise DomainError("AKTA run date must be YYYY-MM-DD") from exc
+        raise DomainError(f"{source} run date must be YYYY-MM-DD") from exc
+
+
+def _akta_import_details(
+    previous_details: dict,
+    *,
+    run_date: str,
+    uploaded_positions: list[str],
+    skipped_positions: list[str],
+    requested_file_count: int,
+) -> dict:
+    all_positions = _merge_detail_values(
+        previous_details,
+        key="all_positions",
+        fallback_key="uploaded_positions",
+        values=uploaded_positions,
+    )
+    return {
+        "source": "AKTA",
+        "run_date": run_date,
+        "file_count": len(uploaded_positions),
+        "requested_file_count": requested_file_count,
+        "uploaded_positions": uploaded_positions,
+        "skipped_positions": skipped_positions,
+        "all_positions": all_positions,
+        "total_result_count": len(all_positions),
+    }
+
+
+def _spr_import_details(
+    previous_details: dict,
+    *,
+    run_date: str,
+    filename: str,
+    content_type: str,
+    uploaded_positions: list[str],
+    skipped_positions: list[str],
+    sample_ids: list[str],
+    requested_sample_count: int,
+    concentration_filename: str,
+    concentrations_by_protein: dict[str, dict[str, str]],
+) -> dict:
+    all_positions = _merge_detail_values(
+        previous_details,
+        key="all_positions",
+        fallback_key="uploaded_positions",
+        values=uploaded_positions,
+    )
+    all_sample_ids = _merge_detail_values(
+        previous_details,
+        key="all_sample_ids",
+        fallback_key="sample_ids",
+        values=sample_ids,
+    )
+    filenames = _merge_detail_values(
+        previous_details,
+        key="filenames",
+        fallback_key="filename",
+        values=[filename],
+    )
+    return {
+        "source": "SPR",
+        "run_date": run_date,
+        "filename": filename,
+        "filenames": filenames,
+        "content_type": content_type,
+        "sample_count": len(sample_ids),
+        "requested_sample_count": requested_sample_count,
+        "sample_ids": sample_ids,
+        "all_sample_ids": all_sample_ids,
+        "uploaded_positions": uploaded_positions,
+        "skipped_positions": skipped_positions,
+        "all_positions": all_positions,
+        "total_result_count": len(all_positions),
+        "concentration_filename": concentration_filename,
+        "concentration_count": len(concentrations_by_protein),
+        "concentrations_by_protein": concentrations_by_protein,
+    }
+
+
+def _spr_concentrations_from_details(details: dict) -> dict[str, dict[str, str]]:
+    raw = details.get("concentrations_by_protein")
+    if not isinstance(raw, dict):
+        return {}
+    concentrations: dict[str, dict[str, str]] = {}
+    for protein_key, row in raw.items():
+        if not isinstance(row, dict):
+            continue
+        normalized_row = {
+            str(label): str(value)
+            for label, value in row.items()
+            if str(label).strip()
+        }
+        if normalized_row:
+            concentrations[str(protein_key)] = normalized_row
+    return concentrations
+
+
+def _spr_concentration_text_for_sample_id(
+    sample_id: str,
+    *,
+    wells_by_position: dict[str, dict],
+    concentrations_by_protein: dict[str, dict[str, str]],
+) -> str:
+    position = _position_from_spr_sample_id(sample_id)
+    well = wells_by_position.get(position)
+    if not well:
+        return ""
+    concentration_row = concentrations_by_protein.get(
+        _spr_concentration_key(well["protein_name"]),
+        {},
+    )
+    return format_spr_concentration_text(concentration_row)
+
+
+def _refresh_spr_artifacts_for_concentrations(
+    *,
+    experiments: ExperimentRepository,
+    artifacts: ArtifactRepository,
+    store,
+    experiment_id: int,
+    concentrations_by_protein: dict[str, dict[str, str]],
+) -> None:
+    for result in experiments.list_well_results(experiment_id):
+        result_note = result.get("result_note") or ""
+        if not result_note or not result.get("result_value"):
+            continue
+        note = _spr_result_note_from_json(result_note)
+        if note is None:
+            continue
+        chart_artifact_id = note.get("chart_artifact_id")
+        if not isinstance(chart_artifact_id, int):
+            continue
+        artifact = artifacts.get(chart_artifact_id)
+        if not artifact or artifact.get("mime_type") != "image/svg+xml":
+            continue
+        storage_path = str(artifact.get("storage_path") or "")
+        if not storage_path:
+            continue
+        concentration_row = concentrations_by_protein.get(
+            _spr_concentration_key(result["protein_name"]),
+            {},
+        )
+        if not concentration_row:
+            continue
+        if isinstance(store, DatabaseFileStore):
+            existing_svg = store.read_artifact(chart_artifact_id)
+            if existing_svg is None:
+                raise NotFoundError("SPR chart artifact file not found")
+        else:
+            svg_path = store.resolve(storage_path)
+            if not svg_path.exists():
+                raise NotFoundError("SPR chart artifact file not found")
+            existing_svg = svg_path.read_bytes()
+        spec = extract_spr_chart_spec(existing_svg)
+        sample_id = str(note.get("sample_id") or "").strip()
+        slide_number = note.get("slide_number")
+        if not sample_id or not isinstance(slide_number, int):
+            continue
+        new_svg = render_spr_chart_svg(
+            sample_id=sample_id,
+            slide_number=slide_number,
+            series=spec.series,
+            x_axis=spec.x_axis,
+            y_axis=spec.y_axis,
+            header_text=format_spr_concentration_text(concentration_row),
+        )
+        if isinstance(store, DatabaseFileStore):
+            store.replace_artifact(
+                artifact_id=chart_artifact_id,
+                storage_path=storage_path,
+                content=new_svg,
+            )
+        else:
+            store.replace(storage_path, new_svg)
+            artifacts.mark_stored(
+                artifact_id=chart_artifact_id,
+                size_bytes=len(new_svg),
+                storage_path=storage_path,
+                storage_backend=getattr(store, "backend", "filesystem"),
+            )
+        note["concentrations"] = concentration_row
+        experiments.upsert_well_result(
+            experiment_id=experiment_id,
+            well_id=result["well_id"],
+            result_value=result["result_value"],
+            result_note=json.dumps(note, ensure_ascii=False, sort_keys=True),
+        )
+
+
+def _spr_result_note_from_json(result_note: str) -> dict | None:
+    try:
+        parsed = json.loads(result_note)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(parsed, dict) or parsed.get("source") != "SPR":
+        return None
+    return parsed
+
+
+def _merge_detail_values(
+    details: dict,
+    *,
+    key: str,
+    fallback_key: str,
+    values: list[str],
+) -> list[str]:
+    existing = details.get(key)
+    if existing is None:
+        existing = details.get(fallback_key, [])
+    if isinstance(existing, str):
+        existing_values = [existing]
+    elif isinstance(existing, list):
+        existing_values = [str(value) for value in existing if value]
+    else:
+        existing_values = []
+    return sorted({*existing_values, *values})
+
+
+def _batch_score_density_plots(wells: list[dict]) -> list[dict]:
+    values_by_metric: dict[str, list[float]] = {}
+    first_seen: dict[str, int] = {}
+    for well in wells:
+        details = _score_details_from_json(well.get("score_details_json"))
+        for metric, raw_value in details.items():
+            numeric_value = _parse_score_value(raw_value)
+            if numeric_value is None:
+                continue
+            if metric not in first_seen:
+                first_seen[metric] = len(first_seen)
+            values_by_metric.setdefault(metric, []).append(numeric_value)
+
+    plots = []
+    for metric in _score_density_metric_order(values_by_metric, first_seen):
+        values = values_by_metric.get(metric, [])
+        if not values:
+            continue
+        label = _score_density_label(metric)
+        plots.append(
+            {
+                "metric": metric,
+                "label": label,
+                "sample_count": len(values),
+                "svg": render_score_density_svg(
+                    title=f"Distribution of {label}",
+                    x_label=label,
+                    values=values,
+                ),
+            }
+        )
+    return plots
+
+
+def _score_details_from_json(details_json: object) -> dict[str, str]:
+    if not isinstance(details_json, str) or not details_json:
+        return {}
+    try:
+        details = json.loads(details_json)
+    except json.JSONDecodeError:
+        return {}
+    return details if isinstance(details, dict) else {}
+
+
+def _parse_score_value(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        parsed = float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def _score_density_metric_order(
+    values_by_metric: dict[str, list[float]],
+    first_seen: dict[str, int],
+) -> list[str]:
+    preferred = {metric: index for index, metric in enumerate(SCORE_DENSITY_PREFERRED_ORDER)}
+    return sorted(
+        values_by_metric,
+        key=lambda metric: (
+            preferred.get(metric, len(preferred)),
+            first_seen.get(metric, 0),
+            metric,
+        ),
+    )
+
+
+def _score_density_label(metric: str) -> str:
+    return SCORE_DENSITY_LABELS.get(metric, metric.replace("_", " "))
 
 
 def _normalize_akta_uploads(
@@ -600,29 +1252,72 @@ def _normalize_akta_uploads(
     return uploads
 
 
-def _akta_duplicate_message(positions: set[str]) -> str:
+def _duplicate_result_message(source: str, positions: set[str], run_date: str) -> str:
     sorted_positions = sorted(positions)
     if len(sorted_positions) == 1:
-        return f"AKTA result already uploaded for position {sorted_positions[0]}"
-    return f"AKTA results already uploaded for positions: {', '.join(sorted_positions)}"
+        return (
+            f"{source} result already uploaded for position "
+            f"{sorted_positions[0]} on {run_date}"
+        )
+    return (
+        f"{source} results already uploaded for positions on {run_date}: "
+        f"{', '.join(sorted_positions)}"
+    )
 
 
 def _position_from_akta_filename(filename: str) -> str:
     file_name = required(Path(filename.replace("\\", "/")).name, "AKTA filename")
     if not file_name.lower().endswith(".zip"):
         raise DomainError("AKTA result files must be zip files")
-    stem = Path(file_name).stem.upper()
-    match = AKTA_POSITION_FILENAME_RE.fullmatch(stem)
-    if not match:
-        raise DomainError("AKTA zip filenames must be well positions like A01.zip")
-    row, column = match.groups()
-    return f"{row.upper()}{int(column):02d}"
+    return extract_unique_plate_position(
+        Path(file_name).stem,
+        label="AKTA zip filename",
+    )
+
+
+def _map_spr_results_to_wells(
+    results: list[dict],
+    wells_by_position: dict[str, dict],
+) -> list[dict]:
+    mapped = []
+    seen_positions: set[str] = set()
+    for result in results:
+        sample_id = required(str(result.get("sample_id") or ""), "SPR sample id")
+        position = _position_from_spr_sample_id(sample_id)
+        if position in seen_positions:
+            raise DomainError(f"Duplicate SPR result for position {position}")
+        seen_positions.add(position)
+        well = wells_by_position.get(position)
+        if well is None:
+            raise DomainError(f"SPR sample {sample_id} does not map to this batch")
+        mapped.append({**result, "position": position, "well": well})
+    if not mapped:
+        raise DomainError("SPR PowerPoint did not include importable results")
+    return mapped
+
+
+def _position_from_spr_sample_id(sample_id: str) -> str:
+    return extract_unique_plate_position(
+        sample_id,
+        label=f"SPR sample {sample_id}",
+        allow_linear_a_labels=True,
+        allow_letter_suffix=True,
+    )
+
+
+def _spr_concentration_key(value: str) -> str:
+    name = Path(value.strip().replace("\\", "/")).name
+    return Path(name).stem.casefold()
+
+
+def _safe_artifact_token(value: str) -> str:
+    return re.sub(r"[^\w.-]+", "_", value).strip("._") or "sample"
 
 
 def _store_experiment_artifact(
     *,
     artifacts: ArtifactRepository,
-    store: LocalFileStore,
+    store,
     project_id: int,
     protein_id: int,
     user_id: int,
@@ -636,6 +1331,7 @@ def _store_experiment_artifact(
         filename=filename,
         artifact_type="experimental_result",
         mime_type=mime_type,
+        storage_backend=getattr(store, "backend", "filesystem"),
     )
     stored = store.save_artifact(
         project_id=project_id,
@@ -648,6 +1344,7 @@ def _store_experiment_artifact(
         artifact_id=artifact_id,
         size_bytes=stored.size_bytes,
         storage_path=stored.relative_path,
+        storage_backend=getattr(store, "backend", "filesystem"),
     )
     return artifact_id
 

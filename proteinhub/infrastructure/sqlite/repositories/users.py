@@ -9,7 +9,12 @@ class UserRepository:
 
     def get_public(self, user_id: int) -> dict | None:
         return self.connection.execute(
-            "SELECT id, name, email, created_at FROM users WHERE id = ?", (user_id,)
+            """
+            SELECT id, name, email, global_role, created_at
+            FROM users
+            WHERE id = ?
+            """,
+            (user_id,),
         ).fetchone()
 
     def get_by_email(self, email: str) -> dict | None:
@@ -24,6 +29,16 @@ class UserRepository:
         )
         return int(cursor.lastrowid)
 
+    def set_global_role(self, *, user_id: int, global_role: str) -> None:
+        self.connection.execute(
+            """
+            UPDATE users
+            SET global_role = ?
+            WHERE id = ?
+            """,
+            (global_role, user_id),
+        )
+
     def search_available_for_project(self, *, project_id: int, query: str) -> list[dict]:
         pattern = f"%{query}%"
         return self.connection.execute(
@@ -31,11 +46,15 @@ class UserRepository:
             SELECT id, name, email, created_at
             FROM users
             WHERE (name LIKE ? OR email LIKE ?)
+              AND id != COALESCE(
+                  (SELECT owner_id FROM projects WHERE id = ?),
+                  -1
+              )
               AND id NOT IN (
                   SELECT user_id FROM project_members WHERE project_id = ?
               )
             ORDER BY name, email
             LIMIT 8
             """,
-            (pattern, pattern, project_id),
+            (pattern, pattern, project_id, project_id),
         ).fetchall()

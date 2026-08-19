@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse
 
 from proteinhub.api.dependencies import ApiContext, map_domain_error
 from proteinhub.api.schemas import (
     ArtifactResponse,
+    ProteinManualRatingUpdateRequest,
     ProteinDetailResponse,
+    ProteinResponse,
     StructureSequenceResponse,
 )
 from proteinhub.application.artifact_service import create_artifact, list_artifacts
@@ -18,9 +21,11 @@ from proteinhub.application.protein_service import (
     get_protein,
     get_protein_structure_file,
     parse_protein_structure_for_existing,
+    update_protein_manual_rating,
 )
 from proteinhub.domain.errors import DomainError
-from proteinhub.infrastructure.storage.local_file_store import LocalFileStore
+from proteinhub.infrastructure.storage.database_file_store import DatabaseFileStore
+from proteinhub.infrastructure.storage.file_store import file_store_for
 
 
 def create_proteins_router(
@@ -47,7 +52,25 @@ def create_proteins_router(
                 "batch_results": list_protein_batch_results(
                     connection, protein_id=protein_id, user_id=user["id"]
                 ),
+                "access_role": protein.get("access_role", ""),
             }
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.patch("/proteins/{protein_id}/manual-rating", response_model=ProteinResponse)
+    def update_manual_rating(
+        protein_id: int,
+        payload: ProteinManualRatingUpdateRequest,
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> dict:
+        try:
+            return update_protein_manual_rating(
+                connection,
+                protein_id=protein_id,
+                user_id=user["id"],
+                manual_rating=payload.manual_rating,
+            )
         except DomainError as error:
             raise map_domain_error(error) from error
 
@@ -70,12 +93,24 @@ def create_proteins_router(
         protein_id: int,
         user: dict = Depends(current_user),
         connection: sqlite3.Connection = Depends(get_connection),
-    ) -> FileResponse:
+    ) -> Response:
         try:
             protein = get_protein_structure_file(
                 connection, protein_id=protein_id, user_id=user["id"]
             )
-            path = LocalFileStore(context.storage_root).resolve(
+            if protein.get("structure_storage_backend") == "database":
+                content = DatabaseFileStore(connection).read_protein_structure(protein_id)
+                if content is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail="Protein structure file missing",
+                    )
+                return Response(
+                    content=content,
+                    media_type=protein["structure_mime_type"],
+                    headers=_download_headers(protein["structure_filename"]),
+                )
+            path = file_store_for(connection, context.storage_root).resolve(
                 protein["structure_storage_path"]
             )
             if not path.exists():
@@ -136,3 +171,7 @@ def create_proteins_router(
             raise map_domain_error(error) from error
 
     return router
+
+
+def _download_headers(filename: str) -> dict[str, str]:
+    return {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}

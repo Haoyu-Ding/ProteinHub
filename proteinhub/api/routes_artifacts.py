@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse
 
 from proteinhub.api.dependencies import ApiContext, map_domain_error
 from proteinhub.application.artifact_service import get_artifact, soft_delete_artifact
 from proteinhub.domain.errors import DomainError
-from proteinhub.infrastructure.storage.local_file_store import LocalFileStore
+from proteinhub.infrastructure.storage.database_file_store import DatabaseFileStore
+from proteinhub.infrastructure.storage.file_store import file_store_for
 
 
 def create_artifacts_router(
@@ -25,10 +27,22 @@ def create_artifacts_router(
         artifact_id: int,
         user: dict = Depends(current_user),
         connection: sqlite3.Connection = Depends(get_connection),
-    ) -> FileResponse:
+    ) -> Response:
         try:
             artifact = get_artifact(connection, artifact_id=artifact_id, user_id=user["id"])
-            path = LocalFileStore(context.storage_root).resolve(artifact["storage_path"])
+            if artifact.get("storage_backend") == "database":
+                store = DatabaseFileStore(connection)
+                content = store.read_artifact(artifact_id)
+                if content is None:
+                    raise HTTPException(status_code=404, detail="Artifact file missing")
+                return Response(
+                    content=content,
+                    media_type=artifact["mime_type"],
+                    headers=_download_headers(artifact["filename"]),
+                )
+            path = file_store_for(connection, context.storage_root).resolve(
+                artifact["storage_path"]
+            )
             if not path.exists():
                 raise HTTPException(status_code=404, detail="Artifact file missing")
             return FileResponse(
@@ -51,3 +65,7 @@ def create_artifacts_router(
             raise map_domain_error(error) from error
 
     return router
+
+
+def _download_headers(filename: str) -> dict[str, str]:
+    return {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}

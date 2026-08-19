@@ -3,13 +3,8 @@ from __future__ import annotations
 from nicegui import ui
 
 
-MEMBER_DISCIPLINE_OPTIONS = {
-    "design": "计算设计",
-    "synthesis": "合成",
-    "assay": "测试",
-    "other": "其他",
-}
 ROLE_LABELS = {
+    "admin": "管理员",
     "owner": "负责人",
     "member": "成员",
 }
@@ -27,6 +22,13 @@ PROTEIN_TYPE_OPTIONS = {
     "nanobody": "nanobody",
     "minibinder": "minibinder",
     "enzymes": "enzymes",
+}
+PROTEIN_MANUAL_RATING_OPTIONS = {
+    "unrated": "未评级",
+    "normal": "普通",
+    "rare": "稀有",
+    "epic": "史诗",
+    "legendary": "传说",
 }
 PLATE_96_POSITION_OPTIONS = {
     f"{row}{column:02d}": f"{row}{column:02d}"
@@ -59,13 +61,22 @@ ARTIFACT_GROUPS = [
     ("file", "其他文件"),
 ]
 DISPLAY_LABELS = (
-    MEMBER_DISCIPLINE_OPTIONS
-    | ROLE_LABELS
+    ROLE_LABELS
     | ARTIFACT_TYPE_OPTIONS
     | PROTEIN_TYPE_OPTIONS
+    | PROTEIN_MANUAL_RATING_OPTIONS
     | BATCH_ORDER_STATUS_OPTIONS
     | {"file": "其他文件"}
 )
+
+
+def protein_manual_rating_label(value: str | None) -> str:
+    return PROTEIN_MANUAL_RATING_OPTIONS.get(value or "", "未评级")
+
+
+def protein_manual_rating_class(value: str | None) -> str:
+    normalized = value if value in PROTEIN_MANUAL_RATING_OPTIONS else "unrated"
+    return f"ph-protein-rating ph-protein-rating-{normalized}"
 
 
 def design_system() -> None:
@@ -165,16 +176,20 @@ def design_system() -> None:
             transform: translateY(-1px);
         }
 
+        .ph-project-list {
+            gap: 10px;
+        }
+
         .ph-project-card {
-            height: 184px;
-            min-height: 184px;
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
+            min-height: 96px;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 16px;
+            align-items: center;
         }
 
         .ph-project-card-main {
-            align-items: flex-start;
+            align-items: center;
             gap: 12px;
             flex: 1 1 auto;
             min-height: 0;
@@ -189,9 +204,10 @@ def design_system() -> None:
 
         .ph-project-card-footer {
             align-items: center;
-            justify-content: space-between;
+            justify-content: flex-end;
             gap: 12px;
-            margin-top: auto;
+            margin-top: 0;
+            flex: 0 0 auto;
         }
 
         .ph-project-card .ph-card-title {
@@ -202,18 +218,70 @@ def design_system() -> None:
         }
 
         .ph-project-card .ph-card-description {
-            min-height: 58px;
             overflow: hidden;
             display: -webkit-box;
             -webkit-box-orient: vertical;
-            -webkit-line-clamp: 3;
+            -webkit-line-clamp: 2;
         }
 
         .ph-protein-card {
-            height: 164px;
-            min-height: 164px;
-            max-height: 164px;
-            flex: 0 0 164px;
+            min-height: 176px;
+            flex: 0 0 auto;
+        }
+
+        .ph-protein-card-layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 14px;
+            align-items: start;
+            width: 100%;
+            min-width: 0;
+        }
+
+        .ph-protein-card-main {
+            align-items: flex-start;
+            gap: 12px;
+            min-width: 0;
+        }
+
+        .ph-protein-card-content {
+            flex: 1 1 auto;
+            min-width: 0;
+            gap: 8px;
+        }
+
+        .ph-protein-tags {
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 6px;
+            min-width: 0;
+        }
+
+        .ph-protein-filter-row {
+            display: grid;
+            grid-template-columns: minmax(180px, 1.2fr) 128px 128px 148px auto auto;
+            gap: 8px;
+            align-items: end;
+            overflow-x: auto;
+            padding-bottom: 2px;
+        }
+
+        .ph-protein-filter-row .q-btn {
+            min-width: 74px;
+            white-space: nowrap;
+        }
+
+        .ph-protein-card-actions {
+            align-items: center;
+            justify-content: flex-end;
+            gap: 4px;
+            flex: 0 0 auto;
+        }
+
+        .ph-protein-card-actions .q-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 999px;
         }
 
         .ph-protein-card .ph-card-description,
@@ -259,6 +327,51 @@ def design_system() -> None:
             line-height: 1.5;
         }
 
+        .ph-protein-rating {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 22px;
+            padding: 0 8px;
+            border-radius: 999px;
+            border: 1px solid transparent;
+            background-color: transparent !important;
+            font-size: 12px;
+            line-height: 1.2;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .ph-protein-rating-unrated {
+            background: transparent !important;
+            color: #64748b;
+            border-color: #cbd5e1;
+        }
+
+        .ph-protein-rating-normal {
+            background: transparent !important;
+            color: #0f172a;
+            border-color: #d1d5db;
+        }
+
+        .ph-protein-rating-rare {
+            background: transparent !important;
+            color: #1d4ed8;
+            border-color: #93c5fd;
+        }
+
+        .ph-protein-rating-epic {
+            background: transparent !important;
+            color: #7c3aed;
+            border-color: #c4b5fd;
+        }
+
+        .ph-protein-rating-legendary {
+            background: transparent !important;
+            color: #a16207;
+            border-color: #fcd34d;
+        }
+
         .ph-meta {
             color: var(--ph-muted);
             font-size: 12px;
@@ -289,6 +402,81 @@ def design_system() -> None:
             border-radius: 8px;
             background: var(--ph-surface);
             box-shadow: 0 1px 2px rgba(20, 32, 43, 0.04);
+        }
+
+        .ph-monitor-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            width: 100%;
+        }
+
+        .ph-monitor-stat {
+            min-height: 112px;
+            padding: 16px;
+            border: 1px solid var(--ph-border);
+            border-radius: 8px;
+            background: var(--ph-surface);
+        }
+
+        .ph-monitor-stat-value {
+            color: var(--ph-text);
+            font-size: 28px;
+            line-height: 1.1;
+            font-weight: 760;
+        }
+
+        .ph-monitor-bar-chart {
+            display: grid;
+            grid-template-columns: repeat(8, minmax(72px, 1fr));
+            gap: 10px;
+            width: 100%;
+            overflow-x: auto;
+            align-items: end;
+        }
+
+        .ph-monitor-date-input {
+            width: 150px;
+        }
+
+        .ph-monitor-chart-column {
+            min-width: 72px;
+            min-height: 232px;
+            align-items: center;
+            justify-content: flex-end;
+        }
+
+        .ph-monitor-chart-track {
+            display: flex;
+            align-items: flex-end;
+            width: 72px;
+            height: 180px;
+            border-bottom: 1px solid var(--ph-border-strong);
+            background: repeating-linear-gradient(
+                to top,
+                transparent 0,
+                transparent 44px,
+                rgba(20, 32, 43, 0.08) 45px
+            );
+        }
+
+        .ph-monitor-chart-bar {
+            width: 100%;
+            min-height: 3px;
+            border-radius: 5px 5px 0 0;
+            background: var(--ph-teal);
+        }
+
+        .ph-monitor-batch-row {
+            display: grid;
+            grid-template-columns: minmax(220px, 1.4fr) minmax(160px, 1fr) 120px 120px 112px;
+            gap: 12px;
+            align-items: center;
+            width: 100%;
+            padding: 14px;
+            border: 1px solid var(--ph-border);
+            border-radius: 8px;
+            background: var(--ph-surface);
         }
 
         .ph-workspace-layout {
@@ -432,6 +620,120 @@ def design_system() -> None:
             background: var(--ph-surface);
         }
 
+        .ph-akta-preview {
+            width: 100%;
+            gap: 12px;
+            padding: 14px 16px;
+            border: 1px solid var(--ph-border);
+            border-radius: 8px;
+            background: var(--ph-surface);
+        }
+
+        .ph-akta-preview-header {
+            width: 100%;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+        }
+
+        .ph-akta-preview-frame {
+            width: 100%;
+            min-height: 180px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: auto;
+            border: 1px solid var(--ph-border);
+            border-radius: 8px;
+            background: #ffffff;
+        }
+
+        .ph-akta-preview-content {
+            width: 100%;
+        }
+
+        .ph-akta-preview-image {
+            display: none;
+            width: 100%;
+            max-height: 560px;
+            object-fit: contain;
+            background: #ffffff;
+        }
+
+        .ph-akta-preview-status {
+            padding: 28px;
+            text-align: center;
+        }
+
+        .ph-spr-result-grid {
+            width: 100%;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 8px 14px;
+            padding-top: 2px;
+        }
+
+        .ph-spr-result-item {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .ph-spr-result-key {
+            color: var(--ph-muted);
+            font-size: 12px;
+            line-height: 1.25;
+        }
+
+        .ph-spr-result-value {
+            color: var(--ph-text);
+            font-size: 13px;
+            font-weight: 650;
+            line-height: 1.35;
+            overflow-wrap: anywhere;
+        }
+
+        .ph-score-density-grid {
+            width: 100%;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 12px;
+        }
+
+        .ph-score-density-card {
+            width: 100%;
+            gap: 10px;
+            padding: 14px;
+            border: 1px solid var(--ph-border);
+            border-radius: 8px;
+            background: var(--ph-surface);
+        }
+
+        .ph-score-density-card-header {
+            width: 100%;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .ph-score-density-frame {
+            width: 100%;
+            overflow: auto;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background: #ffffff;
+            padding: 8px;
+        }
+
+        .ph-score-density-svg {
+            display: block;
+            width: 100%;
+            height: auto;
+        }
+
         .ph-batch-protein-list {
             width: 100%;
             max-height: 360px;
@@ -466,6 +768,20 @@ def design_system() -> None:
         .ph-batch-upload-actions {
             display: grid;
             grid-template-columns: minmax(220px, 320px) minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .ph-spr-upload-actions {
+            display: grid;
+            grid-template-columns: minmax(220px, 320px) minmax(0, 1fr) auto auto;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .ph-hplc-upload-actions {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
             align-items: center;
             gap: 12px;
         }
@@ -607,7 +923,124 @@ def design_system() -> None:
             font-weight: 650;
         }
 
+        .ph-help-layout {
+            display: grid;
+            grid-template-columns: 260px minmax(0, 1fr);
+            gap: 18px;
+            align-items: start;
+        }
+
+        .ph-help-sidebar {
+            position: sticky;
+            top: 76px;
+            gap: 12px;
+        }
+
+        .ph-help-nav {
+            width: 100%;
+            gap: 6px;
+            padding: 12px;
+            border: 1px solid var(--ph-border);
+            border-radius: 8px;
+            background: var(--ph-surface);
+        }
+
+        .ph-help-nav-link {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 34px;
+            padding: 6px 8px;
+            border-radius: 8px;
+            color: var(--ph-muted);
+            font-size: 14px;
+            font-weight: 650;
+            text-decoration: none;
+        }
+
+        .ph-help-nav-link:hover {
+            background: #eef7f4;
+            color: var(--ph-teal);
+        }
+
+        .ph-help-main {
+            min-width: 0;
+            gap: 14px;
+        }
+
+        .ph-help-section {
+            width: 100%;
+            gap: 14px;
+            padding: 18px;
+            border: 1px solid var(--ph-border);
+            border-radius: 8px;
+            background: var(--ph-surface);
+        }
+
+        .ph-help-section.is-hidden {
+            display: none;
+        }
+
+        .ph-help-section-head {
+            align-items: flex-start;
+            gap: 12px;
+        }
+
+        .ph-help-step {
+            width: 100%;
+            display: grid;
+            grid-template-columns: minmax(56px, max-content) minmax(0, 1fr);
+            gap: 12px;
+            align-items: start;
+            padding: 12px 0;
+            border-top: 1px solid #edf2f7;
+        }
+
+        .ph-help-step-marker {
+            min-width: 48px;
+            min-height: 28px;
+            padding: 0 9px;
+            display: grid;
+            place-items: center;
+            border-radius: 8px;
+            background: #eaf1ff;
+            color: var(--ph-blue);
+            font-size: 12px;
+            font-weight: 750;
+            white-space: nowrap;
+        }
+
+        .ph-help-tips {
+            gap: 8px;
+            padding: 12px 14px;
+            border-left: 3px solid var(--ph-teal);
+            border-radius: 8px;
+            background: #f0fdfa;
+        }
+
+        .ph-help-tip {
+            color: #115e59;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .ph-help-empty {
+            display: none;
+        }
+
+        .ph-help-empty.is-visible {
+            display: flex;
+        }
+
         @media (max-width: 900px) {
+            .ph-help-layout {
+                grid-template-columns: 1fr;
+            }
+
+            .ph-help-sidebar {
+                position: static;
+            }
+
             .ph-workspace-layout {
                 grid-template-columns: 1fr;
             }
@@ -618,6 +1051,19 @@ def design_system() -> None:
                 height: auto;
                 min-height: 0;
                 position: static;
+            }
+
+            .ph-project-card {
+                grid-template-columns: 1fr;
+                align-items: stretch;
+            }
+
+            .ph-project-card-main {
+                align-items: flex-start;
+            }
+
+            .ph-project-card-footer {
+                justify-content: space-between;
             }
 
             .ph-workspace-panel {
@@ -642,6 +1088,39 @@ def design_system() -> None:
             }
 
             .ph-batch-upload-actions {
+                grid-template-columns: 1fr;
+            }
+
+            .ph-spr-upload-actions {
+                grid-template-columns: 1fr;
+            }
+
+            .ph-hplc-upload-actions {
+                grid-template-columns: 1fr;
+            }
+
+            .ph-monitor-bar-chart {
+                grid-template-columns: repeat(8, minmax(72px, 1fr));
+            }
+
+            .ph-monitor-date-input {
+                width: 100%;
+            }
+
+            .ph-protein-card-layout {
+                grid-template-columns: 1fr;
+            }
+
+            .ph-protein-card-actions {
+                justify-content: flex-start;
+                padding-left: 52px;
+            }
+
+            .ph-protein-filter-row {
+                grid-template-columns: minmax(180px, 1fr) 128px 128px 148px auto auto;
+            }
+
+            .ph-monitor-batch-row {
                 grid-template-columns: 1fr;
             }
 
@@ -700,6 +1179,33 @@ def api_script() -> None:
             }
             phNotify(phErrorText(detail) || fallback, 'negative');
         }
+        window.phSequenceCheckText = function(check) {
+            const items = check && Array.isArray(check.items) ? check.items : [];
+            const lines = [];
+            let displayedMatches = 0;
+            for (const item of items) {
+                const matches = Array.isArray(item.matches) ? item.matches : [];
+                const parts = matches.slice(0, 3).map((match) => {
+                    const label = match.match_type === 'duplicate'
+                        ? '重复'
+                        : `相似度 ${(Number(match.identity || 0) * 100).toFixed(1)}%`;
+                    const scope = match.scope === 'incoming' ? '本次导入' : '已有蛋白';
+                    return `${label}: ${scope} ${match.protein_name || ''}`.trim();
+                });
+                if (parts.length) {
+                    lines.push(`${item.name}: ${parts.join('；')}`);
+                    displayedMatches += parts.length;
+                }
+                if (lines.length >= 8) break;
+            }
+            if (!lines.length) return '';
+            const totalMatches = items.reduce(
+                (count, item) => count + (Array.isArray(item.matches) ? item.matches.length : 0),
+                0,
+            );
+            const suffix = totalMatches > displayedMatches ? `\\n另有 ${totalMatches - displayedMatches} 条相似记录未显示` : '';
+            return lines.join('\\n') + suffix;
+        }
         window.phApi = async function(path, options = {}) {
             const token = localStorage.getItem('proteinhub_token');
             const headers = options.headers || {};
@@ -736,6 +1242,16 @@ def api_script() -> None:
         }
         window.phToken = function() {
             return localStorage.getItem('proteinhub_token');
+        }
+        window.phSyncAdminLinks = async function() {
+            const links = document.querySelectorAll('.ph-admin-only');
+            try {
+                const user = await phApi('/api/me');
+                const isAdmin = user && user.global_role === 'admin';
+                links.forEach((link) => link.classList.toggle('hidden', !isAdmin));
+            } catch (error) {
+                links.forEach((link) => link.classList.add('hidden'));
+            }
         }
         </script>
         """
@@ -802,7 +1318,14 @@ def shell() -> None:
             ui.link("ProteinHub", "/").classes("text-lg font-semibold no-underline text-slate-900")
         with ui.row().classes("items-center gap-2"):
             ui.link("项目", "/projects").classes("text-sm no-underline text-slate-700")
+            ui.link("订单监控", "/order-monitor").classes(
+                "text-sm no-underline text-slate-700 ph-admin-only hidden"
+            )
+            ui.link("帮助", "/help").classes("text-sm no-underline text-slate-700")
             ui.button("退出登录", on_click=lambda: ui.run_javascript("phClearToken(); window.location.href='/login'")).props("flat dense")
+    ui.add_body_html(
+        "<script>setTimeout(() => window.phSyncAdminLinks && window.phSyncAdminLinks(), 0)</script>"
+    )
 
 
 async def ensure_logged_in() -> bool:
@@ -812,6 +1335,10 @@ async def ensure_logged_in() -> bool:
         return False
     try:
         await ui.run_javascript("return await phApi('/api/me')")
+        await ui.run_javascript(
+            "window.phSyncAdminLinks && window.phSyncAdminLinks()",
+            timeout=5,
+        )
         return True
     except Exception:
         ui.notify("登录状态已失效，请重新登录", type="warning")

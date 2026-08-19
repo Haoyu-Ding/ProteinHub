@@ -2,15 +2,23 @@ from __future__ import annotations
 
 import sqlite3
 
-from proteinhub.application.permissions import require_project_role
+from proteinhub.application.permissions import (
+    is_admin,
+    require_admin,
+    require_project_owner,
+    require_project_read,
+)
 from proteinhub.application.validation import required
 from proteinhub.domain.errors import ConflictError, DomainError, NotFoundError
-from proteinhub.infrastructure.sqlite.connection import transaction
+from proteinhub.infrastructure.database.connection import transaction
 from proteinhub.infrastructure.sqlite.repositories import ProjectRepository, UserRepository
 
 
 def list_projects(connection: sqlite3.Connection, user_id: int) -> list[dict]:
-    return ProjectRepository(connection).list_for_user(user_id)
+    projects = ProjectRepository(connection)
+    if is_admin(connection, user_id=user_id):
+        return projects.list_all_as_owner()
+    return projects.list_for_user(user_id)
 
 
 def create_project(
@@ -29,14 +37,25 @@ def create_project(
             project_id=project_id,
             user_id=user_id,
             role="owner",
-            discipline="other",
         )
 
     return get_project(connection, project_id=project_id, user_id=user_id)
 
 
+def delete_project(
+    connection: sqlite3.Connection, *, project_id: int, user_id: int
+) -> None:
+    require_admin(connection, user_id=user_id)
+    projects = ProjectRepository(connection)
+    if not projects.get(project_id):
+        raise NotFoundError("Project not found")
+
+    with transaction(connection):
+        projects.delete(project_id)
+
+
 def get_project(connection: sqlite3.Connection, *, project_id: int, user_id: int) -> dict:
-    role = require_project_role(connection, project_id=project_id, user_id=user_id)
+    role = require_project_read(connection, project_id=project_id, user_id=user_id)
     project = ProjectRepository(connection).get(project_id)
     if not project:
         raise NotFoundError("Project not found")
@@ -47,18 +66,16 @@ def get_project(connection: sqlite3.Connection, *, project_id: int, user_id: int
 def list_project_members(
     connection: sqlite3.Connection, *, project_id: int, user_id: int
 ) -> list[dict]:
-    require_project_role(connection, project_id=project_id, user_id=user_id)
+    require_project_read(connection, project_id=project_id, user_id=user_id)
     return ProjectRepository(connection).list_members(project_id)
 
 
 def search_project_member_candidates(
     connection: sqlite3.Connection, *, project_id: int, owner_user_id: int, query: str
 ) -> list[dict]:
-    require_project_role(
-        connection, project_id=project_id, user_id=owner_user_id, owner_only=True
-    )
+    require_project_owner(connection, project_id=project_id, user_id=owner_user_id)
     search_text = query.strip()
-    if len(search_text) < 2:
+    if not search_text:
         return []
     return UserRepository(connection).search_available_for_project(
         project_id=project_id, query=search_text
@@ -72,28 +89,27 @@ def add_project_member(
     owner_user_id: int,
     email: str,
     role: str = "member",
-    discipline: str = "other",
 ) -> dict:
-    require_project_role(
-        connection, project_id=project_id, user_id=owner_user_id, owner_only=True
-    )
-    if role not in {"owner", "member"}:
-        raise DomainError("Role must be owner or member")
-    if discipline not in {"design", "synthesis", "assay", "other"}:
-        raise DomainError("Discipline must be design, synthesis, assay, or other")
+    require_project_owner(connection, project_id=project_id, user_id=owner_user_id)
+    if role != "member":
+        raise DomainError("Projects have exactly one owner")
 
     user = UserRepository(connection).get_by_email(email.strip().lower())
     if not user:
         raise NotFoundError("User not found")
-
     projects = ProjectRepository(connection)
+    project = projects.get(project_id)
+    if not project:
+        raise NotFoundError("Project not found")
+    if user["id"] == project["owner_id"]:
+        raise ConflictError("User is already the project owner")
+
     try:
         with transaction(connection):
             projects.insert_member(
                 project_id=project_id,
                 user_id=user["id"],
-                role=role,
-                discipline=discipline,
+                role="member",
             )
     except sqlite3.IntegrityError as exc:
         raise ConflictError("User is already a project member") from exc
@@ -103,8 +119,7 @@ def add_project_member(
         "name": user["name"],
         "email": user["email"],
         "created_at": user["created_at"],
-        "role": role,
-        "discipline": discipline,
+        "role": "member",
     }
 
 
@@ -115,34 +130,25 @@ def update_project_member(
     owner_user_id: int,
     member_user_id: int,
     role: str,
-    discipline: str,
 ) -> dict:
-    require_project_role(
-        connection, project_id=project_id, user_id=owner_user_id, owner_only=True
-    )
+    require_project_owner(connection, project_id=project_id, user_id=owner_user_id)
     if role not in {"owner", "member"}:
         raise DomainError("Role must be owner or member")
-    if discipline not in {"design", "synthesis", "assay", "other"}:
-        raise DomainError("Discipline must be design, synthesis, assay, or other")
 
     projects = ProjectRepository(connection)
     member = projects.get_member(project_id=project_id, user_id=member_user_id)
     if not member:
         raise NotFoundError("Project member not found")
-    removing_last_owner = (
-        member["role"] == "owner"
-        and role != "owner"
-        and projects.count_owners(project_id) <= 1
-    )
-    if removing_last_owner:
-        raise DomainError("Project must keep at least one owner")
+    if member["role"] == "owner" and role != "owner":
+        raise DomainError("Project owner cannot be demoted")
+    if member["role"] != "owner" and role == "owner":
+        raise DomainError("Projects have exactly one owner")
 
     with transaction(connection):
         projects.update_member(
             project_id=project_id,
             user_id=member_user_id,
-            role=role,
-            discipline=discipline,
+            role=member["role"],
         )
 
     updated = projects.get_member(project_id=project_id, user_id=member_user_id)

@@ -36,10 +36,16 @@ class HPLCExperiment(BatchExperiment):
     detail_table = "hplc_experiments"
 
 
+class AKTAExperiment(BatchExperiment):
+    experiment_type = "AKTA"
+    detail_table = "akta_experiments"
+
+
 EXPERIMENT_TYPES: dict[str, type[BatchExperiment]] = {
     FPLCExperiment.experiment_type: FPLCExperiment,
     SPRExperiment.experiment_type: SPRExperiment,
     HPLCExperiment.experiment_type: HPLCExperiment,
+    AKTAExperiment.experiment_type: AKTAExperiment,
 }
 
 
@@ -47,5 +53,5 @@ def experiment_class_for(experiment_type: str) -> type[BatchExperiment]:
     normalized = experiment_type.strip().upper()
     experiment_class = EXPERIMENT_TYPES.get(normalized)
     if experiment_class is None:
-        raise DomainError("Experiment type must be FPLC, SPR, or HPLC")
+        raise DomainError("Experiment type must be FPLC, SPR, HPLC, or AKTA")
     return experiment_class

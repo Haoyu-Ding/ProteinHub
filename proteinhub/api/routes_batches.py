@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, Response, UploadFile
 
@@ -16,6 +17,7 @@ from proteinhub.api.schemas import (
     BatchWellPositionUpdateRequest,
     ExperimentDetailResponse,
     ExperimentCreateRequest,
+    ExperimentRawFileResponse,
     ExperimentSummaryResponse,
     ExperimentWellResultResponse,
     ExperimentWellResultUpdateRequest,
@@ -28,6 +30,8 @@ from proteinhub.application.batch_service import (
     get_batch,
     get_batch_experiment,
     import_akta_results,
+    import_spr_concentrations,
+    import_spr_results,
     list_batches,
     list_batch_experiments,
     translate_batch_sequences,
@@ -35,6 +39,11 @@ from proteinhub.application.batch_service import (
     update_batch_well_position,
     update_experiment_well_result,
 )
+from proteinhub.application.experiment_raw_file_service import (
+    get_experiment_raw_file_download,
+    list_experiment_raw_files,
+)
+from proteinhub.application.hplc_service import import_hplc_results
 from proteinhub.domain.errors import DomainError
 
 
@@ -233,6 +242,87 @@ def create_batches_router(
         except DomainError as error:
             raise map_domain_error(error) from error
 
+    @router.post(
+        "/batches/{batch_id}/spr-results",
+        response_model=ExperimentDetailResponse,
+    )
+    def import_spr_results_route(
+        batch_id: int,
+        run_date: str = Form(...),
+        file: UploadFile = File(...),
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> dict:
+        try:
+            return import_spr_results(
+                connection,
+                storage_root=context.storage_root,
+                batch_id=batch_id,
+                user_id=user["id"],
+                run_date=run_date,
+                filename=file.filename or "spr-results.pptx",
+                content_type=file.content_type
+                or "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                content=file.file.read(),
+            )
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.post(
+        "/batches/{batch_id}/spr-concentrations",
+        response_model=ExperimentDetailResponse,
+    )
+    def import_spr_concentrations_route(
+        batch_id: int,
+        run_date: str = Form(...),
+        file: UploadFile = File(...),
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> dict:
+        try:
+            return import_spr_concentrations(
+                connection,
+                storage_root=context.storage_root,
+                batch_id=batch_id,
+                user_id=user["id"],
+                run_date=run_date,
+                filename=file.filename or "spr-concentration.csv",
+                content_type=file.content_type or "text/csv",
+                content=file.file.read(),
+            )
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.post(
+        "/batches/{batch_id}/hplc-results",
+        response_model=ExperimentDetailResponse,
+    )
+    def import_hplc_results_route(
+        batch_id: int,
+        source_name: str = Form(default=""),
+        files: list[UploadFile] = File(...),
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> dict:
+        try:
+            return import_hplc_results(
+                connection,
+                storage_root=context.storage_root,
+                batch_id=batch_id,
+                user_id=user["id"],
+                source_name=source_name,
+                files=[
+                    (
+                        file.filename or "hplc.csv",
+                        file.content_type or "text/csv",
+                        file.file.read(),
+                    )
+                    for file in files
+                ],
+            )
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
     @router.get(
         "/batches/{batch_id}/experiments",
         response_model=list[ExperimentSummaryResponse],
@@ -283,6 +373,48 @@ def create_batches_router(
         try:
             return get_batch_experiment(
                 connection, experiment_id=experiment_id, user_id=user["id"]
+            )
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.get(
+        "/experiments/{experiment_id}/raw-files",
+        response_model=list[ExperimentRawFileResponse],
+    )
+    def experiment_raw_files(
+        experiment_id: int,
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> list[dict]:
+        try:
+            return list_experiment_raw_files(
+                connection,
+                experiment_id=experiment_id,
+                user_id=user["id"],
+            )
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.get("/experiment-raw-files/{raw_file_id}/download")
+    def download_experiment_raw_file(
+        raw_file_id: int,
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> Response:
+        try:
+            raw_file, content = get_experiment_raw_file_download(
+                connection,
+                raw_file_id=raw_file_id,
+                user_id=user["id"],
+            )
+            return Response(
+                content=content,
+                media_type=raw_file["mime_type"],
+                headers={
+                    "Content-Disposition": (
+                        f"attachment; filename*=UTF-8''{quote(raw_file['filename'])}"
+                    )
+                },
             )
         except DomainError as error:
             raise map_domain_error(error) from error

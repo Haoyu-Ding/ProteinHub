@@ -7,8 +7,10 @@
 - Python 3.11 或更高版本。
 - FastAPI 用于 HTTP APIs。
 - NiceGUI 用于本地 Web UI。
-- SQLite 用于 MVP metadata 存储。
-- 本地文件系统用于 artifact bytes 存储。
+- SQLite 用于本地开发和测试。
+- PostgreSQL 用于服务器部署。
+- Artifact bytes 和 protein structure bytes 可以存入数据库；本地开发默认仍用文件系统。
+- Experiment raw files 直接存入数据库。
 
 ## 安装和启动
 
@@ -40,10 +42,23 @@ python main.py
 - `PROTEINHUB_DATA_DIR`
 - `PROTEINHUB_STORAGE_DIR`
 - `PROTEINHUB_DATABASE`
+- `PROTEINHUB_DATABASE_URL`
+- `PROTEINHUB_ARTIFACT_STORAGE_BACKEND`
 - `PROTEINHUB_JWT_SECRET`
 - `PROTEINHUB_NICEGUI_STORAGE_SECRET`
 
 不要在配置默认值之外硬编码 secrets。默认值只适用于本地开发。
+
+`PROTEINHUB_DATABASE_URL` 设置后使用 PostgreSQL，例如：
+
+```bash
+export PROTEINHUB_DATABASE_URL=postgresql://proteinhub:password@localhost:5432/proteinhub
+```
+
+`PROTEINHUB_ARTIFACT_STORAGE_BACKEND` 可选值为 `database` 或 `filesystem`。
+当配置 PostgreSQL 且未显式设置该变量时，默认使用 `database`，也就是把
+artifact bytes 和 protein structure bytes 直接存入 PostgreSQL。
+Experiment raw files 不走 filesystem backend，始终保存原始 bytes 到数据库。
 
 ## API 规范
 
@@ -65,7 +80,9 @@ python main.py
 
 ## Repository 规范
 
-- SQLite 查询放在 `proteinhub/infrastructure/sqlite/`。
+- 数据库入口放在 `proteinhub/infrastructure/database/`。
+- SQLite schema 和 repository 查询放在 `proteinhub/infrastructure/sqlite/`。
+- PostgreSQL connection 和 schema setup 放在 `proteinhub/infrastructure/postgres/`。
 - 只使用参数化 SQL。
 - 在引入 typed models 前，数据库行可以继续以 dictionaries 返回。
 - Repositories 聚焦数据访问，不承载产品策略。
@@ -73,11 +90,14 @@ python main.py
 
 ## Storage 规范
 
-- 文件系统行为放在 `proteinhub/infrastructure/storage/`。
-- 文件只能存储在配置的 storage root 下。
-- SQLite 中只存相对路径。
+- Storage adapter 放在 `proteinhub/infrastructure/storage/`。
+- 文件系统 backend 只能存储在配置的 storage root 下。
+- 数据库 backend 仍应保存相对路径 metadata，bytes 存在对应 BLOB/BYTEA 字段。
+- Experiment raw files 使用 `experiment_raw_files.content` 保存原始 bytes，
+  普通 list/detail response 只能返回 metadata。
 - 所有用户提供的 filename 在路径构造前必须 sanitize。
 - 对外提供文件前，必须使用 `resolve_storage_path` 或 `LocalFileStore.resolve`。
+  数据库 backend 下载时必须经过授权检查后读取 bytes。
 
 ## UI 规范
 
@@ -93,7 +113,7 @@ python main.py
 - 密码校验必须通过 `verify_password` 使用常量时间比较。
 - JWT 创建和解码必须留在 `proteinhub/security.py`。
 - Project membership 是项目数据的授权边界。
-- Artifact download 必须同时验证授权和 storage-root containment。
+- Artifact download 必须验证授权；filesystem backend 还必须验证 storage-root containment。
 
 ## 测试规范
 

@@ -19,6 +19,8 @@ class StoredFile:
 
 
 class LocalFileStore:
+    backend = "filesystem"
+
     def __init__(self, root: Path) -> None:
         self.root = root
 
@@ -82,3 +84,16 @@ class LocalFileStore:
 
     def resolve(self, relative_path: str | Path) -> Path:
         return resolve_storage_path(self.root, relative_path)
+
+    def read(self, relative_path: str | Path) -> bytes:
+        return self.resolve(relative_path).read_bytes()
+
+    def replace(self, relative_path: str | Path, content: bytes) -> StoredFile:
+        absolute_path = self.resolve(relative_path)
+        absolute_path.parent.mkdir(parents=True, exist_ok=True)
+        absolute_path.write_bytes(content)
+        return StoredFile(
+            relative_path=Path(relative_path).as_posix(),
+            absolute_path=absolute_path,
+            size_bytes=len(content),
+        )

@@ -93,6 +93,85 @@ class ExperimentRepository:
         ).fetchall()
         return [self._with_details(experiment) for experiment in experiments]
 
+    def find_for_batch_type_run_date(
+        self,
+        *,
+        batch_id: int,
+        experiment_type: str,
+        run_date: str,
+    ) -> dict | None:
+        detail_table = self._detail_table(experiment_type)
+        experiments = self.connection.execute(
+            f"""
+            SELECT
+                batch_experiments.*,
+                users.name AS created_by_name,
+                users.email AS created_by_email,
+                {detail_table}.details_json
+            FROM batch_experiments
+            JOIN users ON users.id = batch_experiments.created_by
+            JOIN {detail_table}
+                ON {detail_table}.experiment_id = batch_experiments.id
+            WHERE batch_experiments.batch_id = ?
+              AND batch_experiments.experiment_type = ?
+            ORDER BY batch_experiments.created_at DESC, batch_experiments.id DESC
+            """,
+            (batch_id, experiment_type),
+        ).fetchall()
+        for experiment in experiments:
+            details = json.loads(experiment.pop("details_json") or "{}")
+            experiment["details"] = details
+            if details.get("run_date") == run_date:
+                return experiment
+        return None
+
+    def update_details(
+        self,
+        *,
+        experiment_id: int,
+        experiment_type: str,
+        details: dict,
+    ) -> None:
+        detail_table = self._detail_table(experiment_type)
+        self.connection.execute(
+            f"""
+            UPDATE {detail_table}
+            SET details_json = ?
+            WHERE experiment_id = ?
+            """,
+            (json.dumps(details, ensure_ascii=False, sort_keys=True), experiment_id),
+        )
+        self.connection.execute(
+            """
+            UPDATE batch_experiments
+            SET updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (experiment_id,),
+        )
+
+    def result_positions_for_experiment(
+        self, *, experiment_id: int, positions: set[str]
+    ) -> set[str]:
+        if not positions:
+            return set()
+        placeholders = ",".join("?" for _ in positions)
+        rows = self.connection.execute(
+            f"""
+            SELECT DISTINCT batch_wells.position
+            FROM experiment_well_results
+            JOIN batch_wells ON batch_wells.id = experiment_well_results.well_id
+            WHERE experiment_well_results.experiment_id = ?
+              AND batch_wells.position IN ({placeholders})
+              AND (
+                  experiment_well_results.result_value != ''
+                  OR experiment_well_results.result_note != ''
+              )
+            """,
+            (experiment_id, *sorted(positions)),
+        ).fetchall()
+        return {row["position"] for row in rows}
+
     def result_positions_for_batch_type(
         self, *, batch_id: int, experiment_type: str, positions: set[str]
     ) -> set[str]:

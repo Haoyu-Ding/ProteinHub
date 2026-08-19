@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ProteinHub 服务器部署步骤</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17212b;
+      --muted: #5b6775;
+      --line: #d8dee6;
+      --panel: #ffffff;
+      --page: #f5f7fa;
+      --accent: #176b87;
+      --accent-soft: #e3f2f5;
+      --warn: #8a5a00;
+      --warn-soft: #fff2cc;
+      --ok: #2f6d4f;
+      --ok-soft: #e4f3eb;
+      --code: #101820;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.65;
+    }
+
+    header {
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .wrap {
+      width: min(1120px, calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    .hero {
+      padding: 44px 0 28px;
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--accent);
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      font-size: 13px;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 820px;
+      font-size: clamp(30px, 5vw, 52px);
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+
+    .intro {
+      max-width: 820px;
+      margin: 18px 0 0;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    nav {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+      padding: 20px 0 30px;
+    }
+
+    nav a {
+      display: block;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fbfcfd;
+      color: var(--ink);
+      text-decoration: none;
+      font-weight: 650;
+    }
+
+    main {
+      padding: 28px 0 56px;
+    }
+
+    section {
+      margin: 0 0 22px;
+      padding: 26px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      font-size: 25px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 22px 0 8px;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 10px 0;
+    }
+
+    ul,
+    ol {
+      margin: 10px 0 0 22px;
+      padding: 0;
+    }
+
+    li {
+      margin: 6px 0;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    pre {
+      margin: 12px 0;
+      padding: 14px 16px;
+      overflow-x: auto;
+      border-radius: 8px;
+      background: var(--code);
+      color: #f6f8fa;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    table {
+      width: 100%;
+      margin: 14px 0 0;
+      border-collapse: collapse;
+      overflow-wrap: anywhere;
+    }
+
+    th,
+    td {
+      padding: 12px;
+      border: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #eef3f7;
+      font-size: 14px;
+    }
+
+    .callout {
+      margin: 14px 0;
+      padding: 12px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+    }
+
+    .callout.ok {
+      background: var(--ok-soft);
+      border-color: #bddcc9;
+      color: var(--ok);
+    }
+
+    .callout.warn {
+      background: var(--warn-soft);
+      border-color: #ead087;
+      color: var(--warn);
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .meta {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfd;
+    }
+
+    .meta strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    @media (max-width: 720px) {
+      .wrap {
+        width: min(100% - 24px, 1120px);
+      }
+
+      section {
+        padding: 18px;
+      }
+
+      th,
+      td {
+        padding: 9px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap hero">
+      <p class="eyebrow">ProteinHub production rollout</p>
+      <h1>服务器部署步骤和每一步的意义</h1>
+      <p class="intro">
+        这份页面面向第一版生产部署：单台 Ubuntu 服务器、PostgreSQL、systemd 托管应用、
+        Caddy 负责 HTTPS 反向代理。当前预计约 10 人使用，这个方案足够轻、也方便后续迭代。
+      </p>
+      <div class="meta-grid">
+        <div class="meta">
+          <strong>推荐服务器</strong>
+          Ubuntu 22.04/24.04，2 vCPU，4 GB RAM，80 GB SSD 起步。
+        </div>
+        <div class="meta">
+          <strong>部署分支</strong>
+          当前代码分支是 <code>codex-architecture-cleanup</code>；合并到 <code>main</code> 后可改为 <code>main</code>。
+        </div>
+        <div class="meta">
+          <strong>数据策略</strong>
+          PostgreSQL 存业务数据和原始上传文件，备份以数据库为主。
+        </div>
+      </div>
+    </div>
+    <div class="wrap">
+      <nav aria-label="部署目录">
+        <a href="#overview">总览</a>
+        <a href="#server">服务器准备</a>
+        <a href="#database">PostgreSQL</a>
+        <a href="#app">应用部署</a>
+        <a href="#external-tools">AKTA/反向翻译</a>
+        <a href="#systemd">systemd</a>
+        <a href="#https">HTTPS</a>
+        <a href="#backup">备份恢复</a>
+        <a href="#release">后续迭代</a>
+        <a href="#checklist">上线检查</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section id="overview">
+      <h2>1. 总览</h2>
+      <p>
+        部署可以理解成四件事：把代码放到服务器、准备生产数据库、让应用作为后台服务长期运行、
+        再用 HTTPS 域名把服务暴露给用户。
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>步骤</th>
+            <th>做什么</th>
+            <th>意义</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>服务器准备</td>
+            <td>安装 Git、Python、PostgreSQL、Caddy，创建专用系统用户。</td>
+            <td>隔离运行环境，避免应用直接用 root 权限运行。</td>
+          </tr>
+          <tr>
+            <td>PostgreSQL</td>
+            <td>创建数据库和数据库账号，配置 <code>PROTEINHUB_DATABASE_URL</code>。</td>
+            <td>生产数据集中存储，支持多人使用、备份和恢复。</td>
+          </tr>
+          <tr>
+            <td>应用服务</td>
+            <td>拉取 GitHub 代码，创建虚拟环境，安装依赖。</td>
+            <td>保证服务器运行的就是仓库里可追踪的版本。</td>
+          </tr>
+          <tr>
+            <td>反向代理</td>
+            <td>Caddy 接管 80/443 端口并转发到本机 8080。</td>
+            <td>自动 HTTPS，用户访问域名即可使用。</td>
+          </tr>
+          <tr>
+            <td>备份与发布</td>
+            <td>每次升级前备份，升级后跑测试和健康检查。</td>
+            <td>让后续迭代可回退、可验证。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="server">
+      <h2>2. 服务器准备</h2>
+      <p>先用 SSH 登录服务器。下面命令默认系统是 Ubuntu。</p>
+      <pre><code>ssh your-user@your-server-ip</code></pre>
+      <p>安装基础依赖：</p>
+      <pre><code>sudo apt update
+sudo apt install -y git python3 python3-venv postgresql postgresql-contrib caddy
+python3 --version</code></pre>
+      <p>
+        创建 <code>proteinhub</code> 系统用户和目录。应用以后用这个用户运行，
+        数据目录放在 <code>/var/lib/proteinhub</code>，代码放在 <code>/opt/proteinhub</code>。
+      </p>
+      <pre><code>sudo useradd --system --home-dir /var/lib/proteinhub --shell /usr/sbin/nologin proteinhub
+sudo mkdir -p /opt/proteinhub /var/lib/proteinhub/storage /var/backups/proteinhub /opt/proteinhub-tools
+sudo chown -R proteinhub:proteinhub /var/lib/proteinhub /var/backups/proteinhub /opt/proteinhub</code></pre>
+      <div class="callout ok">
+        意义：这一步把“系统、代码、数据、备份、外部工具”分开放，后续迁移和排错会清楚很多。
+      </div>
+    </section>
+
+    <section id="database">
+      <h2>3. PostgreSQL</h2>
+      <p>创建数据库用户和数据库。输入密码时请记录下来，下一步会写入环境变量。</p>
+      <pre><code>sudo -u postgres createuser proteinhub --pwprompt
+sudo -u postgres createdb proteinhub -O proteinhub</code></pre>
+      <p>检查数据库连接：</p>
+      <pre><code>psql "postgresql://proteinhub:&lt;password&gt;@127.0.0.1:5432/proteinhub" -c "select 1;"</code></pre>
+      <p>
+        ProteinHub 启动时会初始化当前 schema。正式上线后，任何涉及数据库结构的代码更新，
+        都应该先备份，再发布。
+      </p>
+      <div class="callout warn">
+        注意：生产环境建议不要继续用 SQLite。多人访问、原始文件入库、备份恢复这些事情，
+        PostgreSQL 更稳。
+      </div>
+    </section>
+
+    <section id="app">
+      <h2>4. 应用部署</h2>
+      <p>从 GitHub 拉取代码。如果当前改动还没合并到 <code>main</code>，就先部署当前分支。</p>
+      <pre><code>sudo git clone git@github.com:Haoyu-Ding/ProteinHub.git /opt/proteinhub
+sudo chown -R proteinhub:proteinhub /opt/proteinhub
+cd /opt/proteinhub
+sudo -u proteinhub git checkout codex-architecture-cleanup</code></pre>
+      <p>创建虚拟环境并安装依赖：</p>
+      <pre><code>sudo -u proteinhub python3 -m venv .venv
+sudo -u proteinhub .venv/bin/pip install -e ".[dev]"</code></pre>
+      <p>复制环境变量模板：</p>
+      <pre><code>sudo cp /opt/proteinhub/.env.example /etc/proteinhub.env
+sudo chmod 600 /etc/proteinhub.env
+sudo chown root:root /etc/proteinhub.env
+sudo editor /etc/proteinhub.env</code></pre>
+      <p>至少要改这些配置：</p>
+      <table>
+        <thead>
+          <tr>
+            <th>变量</th>
+            <th>建议值</th>
+            <th>意义</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>PROTEINHUB_DATABASE_URL</code></td>
+            <td><code>postgresql://proteinhub:&lt;password&gt;@127.0.0.1:5432/proteinhub</code></td>
+            <td>让应用连接生产 PostgreSQL。</td>
+          </tr>
+          <tr>
+            <td><code>PROTEINHUB_ARTIFACT_STORAGE_BACKEND</code></td>
+            <td><code>database</code></td>
+            <td>原始上传文件和 artifact bytes 直接存数据库。</td>
+          </tr>
+          <tr>
+            <td><code>PROTEINHUB_JWT_SECRET</code></td>
+            <td>长随机字符串</td>
+            <td>签发和验证登录 token。</td>
+          </tr>
+          <tr>
+            <td><code>PROTEINHUB_NICEGUI_STORAGE_SECRET</code></td>
+            <td>另一个长随机字符串</td>
+            <td>保护 NiceGUI 本地会话状态。</td>
+          </tr>
+          <tr>
+            <td><code>PROTEINHUB_ADMIN_EMAILS</code></td>
+            <td>管理员邮箱，多个用英文逗号分隔</td>
+            <td>决定谁可以进入管理员功能，例如删除项目。</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>生成 secret 的命令：</p>
+      <pre><code>python3 -c "import secrets; print(secrets.token_urlsafe(48))"</code></pre>
+    </section>
+
+    <section id="external-tools">
+      <h2>5. AKTA 和反向翻译外部工具</h2>
+      <p>
+        不建议把本地 <code>.legacy/</code> 虚拟环境直接提交到主仓库。服务器上单独准备外部工具目录：
+      </p>
+      <pre><code>/opt/proteinhub-tools/
+  akta/
+    bin/python
+    akta_hap.py
+  domesticator/
+    bin/python
+    domesticator.py
+    database/</code></pre>
+      <p>然后在 <code>/etc/proteinhub.env</code> 中配置实际路径：</p>
+      <pre><code>PROTEINHUB_AKTA_HAP_PYTHON=/opt/proteinhub-tools/akta/bin/python
+PROTEINHUB_AKTA_HAP_SCRIPT=/opt/proteinhub-tools/akta/akta_hap.py
+
+PROTEINHUB_LEGACY_DOMESTICATOR_PYTHON=/opt/proteinhub-tools/domesticator/bin/python
+PROTEINHUB_LEGACY_DOMESTICATOR_SCRIPT=/opt/proteinhub-tools/domesticator/domesticator.py
+PROTEINHUB_LEGACY_DOMESTICATOR_DATABASE=/opt/proteinhub-tools/domesticator/database</code></pre>
+      <p>上线前检查外部工具是否可用：</p>
+      <pre><code>cd /opt/proteinhub
+sudo -u proteinhub .venv/bin/python scripts/check-external-tools.py \
+  --env-file /etc/proteinhub.env \
+  --require-akta \
+  --require-domesticator</code></pre>
+      <div class="callout ok">
+        意义：主应用保持干净可部署；AKTA 和 xiaopang/domesticator 这类历史脚本作为可替换工具接入。
+      </div>
+    </section>
+
+    <section id="systemd">
+      <h2>6. systemd 后台服务</h2>
+      <p>安装 systemd service，让 ProteinHub 开机自启、异常自动重启。</p>
+      <pre><code>sudo cp /opt/proteinhub/deploy/proteinhub.service /etc/systemd/system/proteinhub.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now proteinhub
+sudo systemctl status proteinhub</code></pre>
+      <p>看实时日志：</p>
+      <pre><code>journalctl -u proteinhub -f</code></pre>
+      <p>健康检查：</p>
+      <pre><code>curl http://127.0.0.1:8080/api/health</code></pre>
+      <p>期望看到类似结果：</p>
+      <pre><code>{
+  "status": "ok",
+  "database": "ok",
+  "storage": "ok"
+}</code></pre>
+    </section>
+
+    <section id="https">
+      <h2>7. HTTPS 和域名</h2>
+      <p>
+        先把域名 A 记录解析到服务器公网 IP。然后复制 Caddy 模板，
+        把 <code>your-domain.example.com</code> 改成真实域名。
+      </p>
+      <pre><code>sudo cp /opt/proteinhub/deploy/Caddyfile.example /etc/caddy/Caddyfile
+sudo editor /etc/caddy/Caddyfile
+sudo systemctl reload caddy</code></pre>
+      <p>检查外网访问：</p>
+      <pre><code>curl https://your-domain.example.com/api/health</code></pre>
+      <div class="callout ok">
+        意义：Caddy 自动申请和续期 HTTPS 证书，应用本身只需要监听本机 8080。
+      </div>
+    </section>
+
+    <section id="backup">
+      <h2>8. 备份和恢复</h2>
+      <p>先跑一次手动备份，确认备份脚本可用：</p>
+      <pre><code>sudo -u proteinhub PROTEINHUB_ENV_FILE=/etc/proteinhub.env /opt/proteinhub/scripts/backup-postgres.sh</code></pre>
+      <p>建议给 <code>proteinhub</code> 用户加定时备份：</p>
+      <pre><code>sudo crontab -u proteinhub -e</code></pre>
+      <pre><code>15 2 * * * PROTEINHUB_ENV_FILE=/etc/proteinhub.env /opt/proteinhub/scripts/backup-postgres.sh &gt;&gt; /var/backups/proteinhub/backup.log 2&gt;&amp;1</code></pre>
+      <p>恢复流程要先停服务，恢复后再启动：</p>
+      <pre><code>sudo systemctl stop proteinhub
+sudo -u proteinhub PROTEINHUB_ENV_FILE=/etc/proteinhub.env /opt/proteinhub/scripts/restore-postgres.sh /var/backups/proteinhub/proteinhub_YYYYmmdd_HHMMSS.dump
+sudo systemctl start proteinhub</code></pre>
+      <div class="callout warn">
+        注意：现在原始文件也会进数据库，所以数据库备份就是生产数据的核心备份。建议定期把备份同步到服务器外部位置。
+      </div>
+    </section>
+
+    <section id="release">
+      <h2>9. 后续迭代流程</h2>
+      <p>每次发布建议按固定顺序来，少靠记忆：</p>
+      <ol>
+        <li>本地开发并运行测试。</li>
+        <li>提交到 GitHub。</li>
+        <li>服务器先备份 PostgreSQL。</li>
+        <li>服务器拉取新代码并安装依赖。</li>
+        <li>服务器跑测试和编译检查。</li>
+        <li>重启 systemd 服务。</li>
+        <li>访问 <code>/api/health</code> 和几个关键页面。</li>
+      </ol>
+      <pre><code>cd /opt/proteinhub
+sudo -u proteinhub PROTEINHUB_ENV_FILE=/etc/proteinhub.env scripts/backup-postgres.sh
+sudo -u proteinhub git fetch origin
+sudo -u proteinhub git checkout codex-architecture-cleanup
+sudo -u proteinhub git pull --ff-only
+sudo -u proteinhub .venv/bin/pip install -e ".[dev]"
+sudo -u proteinhub .venv/bin/python -m pytest
+sudo -u proteinhub .venv/bin/python -m compileall -q proteinhub tests main.py
+sudo systemctl restart proteinhub
+curl http://127.0.0.1:8080/api/health</code></pre>
+      <h3>回退策略</h3>
+      <p>如果发布后发现问题，优先回退代码；如果数据库也被错误迁移或污染，再恢复数据库备份。</p>
+      <pre><code>cd /opt/proteinhub
+sudo -u proteinhub git log --oneline -5
+sudo -u proteinhub git checkout &lt;previous-good-commit&gt;
+sudo systemctl restart proteinhub
+curl http://127.0.0.1:8080/api/health</code></pre>
+    </section>
+
+    <section id="checklist">
+      <h2>10. 上线前检查清单</h2>
+      <ul>
+        <li>GitHub 上能看到当前提交。</li>
+        <li><code>/etc/proteinhub.env</code> 已替换所有 secret 和数据库密码。</li>
+        <li><code>PROTEINHUB_ARTIFACT_STORAGE_BACKEND=database</code>。</li>
+        <li><code>/api/health</code> 返回 <code>status: ok</code>。</li>
+        <li>管理员账号可以登录，管理员邮箱在 <code>PROTEINHUB_ADMIN_EMAILS</code> 中。</li>
+        <li>可以创建项目、创建蛋白、上传 HPLC/SPR/AKTA 数据。</li>
+        <li>HPLC 图里小于 0.01 min 的分段不会绘制。</li>
+        <li>蛋白详情页实验结果没有删除按钮。</li>
+        <li>备份脚本能生成 dump 文件，且备份目录权限正确。</li>
+        <li>Caddy HTTPS 可访问，浏览器没有证书警告。</li>
+      </ul>
+      <div class="callout ok">
+        做完这份清单后，ProteinHub 第一版生产部署就可以给小团队使用了。后续迭代继续走“本地测试、提交 GitHub、服务器备份、拉代码、重启验证”的节奏。
+      </div>
+    </section>
+  </main>
+</body>
+</html>

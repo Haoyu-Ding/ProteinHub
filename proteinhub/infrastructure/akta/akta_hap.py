@@ -23,6 +23,7 @@ def render_akta_pngs(zip_files: dict[str, bytes], *, settings: Settings) -> dict
             *(str(path) for path in input_paths),
             "--output",
             "png",
+            "--no_normalize",
         ]
         try:
             completed = subprocess.run(

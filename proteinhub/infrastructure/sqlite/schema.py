@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
     name TEXT NOT NULL DEFAULT '',
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
+    global_role TEXT NOT NULL DEFAULT 'user' CHECK (global_role IN ('admin', 'user')),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -43,10 +44,18 @@ CREATE TABLE IF NOT EXISTS proteins (
     description TEXT NOT NULL DEFAULT '',
     protein_type TEXT NOT NULL DEFAULT 'TCR',
     target TEXT NOT NULL DEFAULT '',
+    manual_rating TEXT NOT NULL DEFAULT 'unrated' CHECK (manual_rating IN ('unrated', 'normal', 'rare', 'epic', 'legendary')),
+    score_details_json TEXT NOT NULL DEFAULT '{}',
+    sequence_similarity_status TEXT NOT NULL DEFAULT '',
+    sequence_similarity_matches_json TEXT NOT NULL DEFAULT '[]',
     structure_filename TEXT NOT NULL DEFAULT '',
     structure_mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
     structure_size_bytes INTEGER NOT NULL DEFAULT 0,
     structure_storage_path TEXT NOT NULL DEFAULT '',
+    structure_storage_backend TEXT NOT NULL DEFAULT 'filesystem' CHECK (structure_storage_backend IN ('filesystem', 'database')),
+    structure_content BLOB,
+    structure_content_sha256 TEXT NOT NULL DEFAULT '',
+    structure_deposit_date TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -58,6 +67,7 @@ CREATE TABLE IF NOT EXISTS batches (
     description TEXT NOT NULL DEFAULT '',
     plate_format TEXT NOT NULL DEFAULT '96' CHECK (plate_format IN ('96')),
     order_status TEXT NOT NULL DEFAULT 'not_ordered' CHECK (order_status IN ('not_ordered', 'ordered', 'partially_received', 'fully_received')),
+    ordered_at TEXT NOT NULL DEFAULT '',
     translation_padding INTEGER NOT NULL DEFAULT 0,
     translation_additional_w INTEGER NOT NULL DEFAULT 0,
     translation_organism TEXT NOT NULL DEFAULT '',
@@ -123,6 +133,20 @@ CREATE TABLE IF NOT EXISTS experiment_well_results (
     UNIQUE (experiment_id, well_id)
 );
 
+CREATE TABLE IF NOT EXISTS experiment_raw_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    experiment_id INTEGER NOT NULL REFERENCES batch_experiments(id) ON DELETE CASCADE,
+    uploaded_by INTEGER NOT NULL REFERENCES users(id),
+    well_id INTEGER REFERENCES batch_wells(id) ON DELETE SET NULL,
+    filename TEXT NOT NULL,
+    raw_file_type TEXT NOT NULL DEFAULT 'source',
+    mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+    size_bytes INTEGER NOT NULL,
+    content BLOB NOT NULL,
+    content_sha256 TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS artifacts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     protein_id INTEGER NOT NULL REFERENCES proteins(id) ON DELETE CASCADE,
@@ -132,6 +156,9 @@ CREATE TABLE IF NOT EXISTS artifacts (
     mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
     size_bytes INTEGER NOT NULL,
     storage_path TEXT NOT NULL,
+    storage_backend TEXT NOT NULL DEFAULT 'filesystem' CHECK (storage_backend IN ('filesystem', 'database')),
+    content BLOB,
+    content_sha256 TEXT NOT NULL DEFAULT '',
     is_deleted INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted_at TEXT
@@ -146,6 +173,11 @@ MIGRATIONS = [
         "users",
         "name",
         "ALTER TABLE users ADD COLUMN name TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "users",
+        "global_role",
+        "ALTER TABLE users ADD COLUMN global_role TEXT NOT NULL DEFAULT 'user' CHECK (global_role IN ('admin', 'user'))",
     ),
     (
         "project_members",
@@ -174,6 +206,26 @@ MIGRATIONS = [
     ),
     (
         "proteins",
+        "manual_rating",
+        "ALTER TABLE proteins ADD COLUMN manual_rating TEXT NOT NULL DEFAULT 'unrated' CHECK (manual_rating IN ('unrated', 'normal', 'rare', 'epic', 'legendary'))",
+    ),
+    (
+        "proteins",
+        "score_details_json",
+        "ALTER TABLE proteins ADD COLUMN score_details_json TEXT NOT NULL DEFAULT '{}'",
+    ),
+    (
+        "proteins",
+        "sequence_similarity_status",
+        "ALTER TABLE proteins ADD COLUMN sequence_similarity_status TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "proteins",
+        "sequence_similarity_matches_json",
+        "ALTER TABLE proteins ADD COLUMN sequence_similarity_matches_json TEXT NOT NULL DEFAULT '[]'",
+    ),
+    (
+        "proteins",
         "structure_filename",
         "ALTER TABLE proteins ADD COLUMN structure_filename TEXT NOT NULL DEFAULT ''",
     ),
@@ -194,6 +246,26 @@ MIGRATIONS = [
     ),
     (
         "proteins",
+        "structure_storage_backend",
+        "ALTER TABLE proteins ADD COLUMN structure_storage_backend TEXT NOT NULL DEFAULT 'filesystem' CHECK (structure_storage_backend IN ('filesystem', 'database'))",
+    ),
+    (
+        "proteins",
+        "structure_content",
+        "ALTER TABLE proteins ADD COLUMN structure_content BLOB",
+    ),
+    (
+        "proteins",
+        "structure_content_sha256",
+        "ALTER TABLE proteins ADD COLUMN structure_content_sha256 TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "proteins",
+        "structure_deposit_date",
+        "ALTER TABLE proteins ADD COLUMN structure_deposit_date TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "proteins",
         "updated_at",
         "ALTER TABLE proteins ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
     ),
@@ -201,6 +273,11 @@ MIGRATIONS = [
         "batches",
         "order_status",
         "ALTER TABLE batches ADD COLUMN order_status TEXT NOT NULL DEFAULT 'not_ordered' CHECK (order_status IN ('not_ordered', 'ordered', 'partially_received', 'fully_received'))",
+    ),
+    (
+        "batches",
+        "ordered_at",
+        "ALTER TABLE batches ADD COLUMN ordered_at TEXT NOT NULL DEFAULT ''",
     ),
     (
         "batches",
@@ -246,5 +323,25 @@ MIGRATIONS = [
         "artifacts",
         "protein_id",
         "ALTER TABLE artifacts ADD COLUMN protein_id INTEGER REFERENCES proteins(id)",
+    ),
+    (
+        "artifacts",
+        "storage_backend",
+        "ALTER TABLE artifacts ADD COLUMN storage_backend TEXT NOT NULL DEFAULT 'filesystem' CHECK (storage_backend IN ('filesystem', 'database'))",
+    ),
+    (
+        "artifacts",
+        "content",
+        "ALTER TABLE artifacts ADD COLUMN content BLOB",
+    ),
+    (
+        "artifacts",
+        "content_sha256",
+        "ALTER TABLE artifacts ADD COLUMN content_sha256 TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "experiment_raw_files",
+        "well_id",
+        "ALTER TABLE experiment_raw_files ADD COLUMN well_id INTEGER REFERENCES batch_wells(id) ON DELETE SET NULL",
     ),
 ]

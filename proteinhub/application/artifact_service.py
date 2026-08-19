@@ -8,13 +8,15 @@ from typing import BinaryIO
 from proteinhub.application.permissions import (
     project_for_artifact,
     project_for_protein,
-    require_project_role,
+    require_project_owner,
+    require_project_read,
+    require_project_write,
 )
 from proteinhub.application.validation import required
 from proteinhub.domain.errors import DomainError, NotFoundError
-from proteinhub.infrastructure.sqlite.connection import transaction
+from proteinhub.infrastructure.database.connection import transaction
 from proteinhub.infrastructure.sqlite.repositories import ArtifactRepository
-from proteinhub.infrastructure.storage.local_file_store import LocalFileStore
+from proteinhub.infrastructure.storage.file_store import file_store_for
 
 
 @dataclass(frozen=True)
@@ -41,7 +43,7 @@ def list_artifacts(
     protein_id: int,
 ) -> list[dict]:
     project_id = project_for_protein(connection, protein_id)
-    require_project_role(connection, project_id=project_id, user_id=user_id)
+    require_project_read(connection, project_id=project_id, user_id=user_id)
     return ArtifactRepository(connection).list_for_protein(protein_id)
 
 
@@ -55,16 +57,16 @@ def create_artifact(
     source: BinaryIO,
     protein_id: int,
     artifact_type: str = "file",
-    file_store: LocalFileStore | None = None,
+    file_store=None,
 ) -> UploadedArtifact:
     project_id = project_for_protein(connection, protein_id)
-    require_project_role(connection, project_id=project_id, user_id=user_id)
+    require_project_write(connection, project_id=project_id, user_id=user_id)
     file_name = required(filename, "Filename")
     mime_type = content_type or "application/octet-stream"
     normalized_type = artifact_type.strip() or "other"
     if normalized_type not in ARTIFACT_TYPES:
         raise DomainError("Artifact type is not supported")
-    store = file_store or LocalFileStore(storage_root)
+    store = file_store or file_store_for(connection, storage_root)
     artifacts = ArtifactRepository(connection)
 
     with transaction(connection):
@@ -74,6 +76,7 @@ def create_artifact(
             filename=file_name,
             artifact_type=normalized_type,
             mime_type=mime_type,
+            storage_backend=getattr(store, "backend", "filesystem"),
         )
         stored = store.save_artifact(
             project_id=project_id,
@@ -86,6 +89,7 @@ def create_artifact(
             artifact_id=artifact_id,
             size_bytes=stored.size_bytes,
             storage_path=stored.relative_path,
+            storage_backend=getattr(store, "backend", "filesystem"),
         )
 
     artifact = get_artifact(connection, artifact_id=artifact_id, user_id=user_id)
@@ -96,7 +100,7 @@ def get_artifact(
     connection: sqlite3.Connection, *, artifact_id: int, user_id: int
 ) -> dict:
     project_id = project_for_artifact(connection, artifact_id)
-    require_project_role(connection, project_id=project_id, user_id=user_id)
+    require_project_read(connection, project_id=project_id, user_id=user_id)
     artifact = ArtifactRepository(connection).get(artifact_id)
     if not artifact:
         raise NotFoundError("Artifact not found")
@@ -107,8 +111,6 @@ def soft_delete_artifact(
     connection: sqlite3.Connection, *, artifact_id: int, user_id: int
 ) -> None:
     project_id = project_for_artifact(connection, artifact_id)
-    require_project_role(
-        connection, project_id=project_id, user_id=user_id, owner_only=True
-    )
+    require_project_owner(connection, project_id=project_id, user_id=user_id)
     with transaction(connection):
         ArtifactRepository(connection).soft_delete(artifact_id)

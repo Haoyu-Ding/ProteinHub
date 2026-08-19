@@ -7,6 +7,7 @@ from proteinhub.infrastructure.sqlite.repositories import (
     ArtifactRepository,
     ProjectRepository,
     ProteinRepository,
+    UserRepository,
 )
 
 
@@ -16,19 +17,83 @@ def get_project_role(
     return ProjectRepository(connection).get_role(project_id=project_id, user_id=user_id)
 
 
+def is_admin(connection: sqlite3.Connection, *, user_id: int) -> bool:
+    user = UserRepository(connection).get_public(user_id)
+    return bool(user and user.get("global_role") == "admin")
+
+
+def require_admin(connection: sqlite3.Connection, *, user_id: int) -> None:
+    if not is_admin(connection, user_id=user_id):
+        raise PermissionDeniedError("Only administrators can perform this action")
+
+
+def require_project_read(
+    connection: sqlite3.Connection,
+    *,
+    project_id: int,
+    user_id: int,
+) -> str:
+    if is_admin(connection, user_id=user_id):
+        return "owner"
+    role = get_project_role(connection, project_id=project_id, user_id=user_id)
+    if role is None:
+        raise PermissionDeniedError("You are not a member of this project")
+    return role
+
+
+def require_project_write(
+    connection: sqlite3.Connection,
+    *,
+    project_id: int,
+    user_id: int,
+) -> str:
+    if is_admin(connection, user_id=user_id):
+        return "owner"
+    role = get_project_role(connection, project_id=project_id, user_id=user_id)
+    if role is None:
+        raise PermissionDeniedError("You are not a member of this project")
+    return role
+
+
+def require_project_owner(
+    connection: sqlite3.Connection,
+    *,
+    project_id: int,
+    user_id: int,
+) -> str:
+    if is_admin(connection, user_id=user_id):
+        return "owner"
+    role = get_project_role(connection, project_id=project_id, user_id=user_id)
+    if role != "owner":
+        raise PermissionDeniedError("Only project owners can perform this action")
+    return role
+
+
 def require_project_role(
     connection: sqlite3.Connection,
     *,
     project_id: int,
     user_id: int,
     owner_only: bool = False,
+    allow_admin_read: bool = False,
 ) -> str:
-    role = get_project_role(connection, project_id=project_id, user_id=user_id)
-    if role is None:
-        raise PermissionDeniedError("You are not a member of this project")
-    if owner_only and role != "owner":
-        raise PermissionDeniedError("Only project owners can perform this action")
-    return role
+    if owner_only:
+        return require_project_owner(
+            connection,
+            project_id=project_id,
+            user_id=user_id,
+        )
+    if allow_admin_read:
+        return require_project_read(
+            connection,
+            project_id=project_id,
+            user_id=user_id,
+        )
+    return require_project_write(
+        connection,
+        project_id=project_id,
+        user_id=user_id,
+    )
 
 
 def project_for_protein(connection: sqlite3.Connection, protein_id: int) -> int:

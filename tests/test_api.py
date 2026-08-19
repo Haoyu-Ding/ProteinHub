@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import sys
 from io import BytesIO
@@ -13,6 +14,7 @@ from proteinhub.api import create_api_router
 from proteinhub.application.reverse_translation import translate_dna
 from proteinhub.config import Settings
 from proteinhub.db import init_db
+from proteinhub.infrastructure.spr.pptx import _chart_svg
 
 
 def make_client(tmp_path: Path) -> TestClient:
@@ -44,6 +46,21 @@ def make_client(tmp_path: Path) -> TestClient:
         )
     )
     return TestClient(app)
+
+
+def test_health_endpoint_reports_database_and_storage(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+
+    response = client.get("/api/health")
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "status": "ok",
+        "database": "ok",
+        "database_backend": "sqlite",
+        "storage": "ok",
+        "artifact_storage_backend": "filesystem",
+    }
 
 
 def write_fake_domesticator(tmp_path: Path) -> tuple[Path, Path]:
@@ -141,6 +158,8 @@ if "--output" not in sys.argv:
 output = sys.argv[sys.argv.index("--output") + 1]
 if output != "png":
     raise SystemExit("unexpected output")
+if "--no_normalize" not in sys.argv:
+    raise SystemExit("missing --no_normalize")
 
 for argument in sys.argv[1:sys.argv.index("--output")]:
     path = Path(argument)
@@ -152,6 +171,180 @@ for argument in sys.argv[1:sys.argv.index("--output")]:
         encoding="utf-8",
     )
     return script
+
+
+def make_fake_spr_pptx(
+    samples: list[tuple[str, str]],
+    *,
+    chart_slide_numbers: list[int] | None = None,
+    table_slide_number: int = 24,
+    include_thumbnail_decoys: bool = False,
+    use_relative_chart_targets: bool = False,
+) -> bytes:
+    chart_slide_numbers = chart_slide_numbers or list(range(9, 9 + len(samples)))
+    assert len(chart_slide_numbers) == len(samples)
+    buffer = BytesIO()
+    with ZipFile(buffer, "w") as archive:
+        for slide_number, (sample_id, _kd_value) in zip(
+            chart_slide_numbers,
+            samples,
+            strict=True,
+        ):
+            chart_path = (
+                f"ppt/charts/chart{slide_number}.xml"
+                if use_relative_chart_targets
+                else f"ppt/slides/charts/chart{slide_number}.xml"
+            )
+            chart_target = (
+                f"../charts/chart{slide_number}.xml"
+                if use_relative_chart_targets
+                else f"/{chart_path}"
+            )
+            archive.writestr(
+                f"ppt/slides/slide{slide_number}.xml",
+                _spr_slide_xml(sample_id),
+            )
+            archive.writestr(
+                f"ppt/slides/_rels/slide{slide_number}.xml.rels",
+                _spr_slide_rels_xml(chart_target),
+            )
+            archive.writestr(chart_path, _spr_chart_xml(sample_id))
+        archive.writestr(
+            f"ppt/slides/slide{table_slide_number}.xml",
+            _spr_table_slide_xml(samples),
+        )
+        if include_thumbnail_decoys:
+            archive.writestr("docProps/thumbnail.jpeg", b"not a slide")
+            archive.writestr(
+                "ppt/slides/THUMBNAILS/slide3.xml",
+                _spr_table_slide_xml([("A99XXX", "9.90e-09")]),
+            )
+            archive.writestr(
+                "ppt/slides/slide99_thumbnail.xml",
+                _spr_slide_xml("A98XXX"),
+            )
+    return buffer.getvalue()
+
+
+def _spr_slide_xml(sample_id: str) -> str:
+    return f"""
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+       xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"
+       xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <p:cSld>
+    <p:spTree>
+      <p:sp>
+        <p:txBody>
+          <a:bodyPr/>
+          <a:p><a:r><a:t>{sample_id}; BMPR2; 1:1 binding</a:t></a:r></a:p>
+        </p:txBody>
+      </p:sp>
+      <p:graphicFrame>
+        <a:graphic>
+          <a:graphicData>
+            <c:chart r:id="rId1"/>
+          </a:graphicData>
+        </a:graphic>
+      </p:graphicFrame>
+    </p:spTree>
+  </p:cSld>
+</p:sld>
+""".strip()
+
+
+def _spr_slide_rels_xml(chart_target: str) -> str:
+    return f"""
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1"
+                Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart"
+                Target="{chart_target}"/>
+</Relationships>
+""".strip()
+
+
+def _spr_chart_xml(sample_id: str) -> str:
+    return f"""
+<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"
+              xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <c:chart>
+    <c:plotArea>
+      <c:scatterChart>
+        <c:ser>
+          <c:idx val="0"/>
+          <c:spPr><a:ln><a:solidFill><a:srgbClr val="2563EB"/></a:solidFill></a:ln></c:spPr>
+          <c:tx><c:strRef><c:strCache><c:pt idx="0"><c:v>{sample_id}</c:v></c:pt></c:strCache></c:strRef></c:tx>
+          <c:xVal><c:numRef><c:numCache>
+            <c:pt idx="0"><c:v>0</c:v></c:pt>
+            <c:pt idx="1"><c:v>1</c:v></c:pt>
+            <c:pt idx="2"><c:v>2</c:v></c:pt>
+          </c:numCache></c:numRef></c:xVal>
+          <c:yVal><c:numRef><c:numCache>
+            <c:pt idx="0"><c:v>0</c:v></c:pt>
+            <c:pt idx="1"><c:v>8</c:v></c:pt>
+            <c:pt idx="2"><c:v>3</c:v></c:pt>
+          </c:numCache></c:numRef></c:yVal>
+        </c:ser>
+      </c:scatterChart>
+      <c:valAx><c:title><c:tx><c:rich><a:p><a:r><a:t>Time (s)</a:t></a:r></a:p></c:rich></c:tx></c:title></c:valAx>
+      <c:valAx><c:title><c:tx><c:rich><a:p><a:r><a:t>Relative response (RU)</a:t></a:r></a:p></c:rich></c:tx></c:title></c:valAx>
+    </c:plotArea>
+  </c:chart>
+</c:chartSpace>
+""".strip()
+
+
+def _spr_table_slide_xml(samples: list[tuple[str, str]]) -> str:
+    headers = [
+        "Group",
+        "General\nKinetics model",
+        "Curve markers",
+        "Channel",
+        "Injection variables\nCapture 1 Solution",
+        "Single cycle kinetics 1 Solution",
+        "Quality\nKinetics Chi² (RU²)",
+        "1:1 binding\nka (1/Ms)",
+        "kd (1/s)",
+        "KD (M)",
+        "Rmax (RU)",
+        "tc",
+    ]
+    rows = [_spr_table_row_xml(headers)]
+    for index, (sample_id, kd_value) in enumerate(samples, start=1):
+        rows.append(
+            _spr_table_row_xml(
+                [
+                    str(index),
+                    "1:1 binding",
+                    "",
+                    str(index),
+                    "BMPR2",
+                    sample_id,
+                    f"{index}.00e+00",
+                    "1.00e+05",
+                    "1.00e-03",
+                    kd_value,
+                    "25.0",
+                    "1.00e+08",
+                ]
+            )
+        )
+    return f"""
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree><p:graphicFrame><a:graphic><a:graphicData><a:tbl>
+    {"".join(rows)}
+  </a:tbl></a:graphicData></a:graphic></p:graphicFrame></p:spTree></p:cSld>
+</p:sld>
+""".strip()
+
+
+def _spr_table_row_xml(values: list[str]) -> str:
+    cells = []
+    for value in values:
+        text = "".join(f"<a:r><a:t>{part}</a:t></a:r>" for part in value.split("\n"))
+        cells.append(f"<a:tc><a:txBody><a:p>{text}</a:p></a:txBody></a:tc>")
+    return f"<a:tr>{''.join(cells)}</a:tr>"
 
 
 def register(client: TestClient, email: str, name: str = "") -> str:
@@ -170,6 +363,11 @@ def register(client: TestClient, email: str, name: str = "") -> str:
 
 def auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+def unique_test_sequence(index: int) -> str:
+    amino_acids = "ACDEFGHIKLMNPQRSTVWY"
+    return amino_acids[index % len(amino_acids)] * 6
 
 
 def xlsx_sheet_values(content: bytes) -> dict[str, str | int]:
@@ -209,6 +407,9 @@ def test_database_schema_has_no_sequence_or_collaboration_tables(tmp_path: Path)
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
             )
         }
+        user_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(users)")
+        }
         protein_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(proteins)")
         }
@@ -235,15 +436,22 @@ def test_database_schema_has_no_sequence_or_collaboration_tables(tmp_path: Path)
     assert "experiment_well_results" in tables
     assert "schema_migrations" in tables
     assert "0001_current_schema" in applied_migrations
+    assert "global_role" in user_columns
     assert "protein_type" in protein_columns
     assert "target" in protein_columns
+    assert "manual_rating" in protein_columns
+    assert "score_details_json" in protein_columns
+    assert "sequence_similarity_status" in protein_columns
+    assert "sequence_similarity_matches_json" in protein_columns
     assert "structure_filename" in protein_columns
     assert "structure_mime_type" in protein_columns
     assert "structure_size_bytes" in protein_columns
     assert "structure_storage_path" in protein_columns
+    assert "structure_deposit_date" in protein_columns
     assert "version_tag" not in protein_columns
     assert "experiment_type" not in batch_columns
     assert "order_status" in batch_columns
+    assert "ordered_at" in batch_columns
     assert "result_value" not in batch_well_columns
     assert "result_note" not in batch_well_columns
     assert not {
@@ -524,10 +732,12 @@ def test_init_db_removes_retired_collaboration_schema_from_existing_database(
                 description,
                 protein_type,
                 target,
+                manual_rating,
                 structure_filename,
                 structure_mime_type,
                 structure_size_bytes,
-                structure_storage_path
+                structure_storage_path,
+                structure_deposit_date
             FROM proteins
             """
         ).fetchone()
@@ -553,12 +763,17 @@ def test_init_db_removes_retired_collaboration_schema_from_existing_database(
     assert "experiment_type" not in batch_columns
     assert "result_value" not in batch_well_columns
     assert "result_note" not in batch_well_columns
+    assert "ordered_at" in batch_columns
     assert "protein_type" in protein_columns
     assert "target" in protein_columns
+    assert "manual_rating" in protein_columns
+    assert "sequence_similarity_status" in protein_columns
+    assert "sequence_similarity_matches_json" in protein_columns
     assert "structure_filename" in protein_columns
     assert "structure_mime_type" in protein_columns
     assert "structure_size_bytes" in protein_columns
     assert "structure_storage_path" in protein_columns
+    assert "structure_deposit_date" in protein_columns
     assert "version_tag" not in protein_columns
     assert "order_status" in batch_columns
     assert protein == (
@@ -569,9 +784,11 @@ def test_init_db_removes_retired_collaboration_schema_from_existing_database(
         "kept",
         "nanobody",
         "",
+        "unrated",
         "",
         "application/octet-stream",
         0,
+        "",
         "",
     )
     assert batch == (9, "legacy batch", "kept batch", "96", "not_ordered")
@@ -602,6 +819,47 @@ def test_register_requires_name_but_login_does_not(tmp_path: Path) -> None:
     assert login.json()["access_token"]
     assert login.json()["user"]["name"] == "有姓名用户"
     assert token
+
+
+def test_configured_admin_email_gets_global_role(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+
+    admin_register = client.post(
+        "/api/auth/register",
+        json={
+            "name": "陈若澜",
+            "email": "ruolan.chen@northstar-bio.local",
+            "password": "password123",
+        },
+    )
+    assert admin_register.status_code == 200, admin_register.text
+    assert admin_register.json()["user"]["global_role"] == "admin"
+
+    admin_token = admin_register.json()["access_token"]
+    admin_me = client.get("/api/me", headers=auth(admin_token))
+    assert admin_me.status_code == 200, admin_me.text
+    assert admin_me.json()["global_role"] == "admin"
+
+    admin_login = client.post(
+        "/api/auth/login",
+        json={
+            "email": "ruolan.chen@northstar-bio.local",
+            "password": "password123",
+        },
+    )
+    assert admin_login.status_code == 200, admin_login.text
+    assert admin_login.json()["user"]["global_role"] == "admin"
+
+    normal_register = client.post(
+        "/api/auth/register",
+        json={
+            "name": "普通用户",
+            "email": "normal@example.com",
+            "password": "password123",
+        },
+    )
+    assert normal_register.status_code == 200, normal_register.text
+    assert normal_register.json()["user"]["global_role"] == "user"
 
 
 def test_project_to_artifact_integration_flow(tmp_path: Path) -> None:
@@ -695,6 +953,7 @@ def test_create_protein_with_structure_file_can_download_structure(tmp_path: Pat
     assert protein["sequence"] == "MGK"
     assert protein["protein_type"] == "minibinder"
     assert protein["target"] == "CD3"
+    assert protein["manual_rating"] == "unrated"
     assert protein["structure_filename"] == "source.pdb"
     assert protein["structure_mime_type"] == "chemical/x-pdb"
     assert protein["structure_size_bytes"] == len(pdb)
@@ -722,6 +981,354 @@ def test_create_protein_with_structure_file_can_download_structure(tmp_path: Pat
     assert chain_b_only.status_code == 400
 
 
+def test_protein_sequence_check_reports_duplicates_and_high_similarity(
+    tmp_path: Path,
+) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Sequence check"},
+    ).json()
+    existing = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "existing", "sequence": "ACDEFGHIKL"},
+    )
+    assert existing.status_code == 200, existing.text
+
+    response = client.post(
+        f"/api/projects/{project['id']}/proteins/sequence-check",
+        headers=auth(owner_token),
+        json={
+            "items": [
+                {"name": "exact", "sequence": "acdefg hikl"},
+                {"name": "similar", "sequence": "ACDEFGHIKM"},
+                {"name": "incoming-a", "sequence": "MNPQRSTVWY"},
+                {"name": "incoming-b", "sequence": "MNPQRSTVWY"},
+            ]
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    check = response.json()
+    assert check["has_blocking_duplicates"] is False
+    assert check["has_warnings"] is True
+    assert check["similarity_threshold"] == 0.9
+    items = {item["name"]: item for item in check["items"]}
+    assert items["exact"]["sequence"] == "ACDEFGHIKL"
+    assert items["exact"]["has_duplicate"] is True
+    assert items["exact"]["has_high_similarity"] is True
+    assert {
+        (match["scope"], match["match_type"], match["protein_name"])
+        for match in items["exact"]["matches"]
+    } >= {("existing", "duplicate", "existing")}
+    assert items["similar"]["has_high_similarity"] is True
+    assert any(
+        match["scope"] == "existing"
+        and match["match_type"] == "high_similarity"
+        and match["identity"] == 0.9
+        for match in items["similar"]["matches"]
+    )
+    assert any(
+        match["scope"] == "incoming" and match["match_type"] == "duplicate"
+        for match in items["incoming-b"]["matches"]
+    )
+    assert any(
+        match["scope"] == "incoming" and match["match_type"] == "duplicate"
+        for match in items["incoming-a"]["matches"]
+    )
+
+    empty = client.post(
+        f"/api/projects/{project['id']}/proteins/sequence-check",
+        headers=auth(owner_token),
+        json={"items": []},
+    )
+    assert empty.status_code == 400
+    assert "At least one protein sequence" in empty.json()["detail"]
+
+
+def test_create_protein_allows_duplicates_and_tags_high_similarity(
+    tmp_path: Path,
+) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Sequence guarded"},
+    ).json()
+    created = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "base", "sequence": "ACDEFGHIKL"},
+    )
+    assert created.status_code == 200, created.text
+    assert created.json()["manual_rating"] == "unrated"
+    assert created.json()["sequence_similarity_status"] == ""
+    assert created.json()["sequence_similarity_matches"] == []
+
+    duplicate = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "duplicate", "sequence": "ACDEFGHIKL"},
+    )
+    assert duplicate.status_code == 200, duplicate.text
+    duplicate_payload = duplicate.json()
+    assert duplicate_payload["manual_rating"] == "unrated"
+    assert duplicate_payload["sequence_similarity_status"] == "high_similarity"
+    assert any(
+        match["scope"] == "existing"
+        and match["match_type"] == "duplicate"
+        and match["protein_name"] == "base"
+        for match in duplicate_payload["sequence_similarity_matches"]
+    )
+
+    similar = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "similar", "sequence": "ACDEFGHIKM"},
+    )
+    assert similar.status_code == 200, similar.text
+    similar_payload = similar.json()
+    assert similar_payload["manual_rating"] == "unrated"
+    assert similar_payload["sequence_similarity_status"] == "high_similarity"
+    assert any(
+        match["scope"] == "existing"
+        and match["match_type"] == "high_similarity"
+        and match["protein_name"] == "base"
+        for match in similar_payload["sequence_similarity_matches"]
+    )
+
+    confirmed = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={
+            "name": "confirmed-similar",
+            "sequence": "ACDEFGHIKM",
+            "allow_high_similarity": True,
+        },
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["sequence"] == "ACDEFGHIKM"
+    assert confirmed.json()["manual_rating"] == "unrated"
+    assert confirmed.json()["sequence_similarity_status"] == "high_similarity"
+
+
+def test_protein_manual_rating_can_be_updated(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+    outsider_token = register(client, "outsider@example.com")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Manual rating project"},
+    ).json()
+    protein = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "rated protein", "sequence": "ACDEFG"},
+    ).json()
+    assert protein["manual_rating"] == "unrated"
+
+    outsider_update = client.patch(
+        f"/api/proteins/{protein['id']}/manual-rating",
+        headers=auth(outsider_token),
+        json={"manual_rating": "rare"},
+    )
+    assert outsider_update.status_code == 403
+
+    updated = client.patch(
+        f"/api/proteins/{protein['id']}/manual-rating",
+        headers=auth(owner_token),
+        json={"manual_rating": "legendary"},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["manual_rating"] == "legendary"
+    assert updated.json()["sequence"] == "ACDEFG"
+
+    project_proteins = client.get(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+    )
+    assert project_proteins.status_code == 200
+    assert project_proteins.json()[0]["manual_rating"] == "legendary"
+
+    protein_detail = client.get(
+        f"/api/proteins/{protein['id']}",
+        headers=auth(owner_token),
+    )
+    assert protein_detail.status_code == 200
+    assert protein_detail.json()["protein"]["manual_rating"] == "legendary"
+
+    cleared = client.patch(
+        f"/api/proteins/{protein['id']}/manual-rating",
+        headers=auth(owner_token),
+        json={"manual_rating": "unrated"},
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["manual_rating"] == "unrated"
+
+    invalid = client.patch(
+        f"/api/proteins/{protein['id']}/manual-rating",
+        headers=auth(owner_token),
+        json={"manual_rating": "mythic"},
+    )
+    assert invalid.status_code == 400
+    assert invalid.json()["detail"] == (
+        "Manual rating must be unrated, normal, rare, epic, or legendary"
+    )
+
+
+def test_project_proteins_filter_and_sort_by_effective_date_and_rating(
+    tmp_path: Path,
+) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Protein filters"},
+    ).json()
+    plain = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "plain-upload", "sequence": "ACDEFG"},
+    ).json()
+    pdb = b"""HEADER    TEST                            15-JAN-21   1ABC
+SEQRES   1 A    3  MET GLY LYS
+"""
+    pdb_created = client.post(
+        f"/api/projects/{project['id']}/proteins/with-structure",
+        headers=auth(owner_token),
+        data={
+            "name": "pdb-deposit",
+            "sequence": "MGK",
+            "protein_type": "TCR",
+        },
+        files={"file": ("pdb-deposit.pdb", pdb, "chemical/x-pdb")},
+    )
+    assert pdb_created.status_code == 200, pdb_created.text
+    assert pdb_created.json()["structure_deposit_date"] == "2021-01-15"
+
+    mmcif = b"""data_target
+_pdbx_database_status.recvd_initial_deposition_date 2020-03-04
+_entity_poly.entity_id 1
+_entity_poly.type 'polypeptide(L)'
+_entity_poly.pdbx_strand_id A
+_entity_poly.pdbx_seq_one_letter_code_can
+;ACD
+EFG
+;
+"""
+    cif_created = client.post(
+        f"/api/projects/{project['id']}/proteins/with-structure",
+        headers=auth(owner_token),
+        data={
+            "name": "cif-deposit",
+            "sequence": "ACDEFG",
+            "protein_type": "TCR",
+        },
+        files={"file": ("cif-deposit.cif", mmcif, "chemical/x-mmcif")},
+    )
+    assert cif_created.status_code == 200, cif_created.text
+    assert cif_created.json()["structure_deposit_date"] == "2020-03-04"
+
+    with sqlite3.connect(tmp_path / "proteinhub.sqlite3") as connection:
+        connection.execute(
+            """
+            UPDATE proteins
+            SET created_at = '2026-02-01 00:00:00',
+                updated_at = '2026-02-01 00:00:00'
+            WHERE id = ?
+            """,
+            (plain["id"],),
+        )
+        connection.commit()
+
+    ratings = {
+        plain["id"]: "normal",
+        pdb_created.json()["id"]: "legendary",
+        cif_created.json()["id"]: "rare",
+    }
+    for protein_id, rating in ratings.items():
+        response = client.patch(
+            f"/api/proteins/{protein_id}/manual-rating",
+            headers=auth(owner_token),
+            json={"manual_rating": rating},
+        )
+        assert response.status_code == 200, response.text
+
+    effective_desc = client.get(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        params={"sort": "time_desc"},
+    )
+    assert effective_desc.status_code == 200, effective_desc.text
+    assert [protein["name"] for protein in effective_desc.json()] == [
+        "plain-upload",
+        "pdb-deposit",
+        "cif-deposit",
+    ]
+    proteins_by_name = {protein["name"]: protein for protein in effective_desc.json()}
+    assert proteins_by_name["plain-upload"]["effective_date"] == "2026-02-01"
+    assert proteins_by_name["plain-upload"]["effective_date_source"] == "created_at"
+    assert proteins_by_name["pdb-deposit"]["effective_date"] == "2021-01-15"
+    assert proteins_by_name["pdb-deposit"]["effective_date_source"] == "pdb_deposit"
+
+    rating_desc = client.get(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        params={"sort": "rating_desc"},
+    )
+    assert rating_desc.status_code == 200, rating_desc.text
+    assert [protein["name"] for protein in rating_desc.json()] == [
+        "pdb-deposit",
+        "cif-deposit",
+        "plain-upload",
+    ]
+
+    rating_filtered = client.get(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        params=[
+            ("ratings", "rare"),
+            ("ratings", "legendary"),
+            ("sort", "rating_desc"),
+        ],
+    )
+    assert rating_filtered.status_code == 200, rating_filtered.text
+    assert [protein["name"] for protein in rating_filtered.json()] == [
+        "pdb-deposit",
+        "cif-deposit",
+    ]
+
+    date_filtered = client.get(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        params={
+            "date_from": "2021-01-01",
+            "date_to": "2021-12-31",
+            "sort": "time_asc",
+        },
+    )
+    assert date_filtered.status_code == 200, date_filtered.text
+    assert [protein["name"] for protein in date_filtered.json()] == ["pdb-deposit"]
+
+    invalid_range = client.get(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        params={"date_from": "2026-02-02", "date_to": "2026-02-01"},
+    )
+    assert invalid_range.status_code == 400
+    assert invalid_range.json()["detail"] == "Start date must be on or before end date"
+
+
 def test_import_proteins_from_structure_folder(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     owner_token = register(client, "owner@example.com")
@@ -742,6 +1349,12 @@ _entity_poly.pdbx_seq_one_letter_code_can
 EFG
 ;
 """
+    score_csv = (
+        b"pdb_name,ddg,sap_score,norm_score\n"
+        b"binder-a,-1.0,37.3919,99\n"
+        b"binder-b,-2.0,12.25,88\n"
+        b"unrelated,-3.0,1.0,77\n"
+    )
 
     imported = client.post(
         f"/api/projects/{project['id']}/proteins/import-structures",
@@ -754,6 +1367,7 @@ EFG
         files=[
             ("files", ("folder/binder-a.pdb", pdb, "chemical/x-pdb")),
             ("files", ("folder/binder-b.cif", mmcif, "chemical/x-mmcif")),
+            ("score_file", ("scores.csv", score_csv, "text/csv")),
         ],
     )
     assert imported.status_code == 200, imported.text
@@ -763,6 +1377,12 @@ EFG
     assert {protein["protein_type"] for protein in proteins} == {"TCR"}
     assert {protein["target"] for protein in proteins} == {"MAGE-A4"}
     assert {protein["description"] for protein in proteins} == {"folder import"}
+    assert {protein["manual_rating"] for protein in proteins} == {"unrated"}
+    assert [protein["score_details"] for protein in proteins] == [
+        {"ddg": "-1.0", "sap_score": "37.3919", "norm_score": "99"},
+        {"ddg": "-2.0", "sap_score": "12.25", "norm_score": "88"},
+    ]
+    assert "score" not in proteins[0]
     assert [protein["structure_filename"] for protein in proteins] == [
         "binder-a.pdb",
         "binder-b.cif",
@@ -794,12 +1414,42 @@ EFG
     assert rejected.status_code == 400
     assert "chain A" in rejected.json()["detail"]
 
+    bad_score_table = client.post(
+        f"/api/projects/{project['id']}/proteins/import-structures",
+        headers=auth(owner_token),
+        data={"protein_type": "TCR"},
+        files=[
+            ("files", ("folder/binder-c.pdb", pdb, "chemical/x-pdb")),
+            ("score_file", ("scores.csv", b"name,ddg\nbinder-c,-1\n", "text/csv")),
+        ],
+    )
+    assert bad_score_table.status_code == 400
+    assert "pdb_name" in bad_score_table.json()["detail"]
+
     project_proteins = client.get(
         f"/api/projects/{project['id']}/proteins",
         headers=auth(owner_token),
     )
     assert project_proteins.status_code == 200
     assert len(project_proteins.json()) == 2
+    assert {
+        protein["name"]: protein["score_details"]
+        for protein in project_proteins.json()
+    } == {
+        "binder-a": {"ddg": "-1.0", "sap_score": "37.3919", "norm_score": "99"},
+        "binder-b": {"ddg": "-2.0", "sap_score": "12.25", "norm_score": "88"},
+    }
+
+    protein_detail = client.get(
+        f"/api/proteins/{proteins[0]['id']}",
+        headers=auth(owner_token),
+    )
+    assert protein_detail.status_code == 200
+    assert protein_detail.json()["protein"]["score_details"] == {
+        "ddg": "-1.0",
+        "sap_score": "37.3919",
+        "norm_score": "99",
+    }
 
     outsider_import = client.post(
         f"/api/projects/{project['id']}/proteins/import-structures",
@@ -808,6 +1458,119 @@ EFG
         files=[("files", ("folder/outsider.pdb", pdb, "chemical/x-pdb"))],
     )
     assert outsider_import.status_code == 403
+
+
+def test_import_proteins_from_structures_tags_incoming_duplicate_sequences(
+    tmp_path: Path,
+) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Duplicate structure import"},
+    ).json()
+    pdb = b"HEADER    TEST\nSEQRES   1 A    3  MET GLY LYS\n"
+
+    imported = client.post(
+        f"/api/projects/{project['id']}/proteins/import-structures",
+        headers=auth(owner_token),
+        data={"protein_type": "TCR"},
+        files=[
+            ("files", ("folder/binder-a.pdb", pdb, "chemical/x-pdb")),
+            ("files", ("folder/binder-b.pdb", pdb, "chemical/x-pdb")),
+        ],
+    )
+
+    assert imported.status_code == 200, imported.text
+    proteins = imported.json()
+    assert [protein["name"] for protein in proteins] == ["binder-a", "binder-b"]
+    assert {protein["manual_rating"] for protein in proteins} == {"unrated"}
+    assert {
+        protein["name"]: protein["sequence_similarity_status"]
+        for protein in proteins
+    } == {
+        "binder-a": "high_similarity",
+        "binder-b": "high_similarity",
+    }
+    assert all(
+        any(
+            match["scope"] == "incoming"
+            and match["match_type"] == "duplicate"
+            for match in protein["sequence_similarity_matches"]
+        )
+        for protein in proteins
+    )
+    project_proteins = client.get(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+    )
+    assert project_proteins.status_code == 200
+    assert len(project_proteins.json()) == 2
+
+
+def test_batch_creation_includes_score_density_plots(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Density batch"},
+    ).json()
+    pdb = b"HEADER    TEST\nSEQRES   1 A    3  MET GLY LYS\n"
+    mmcif = b"""data_target
+_entity_poly.entity_id 1
+_entity_poly.type 'polypeptide(L)'
+_entity_poly.pdbx_strand_id A
+_entity_poly.pdbx_seq_one_letter_code_can
+;ACD
+EFG
+;
+"""
+    score_csv = (
+        b"pdb_name,plddt_binder,binder_aligned_rmsd,ddg\n"
+        b"binder-a,91.2,1.3,-2.1\n"
+        b"binder-b,87.4,0.8,-1.8\n"
+    )
+
+    imported = client.post(
+        f"/api/projects/{project['id']}/proteins/import-structures",
+        headers=auth(owner_token),
+        data={
+            "protein_type": "TCR",
+            "target": "MAGE-A4",
+            "description": "density batch",
+        },
+        files=[
+            ("files", ("folder/binder-a.pdb", pdb, "chemical/x-pdb")),
+            ("files", ("folder/binder-b.cif", mmcif, "chemical/x-mmcif")),
+            ("score_file", ("scores.csv", score_csv, "text/csv")),
+        ],
+    )
+    assert imported.status_code == 200, imported.text
+    proteins = imported.json()
+
+    created = client.post(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+        json={
+            "name": "Density batch",
+            "protein_ids": [protein["id"] for protein in proteins],
+        },
+    )
+    assert created.status_code == 200, created.text
+    batch_payload = created.json()
+    plots = batch_payload["score_density_plots"]
+    assert [plot["metric"] for plot in plots] == [
+        "plddt_binder",
+        "binder_aligned_rmsd",
+        "ddg",
+    ]
+    assert [plot["sample_count"] for plot in plots] == [2, 2, 2]
+    assert "Distribution of pLDDT binder" in plots[0]["svg"]
+    assert plots[0]["svg"].lstrip().startswith("<svg")
 
 
 def test_legacy_sequence_api_routes_are_removed(tmp_path: Path) -> None:
@@ -902,6 +1665,85 @@ def test_project_permissions_for_members_and_non_members(tmp_path: Path) -> None
     assert deleted_download.status_code == 404
 
 
+def test_admin_can_delete_project_and_cascade_project_data(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+    member_token = register(client, "member@example.com")
+    admin_token = register(client, "ruolan.chen@northstar-bio.local", "陈若澜")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Delete me"},
+    ).json()
+    added = client.post(
+        f"/api/projects/{project['id']}/members",
+        headers=auth(owner_token),
+        json={"email": "member@example.com", "role": "member"},
+    )
+    assert added.status_code == 200, added.text
+    protein = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "Protein A", "sequence": "ACDEFG"},
+    ).json()
+    artifact = client.post(
+        f"/api/proteins/{protein['id']}/artifacts",
+        headers=auth(owner_token),
+        files={"file": ("notes.txt", b"delete me", "text/plain")},
+    ).json()
+    batch = client.post(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+        json={"name": "Batch A", "protein_ids": [protein["id"]]},
+    ).json()["batch"]
+
+    owner_delete = client.delete(
+        f"/api/projects/{project['id']}",
+        headers=auth(owner_token),
+    )
+    assert owner_delete.status_code == 403
+    member_delete = client.delete(
+        f"/api/projects/{project['id']}",
+        headers=auth(member_token),
+    )
+    assert member_delete.status_code == 403
+
+    missing_delete = client.delete("/api/projects/999999", headers=auth(admin_token))
+    assert missing_delete.status_code == 404
+
+    admin_delete = client.delete(
+        f"/api/projects/{project['id']}",
+        headers=auth(admin_token),
+    )
+    assert admin_delete.status_code == 204
+
+    admin_projects = client.get("/api/projects", headers=auth(admin_token))
+    assert admin_projects.status_code == 200, admin_projects.text
+    assert project["id"] not in [item["id"] for item in admin_projects.json()]
+
+    deleted_project = client.get(
+        f"/api/projects/{project['id']}",
+        headers=auth(admin_token),
+    )
+    assert deleted_project.status_code == 404
+    deleted_protein = client.get(
+        f"/api/proteins/{protein['id']}",
+        headers=auth(admin_token),
+    )
+    assert deleted_protein.status_code == 404
+    deleted_batch = client.get(
+        f"/api/batches/{batch['id']}",
+        headers=auth(admin_token),
+    )
+    assert deleted_batch.status_code == 404
+    deleted_artifact = client.get(
+        f"/api/artifacts/{artifact['id']}/download",
+        headers=auth(admin_token),
+    )
+    assert deleted_artifact.status_code == 404
+
+
 def test_owner_can_search_member_candidates_by_name(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     owner_token = register(client, "owner@example.com", "项目负责人")
@@ -917,7 +1759,7 @@ def test_owner_can_search_member_candidates_by_name(tmp_path: Path) -> None:
     search = client.get(
         f"/api/projects/{project['id']}/member-candidates",
         headers=auth(owner_token),
-        params={"query": "合成"},
+        params={"query": "合"},
     )
 
     assert search.status_code == 200, search.text
@@ -956,7 +1798,7 @@ def test_owner_can_search_member_candidates_by_name(tmp_path: Path) -> None:
     assert search_after_add.json() == []
 
 
-def test_owner_can_update_project_member_role_and_discipline(tmp_path: Path) -> None:
+def test_owner_can_update_project_member_role(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     owner_token = register(client, "owner@example.com", "项目负责人")
     member_token = register(client, "member@example.com", "计算设计")
@@ -977,33 +1819,42 @@ def test_owner_can_update_project_member_role_and_discipline(tmp_path: Path) -> 
     sole_owner_demote = client.patch(
         f"/api/projects/{project['id']}/members/{owner_id}",
         headers=auth(owner_token),
-        json={"role": "member", "discipline": "design"},
+        json={"role": "member"},
     )
     assert sole_owner_demote.status_code == 400
 
     added = client.post(
         f"/api/projects/{project['id']}/members",
         headers=auth(owner_token),
-        json={"email": "member@example.com", "role": "member", "discipline": "other"},
+        json={"email": "member@example.com", "role": "member"},
     )
     assert added.status_code == 200, added.text
+    assert "discipline" not in added.json()
     member_id = added.json()["id"]
 
     member_cannot_update = client.patch(
         f"/api/projects/{project['id']}/members/{member_id}",
         headers=auth(member_token),
-        json={"role": "owner", "discipline": "design"},
+        json={"role": "owner"},
     )
     assert member_cannot_update.status_code == 403
+
+    promote_member = client.patch(
+        f"/api/projects/{project['id']}/members/{member_id}",
+        headers=auth(owner_token),
+        json={"role": "owner"},
+    )
+    assert promote_member.status_code == 400
+    assert promote_member.json()["detail"] == "Projects have exactly one owner"
 
     updated = client.patch(
         f"/api/projects/{project['id']}/members/{member_id}",
         headers=auth(owner_token),
-        json={"role": "owner", "discipline": "design"},
+        json={"role": "member"},
     )
     assert updated.status_code == 200, updated.text
-    assert updated.json()["role"] == "owner"
-    assert updated.json()["discipline"] == "design"
+    assert updated.json()["role"] == "member"
+    assert "discipline" not in updated.json()
 
     refreshed_members = client.get(
         f"/api/projects/{project['id']}",
@@ -1012,8 +1863,8 @@ def test_owner_can_update_project_member_role_and_discipline(tmp_path: Path) -> 
     design_member = next(
         member for member in refreshed_members if member["email"] == "member@example.com"
     )
-    assert design_member["role"] == "owner"
-    assert design_member["discipline"] == "design"
+    assert design_member["role"] == "member"
+    assert "discipline" not in design_member
 
 
 def test_collaboration_routes_are_removed_from_protein_flow(tmp_path: Path) -> None:
@@ -1039,7 +1890,8 @@ def test_collaboration_routes_are_removed_from_protein_flow(tmp_path: Path) -> N
     detail = client.get(f"/api/proteins/{protein['id']}", headers=auth(owner_token))
     assert detail.status_code == 200, detail.text
     payload = detail.json()
-    assert set(payload) == {"protein", "artifacts", "batch_results"}
+    assert set(payload) == {"protein", "artifacts", "batch_results", "access_role"}
+    assert payload["access_role"] == "owner"
     assert payload["protein"]["name"] == "candidate-7"
     assert payload["protein"]["protein_name"] == "candidate-7"
     assert payload["protein"]["protein_type"] == "minibinder"
@@ -1295,6 +2147,7 @@ def test_batch_order_status_moves_forward_and_locks_ordered_batch_edits(
     batch = batch_payload["batch"]
     well = batch_payload["wells"][0]
     assert batch["order_status"] == "not_ordered"
+    assert batch["ordered_at"] == ""
 
     listed = client.get(
         f"/api/projects/{project['id']}/batches",
@@ -1324,6 +2177,8 @@ def test_batch_order_status_moves_forward_and_locks_ordered_batch_edits(
     )
     assert ordered.status_code == 200, ordered.text
     assert ordered.json()["batch"]["order_status"] == "ordered"
+    ordered_at = ordered.json()["batch"]["ordered_at"]
+    assert ordered_at
 
     backwards = client.patch(
         f"/api/batches/{batch['id']}/status",
@@ -1368,6 +2223,7 @@ def test_batch_order_status_moves_forward_and_locks_ordered_batch_edits(
     )
     assert fully_received.status_code == 200, fully_received.text
     assert fully_received.json()["batch"]["order_status"] == "fully_received"
+    assert fully_received.json()["batch"]["ordered_at"] == ordered_at
 
     back_from_fully_received = client.patch(
         f"/api/batches/{batch['id']}/status",
@@ -1421,6 +2277,169 @@ def test_batch_order_status_can_move_through_partial_receipt(tmp_path: Path) -> 
     assert fully_received.json()["batch"]["order_status"] == "fully_received"
 
 
+def test_order_monitor_lists_accessible_ordered_batches_by_week(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+    outsider_token = register(client, "outsider@example.com")
+    admin_token = register(client, "ruolan.chen@northstar-bio.local", "陈若澜")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Order monitor project"},
+    ).json()
+    protein_a = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "binder-a", "sequence": "ACDEFG"},
+    ).json()
+    protein_b = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "binder-b", "sequence": "HIKLMN"},
+    ).json()
+    ordered_batch = client.post(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+        json={
+            "name": "Ordered batch",
+            "protein_ids": [protein_a["id"], protein_b["id"]],
+        },
+    ).json()["batch"]
+    not_ordered_batch = client.post(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+        json={"name": "Draft batch", "protein_ids": [protein_a["id"]]},
+    ).json()["batch"]
+
+    ordered = client.patch(
+        f"/api/batches/{ordered_batch['id']}/status",
+        headers=auth(owner_token),
+        json={"order_status": "ordered"},
+    )
+    assert ordered.status_code == 200, ordered.text
+    ordered_at = ordered.json()["batch"]["ordered_at"]
+
+    artifact = client.post(
+        f"/api/proteins/{protein_a['id']}/artifacts",
+        headers=auth(owner_token),
+        files={"file": ("monitor.txt", b"ORDER", "text/plain")},
+    )
+    assert artifact.status_code == 200, artifact.text
+
+    owner_monitor = client.get("/api/order-monitor", headers=auth(owner_token))
+    assert owner_monitor.status_code == 403
+
+    monitor = client.get("/api/order-monitor", headers=auth(admin_token))
+    assert monitor.status_code == 200, monitor.text
+    payload = monitor.json()
+    assert len(payload["weekly_orders"]) == 8
+    assert payload["summary"]["total_ordered_batches"] == 1
+    assert payload["summary"]["total_ordered_proteins"] == 2
+    assert payload["summary"]["last_ordered_at"] == ordered_at
+    assert payload["summary"]["cadence_target_days"] == 14
+    assert [batch["id"] for batch in payload["batches"]] == [ordered_batch["id"]]
+    assert payload["batches"][0]["project_name"] == "Order monitor project"
+    assert payload["batches"][0]["well_count"] == 2
+    assert not_ordered_batch["id"] not in [
+        batch["id"] for batch in payload["batches"]
+    ]
+    assert any(
+        ordered_batch["id"] in week["batch_ids"]
+        and week["order_count"] == 1
+        and week["protein_count"] == 2
+        for week in payload["weekly_orders"]
+    )
+
+    historical_monitor = client.get(
+        "/api/order-monitor?start_date=2000-01-01&end_date=2000-01-31",
+        headers=auth(admin_token),
+    )
+    assert historical_monitor.status_code == 200, historical_monitor.text
+    historical_payload = historical_monitor.json()
+    assert historical_payload["range_start"] == "1999-12-27"
+    assert historical_payload["range_end"] == "2000-01-31"
+    assert all(week["order_count"] == 0 for week in historical_payload["weekly_orders"])
+    assert all(not week["batch_ids"] for week in historical_payload["weekly_orders"])
+
+    invalid_range = client.get(
+        "/api/order-monitor?start_date=2026-08-20&end_date=2026-08-01",
+        headers=auth(admin_token),
+    )
+    assert invalid_range.status_code == 400
+    assert invalid_range.json()["detail"] == "Start date must be on or before end date"
+
+    outsider_monitor = client.get("/api/order-monitor", headers=auth(outsider_token))
+    assert outsider_monitor.status_code == 403
+
+    admin_projects = client.get("/api/projects", headers=auth(admin_token))
+    assert admin_projects.status_code == 200, admin_projects.text
+    assert any(
+        listed_project["id"] == project["id"] and listed_project["role"] == "owner"
+        for listed_project in admin_projects.json()
+    )
+
+    admin_project = client.get(
+        f"/api/projects/{project['id']}",
+        headers=auth(admin_token),
+    )
+    assert admin_project.status_code == 200, admin_project.text
+    assert admin_project.json()["project"]["role"] == "owner"
+
+    admin_batches = client.get(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(admin_token),
+    )
+    assert admin_batches.status_code == 200, admin_batches.text
+    assert {batch["id"] for batch in admin_batches.json()} == {
+        ordered_batch["id"],
+        not_ordered_batch["id"],
+    }
+
+    admin_batch_detail = client.get(
+        f"/api/batches/{ordered_batch['id']}",
+        headers=auth(admin_token),
+    )
+    assert admin_batch_detail.status_code == 200, admin_batch_detail.text
+    assert admin_batch_detail.json()["access_role"] == "owner"
+
+    admin_status_update = client.patch(
+        f"/api/batches/{ordered_batch['id']}/status",
+        headers=auth(admin_token),
+        json={"order_status": "fully_received"},
+    )
+    assert admin_status_update.status_code == 200, admin_status_update.text
+    assert admin_status_update.json()["batch"]["order_status"] == "fully_received"
+
+    admin_add_member = client.post(
+        f"/api/projects/{project['id']}/members",
+        headers=auth(admin_token),
+        json={"email": "outsider@example.com", "role": "member"},
+    )
+    assert admin_add_member.status_code == 200, admin_add_member.text
+    assert admin_add_member.json()["role"] == "member"
+
+    admin_protein_detail = client.get(
+        f"/api/proteins/{protein_a['id']}",
+        headers=auth(admin_token),
+    )
+    assert admin_protein_detail.status_code == 200, admin_protein_detail.text
+    assert admin_protein_detail.json()["access_role"] == "owner"
+
+    admin_artifact_download = client.get(
+        f"/api/artifacts/{artifact.json()['id']}/download",
+        headers=auth(admin_token),
+    )
+    assert admin_artifact_download.status_code == 200, admin_artifact_download.text
+    assert admin_artifact_download.content == b"ORDER"
+
+    admin_artifact_delete = client.delete(
+        f"/api/artifacts/{artifact.json()['id']}",
+        headers=auth(admin_token),
+    )
+    assert admin_artifact_delete.status_code == 204
+
+
 def test_batch_akta_results_upload_maps_pngs_to_batch_proteins(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     owner_token = register(client, "owner@example.com")
@@ -1471,13 +2490,22 @@ def test_batch_akta_results_upload_maps_pngs_to_batch_proteins(tmp_path: Path) -
     )
     assert bad_filename.status_code == 400
 
+    ambiguous_filename = client.post(
+        f"/api/batches/{batch['id']}/akta-results",
+        headers=auth(owner_token),
+        data={"run_date": "2026-08-01"},
+        files=[("files", ("run-A1-B2.zip", b"zip-a", "application/zip"))],
+    )
+    assert ambiguous_filename.status_code == 400
+    assert "multiple well positions" in ambiguous_filename.json()["detail"]
+
     imported = client.post(
         f"/api/batches/{batch['id']}/akta-results",
         headers=auth(owner_token),
         data={"run_date": "2026-08-01"},
         files=[
-            ("files", ("A01.zip", b"zip-a", "application/zip")),
-            ("files", ("A2.zip", b"zip-b", "application/zip")),
+            ("files", ("akta-run-A01-export.zip", b"zip-a", "application/zip")),
+            ("files", ("sample_A2_result.zip", b"zip-b", "application/zip")),
         ],
     )
     assert imported.status_code == 200, imported.text
@@ -1485,14 +2513,14 @@ def test_batch_akta_results_upload_maps_pngs_to_batch_proteins(tmp_path: Path) -
     experiment = payload["experiment"]
     assert experiment["experiment_type"] == "AKTA"
     assert experiment["name"] == "AKTA 2026-08-01"
-    assert experiment["details"] == {
-        "file_count": 2,
-        "requested_file_count": 2,
-        "run_date": "2026-08-01",
-        "skipped_positions": [],
-        "source": "AKTA",
-        "uploaded_positions": ["A01", "A02"],
-    }
+    assert experiment["details"]["file_count"] == 2
+    assert experiment["details"]["requested_file_count"] == 2
+    assert experiment["details"]["run_date"] == "2026-08-01"
+    assert experiment["details"]["skipped_positions"] == []
+    assert experiment["details"]["source"] == "AKTA"
+    assert experiment["details"]["uploaded_positions"] == ["A01", "A02"]
+    assert experiment["details"]["all_positions"] == ["A01", "A02"]
+    assert experiment["details"]["total_result_count"] == 2
     assert {
         result["position"]: result["result_value"]
         for result in payload["results"]
@@ -1502,47 +2530,63 @@ def test_batch_akta_results_upload_maps_pngs_to_batch_proteins(tmp_path: Path) -
         "A02": "AKTA 2026-08-01",
     }
 
-    duplicate_upload = client.post(
+    same_date_duplicate_upload = client.post(
         f"/api/batches/{batch['id']}/akta-results",
         headers=auth(owner_token),
-        data={"run_date": "2026-08-02"},
+        data={"run_date": "2026-08-01"},
         files=[("files", ("A01.zip", b"zip-a-again", "application/zip"))],
     )
-    assert duplicate_upload.status_code == 409
-    assert duplicate_upload.json()["detail"] == (
-        "AKTA result already uploaded for position A01"
+    assert same_date_duplicate_upload.status_code == 409
+    assert same_date_duplicate_upload.json()["detail"] == (
+        "AKTA result already uploaded for position A01 on 2026-08-01"
     )
 
-    partial_upload = client.post(
+    same_date_partial_upload = client.post(
         f"/api/batches/{batch['id']}/akta-results",
         headers=auth(owner_token),
-        data={"run_date": "2026-08-02"},
+        data={"run_date": "2026-08-01"},
         files=[
             ("files", ("A01.zip", b"zip-a-again", "application/zip")),
             ("files", ("A03.zip", b"zip-c", "application/zip")),
         ],
     )
-    assert partial_upload.status_code == 200, partial_upload.text
-    assert partial_upload.json()["experiment"]["details"] == {
-        "file_count": 1,
-        "requested_file_count": 2,
-        "run_date": "2026-08-02",
-        "skipped_positions": ["A01"],
-        "source": "AKTA",
-        "uploaded_positions": ["A03"],
-    }
+    assert same_date_partial_upload.status_code == 200, same_date_partial_upload.text
+    assert same_date_partial_upload.json()["experiment"]["id"] == experiment["id"]
+    partial_details = same_date_partial_upload.json()["experiment"]["details"]
+    assert partial_details["file_count"] == 1
+    assert partial_details["requested_file_count"] == 2
+    assert partial_details["run_date"] == "2026-08-01"
+    assert partial_details["skipped_positions"] == ["A01"]
+    assert partial_details["source"] == "AKTA"
+    assert partial_details["uploaded_positions"] == ["A03"]
+    assert partial_details["all_positions"] == ["A01", "A02", "A03"]
+    assert partial_details["total_result_count"] == 3
     assert {
         result["position"]: result["result_value"]
-        for result in partial_upload.json()["results"]
+        for result in same_date_partial_upload.json()["results"]
         if result["result_value"]
     } == {
-        "A03": "AKTA 2026-08-02",
+        "A01": "AKTA 2026-08-01",
+        "A02": "AKTA 2026-08-01",
+        "A03": "AKTA 2026-08-01",
     }
+
+    different_date_upload = client.post(
+        f"/api/batches/{batch['id']}/akta-results",
+        headers=auth(owner_token),
+        data={"run_date": "2026-08-02"},
+        files=[("files", ("A01.zip", b"zip-a-new-day", "application/zip"))],
+    )
+    assert different_date_upload.status_code == 200, different_date_upload.text
+    assert different_date_upload.json()["experiment"]["id"] != experiment["id"]
+    assert different_date_upload.json()["experiment"]["details"]["uploaded_positions"] == [
+        "A01"
+    ]
 
     duplicate_batch_upload = client.post(
         f"/api/batches/{batch['id']}/akta-results",
         headers=auth(owner_token),
-        data={"run_date": "2026-08-03"},
+        data={"run_date": "2026-08-01"},
         files=[
             ("files", ("A01.zip", b"zip-a-third", "application/zip")),
             ("files", ("A03.zip", b"zip-c-again", "application/zip")),
@@ -1550,7 +2594,7 @@ def test_batch_akta_results_upload_maps_pngs_to_batch_proteins(tmp_path: Path) -
     )
     assert duplicate_batch_upload.status_code == 409
     assert duplicate_batch_upload.json()["detail"] == (
-        "AKTA results already uploaded for positions: A01, A03"
+        "AKTA results already uploaded for positions on 2026-08-01: A01, A03"
     )
 
     batch_detail = client.get(
@@ -1576,8 +2620,13 @@ def test_batch_akta_results_upload_maps_pngs_to_batch_proteins(tmp_path: Path) -
     }
     assert "AKTA_2026-08-01_A01.zip" in artifact_filenames
     assert "AKTA_2026-08-01_A01.png" in artifact_filenames
+    assert "AKTA_2026-08-02_A01.png" in artifact_filenames
     assert artifact_filenames["AKTA_2026-08-01_A01.png"]["artifact_type"] == "experimental_result"
-    assert protein_payload["batch_results"][0]["result_value"] == "AKTA 2026-08-01"
+    assert {
+        result["result_value"]
+        for result in protein_payload["batch_results"]
+        if result["experiment_type"] == "AKTA"
+    } == {"AKTA 2026-08-01", "AKTA 2026-08-02"}
 
     png_download = client.get(
         f"/api/artifacts/{artifact_filenames['AKTA_2026-08-01_A01.png']['id']}/download",
@@ -1585,6 +2634,490 @@ def test_batch_akta_results_upload_maps_pngs_to_batch_proteins(tmp_path: Path) -
     )
     assert png_download.status_code == 200, png_download.text
     assert png_download.content == b"PNG for A01.zip"
+
+
+def test_batch_spr_results_upload_maps_charts_and_table_rows(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+    outsider_token = register(client, "outsider@example.com")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "SPR batch"},
+    ).json()
+    protein_a = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "binder-a", "sequence": "ACDEFG"},
+    ).json()
+    protein_b = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "binder-b", "sequence": "HIKLMN"},
+    ).json()
+    protein_c = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "binder-c", "sequence": "PQRSTV"},
+    ).json()
+    batch = client.post(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+        json={
+            "name": "SPR plate",
+            "protein_ids": [protein_a["id"], protein_b["id"], protein_c["id"]],
+        },
+    ).json()["batch"]
+    spr_pptx = make_fake_spr_pptx(
+        [("A1XXX", "1.00e-09"), ("A2XXX", "2.00e-09")]
+    )
+    spr_conc_csv = (
+        b"protein_name,Conc1,Conc2,Conc3,Conc4\n"
+        b"binder-a,800nM,200nM,50nM,12.5nM\n"
+        b"binder-b,600nM,150nM,37.5nM,9.4nM\n"
+        b"binder-c,400nM,100nM,25nM,6.25nM\n"
+    )
+
+    outsider_upload = client.post(
+        f"/api/batches/{batch['id']}/spr-results",
+        headers=auth(outsider_token),
+        data={"run_date": "2026-08-01"},
+        files={
+            "file": (
+                "spr-results.pptx",
+                spr_pptx,
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
+        },
+    )
+    assert outsider_upload.status_code == 403
+
+    wrong_extension = client.post(
+        f"/api/batches/{batch['id']}/spr-results",
+        headers=auth(owner_token),
+        data={"run_date": "2026-08-01"},
+        files={"file": ("spr-results.txt", spr_pptx, "text/plain")},
+    )
+    assert wrong_extension.status_code == 400
+
+    imported = client.post(
+        f"/api/batches/{batch['id']}/spr-results",
+        headers=auth(owner_token),
+        data={"run_date": "2026-08-01"},
+        files={
+            "file": (
+                "spr-results.pptx",
+                spr_pptx,
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
+        },
+    )
+    assert imported.status_code == 200, imported.text
+    payload = imported.json()
+    experiment = payload["experiment"]
+    assert experiment["experiment_type"] == "SPR"
+    assert experiment["name"] == "SPR 2026-08-01"
+    assert experiment["details"]["source"] == "SPR"
+    assert experiment["details"]["run_date"] == "2026-08-01"
+    assert experiment["details"]["sample_count"] == 2
+    assert experiment["details"]["uploaded_positions"] == ["A01", "A02"]
+    assert experiment["details"]["skipped_positions"] == []
+    assert experiment["details"]["sample_ids"] == ["A1XXX", "A2XXX"]
+    assert experiment["details"]["all_positions"] == ["A01", "A02"]
+    assert experiment["details"]["all_sample_ids"] == ["A1XXX", "A2XXX"]
+    assert {
+        result["position"]: result["result_value"]
+        for result in payload["results"]
+        if result["result_value"]
+    } == {"A01": "SPR A1XXX", "A02": "SPR A2XXX"}
+
+    raw_files_response = client.get(
+        f"/api/experiments/{experiment['id']}/raw-files",
+        headers=auth(owner_token),
+    )
+    assert raw_files_response.status_code == 200, raw_files_response.text
+    raw_files = raw_files_response.json()
+    assert [(item["filename"], item["raw_file_type"]) for item in raw_files] == [
+        ("spr-results.pptx", "spr_results_pptx")
+    ]
+    raw_download = client.get(
+        f"/api/experiment-raw-files/{raw_files[0]['id']}/download",
+        headers=auth(owner_token),
+    )
+    assert raw_download.status_code == 200, raw_download.text
+    assert raw_download.content == spr_pptx
+
+    outsider_raw_files = client.get(
+        f"/api/experiments/{experiment['id']}/raw-files",
+        headers=auth(outsider_token),
+    )
+    assert outsider_raw_files.status_code == 403
+
+    result_note = json.loads(
+        next(
+            result["result_note"]
+            for result in payload["results"]
+            if result["position"] == "A01"
+        )
+    )
+    assert result_note["source"] == "SPR"
+    assert result_note["run_date"] == "2026-08-01"
+    assert result_note["sample_id"] == "A1XXX"
+    assert result_note["slide_number"] == 9
+    assert result_note["table_row"]["Single cycle kinetics 1 Solution"] == "A1XXX"
+    assert result_note["table_row"]["KD (M)"] == "1.00e-09"
+    assert result_note["concentrations"] == {}
+
+    protein_detail = client.get(
+        f"/api/proteins/{protein_a['id']}",
+        headers=auth(owner_token),
+    )
+    assert protein_detail.status_code == 200, protein_detail.text
+    protein_payload = protein_detail.json()
+    artifact_filenames = {
+        artifact["filename"]: artifact
+        for artifact in protein_payload["artifacts"]
+    }
+    assert "SPR_2026-08-01_A1XXX_A01.svg" in artifact_filenames
+    spr_artifact = artifact_filenames["SPR_2026-08-01_A1XXX_A01.svg"]
+    assert spr_artifact["artifact_type"] == "experimental_result"
+    assert spr_artifact["mime_type"] == "image/svg+xml"
+    assert result_note["chart_artifact_id"] == spr_artifact["id"]
+
+    svg_download = client.get(
+        f"/api/artifacts/{spr_artifact['id']}/download",
+        headers=auth(owner_token),
+    )
+    assert svg_download.status_code == 200, svg_download.text
+    assert svg_download.content.startswith(b"<svg")
+    assert b"A1XXX SPR result" in svg_download.content
+    assert b"Conc1: 800nM" not in svg_download.content
+
+    concentration_uploaded = client.post(
+        f"/api/batches/{batch['id']}/spr-concentrations",
+        headers=auth(owner_token),
+        data={"run_date": "2026-08-01"},
+        files={
+            "file": (
+                "SPR_conc.csv",
+                spr_conc_csv,
+                "text/csv",
+            )
+        },
+    )
+    assert concentration_uploaded.status_code == 200, concentration_uploaded.text
+    concentration_payload = concentration_uploaded.json()
+    assert concentration_payload["experiment"]["id"] == experiment["id"]
+    assert concentration_payload["experiment"]["details"]["concentration_filename"] == "SPR_conc.csv"
+    assert concentration_payload["experiment"]["details"]["concentration_count"] == 3
+    raw_files_after_concentrations = client.get(
+        f"/api/experiments/{experiment['id']}/raw-files",
+        headers=auth(owner_token),
+    ).json()
+    assert {
+        (item["filename"], item["raw_file_type"])
+        for item in raw_files_after_concentrations
+    } == {
+        ("spr-results.pptx", "spr_results_pptx"),
+        ("SPR_conc.csv", "spr_concentrations_csv"),
+    }
+    updated_result_note = json.loads(
+        next(
+            result["result_note"]
+            for result in concentration_payload["results"]
+            if result["position"] == "A01"
+        )
+    )
+    assert updated_result_note["concentrations"] == {
+        "Conc1": "800nM",
+        "Conc2": "200nM",
+        "Conc3": "50nM",
+        "Conc4": "12.5nM",
+    }
+
+    updated_svg_download = client.get(
+        f"/api/artifacts/{spr_artifact['id']}/download",
+        headers=auth(owner_token),
+    )
+    assert updated_svg_download.status_code == 200, updated_svg_download.text
+    assert b"Conc1: 800nM" in updated_svg_download.content
+
+    same_date_partial_pptx = make_fake_spr_pptx(
+        [("A1XXX", "1.00e-09"), ("A3XXX", "3.00e-09")]
+    )
+    same_date_partial = client.post(
+        f"/api/batches/{batch['id']}/spr-results",
+        headers=auth(owner_token),
+        data={"run_date": "2026-08-01"},
+        files={
+            "file": (
+                "spr-partial-results.pptx",
+                same_date_partial_pptx,
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
+        },
+    )
+    assert same_date_partial.status_code == 200, same_date_partial.text
+    assert same_date_partial.json()["experiment"]["id"] == experiment["id"]
+    partial_details = same_date_partial.json()["experiment"]["details"]
+    assert partial_details["sample_count"] == 1
+    assert partial_details["requested_sample_count"] == 2
+    assert partial_details["uploaded_positions"] == ["A03"]
+    assert partial_details["skipped_positions"] == ["A01"]
+    assert partial_details["all_positions"] == ["A01", "A02", "A03"]
+    assert partial_details["total_result_count"] == 3
+    assert {
+        result["position"]: result["result_value"]
+        for result in same_date_partial.json()["results"]
+        if result["result_value"]
+    } == {
+        "A01": "SPR A1XXX",
+        "A02": "SPR A2XXX",
+        "A03": "SPR A3XXX",
+    }
+
+    same_date_duplicate = client.post(
+        f"/api/batches/{batch['id']}/spr-results",
+        headers=auth(owner_token),
+        data={"run_date": "2026-08-01"},
+        files={
+            "file": (
+                "spr-duplicate-results.pptx",
+                same_date_partial_pptx,
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
+        },
+    )
+    assert same_date_duplicate.status_code == 409
+    assert same_date_duplicate.json()["detail"] == (
+        "SPR results already uploaded for positions on 2026-08-01: A01, A03"
+    )
+
+    different_date = client.post(
+        f"/api/batches/{batch['id']}/spr-results",
+        headers=auth(owner_token),
+        data={"run_date": "2026-08-02"},
+        files={
+            "file": (
+                "spr-next-day-results.pptx",
+                make_fake_spr_pptx([("A1XXX", "1.10e-09")]),
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
+        },
+    )
+    assert different_date.status_code == 200, different_date.text
+    assert different_date.json()["experiment"]["id"] != experiment["id"]
+    assert different_date.json()["experiment"]["details"]["run_date"] == "2026-08-02"
+    assert different_date.json()["experiment"]["details"]["uploaded_positions"] == [
+        "A01"
+    ]
+
+
+def test_spr_chart_legend_renames_numeric_series_labels() -> None:
+    svg = _chart_svg(
+        sample_id="A1XXX",
+        slide_number=9,
+        series=[
+            {
+                "label": "1",
+                "color": "#2563eb",
+                "points": [(0.0, 0.0), (1.0, 1.0)],
+            },
+            {
+                "label": "2",
+                "color": "#0f766e",
+                "points": [(0.0, 0.2), (1.0, 0.8)],
+            },
+        ],
+        x_axis="Time (s)",
+        y_axis="Relative response (RU)",
+    )
+    assert b"raw data" in svg
+    assert b"fitted data" in svg
+
+
+def test_batch_spr_results_upload_extracts_positions_from_sample_ids(
+    tmp_path: Path,
+) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "SPR embedded positions"},
+    ).json()
+    proteins = [
+        client.post(
+            f"/api/projects/{project['id']}/proteins",
+            headers=auth(owner_token),
+            json={"name": f"binder-{index}", "sequence": unique_test_sequence(index)},
+        ).json()
+        for index in range(2)
+    ]
+    batch = client.post(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+        json={
+            "name": "SPR plate",
+            "protein_ids": [protein["id"] for protein in proteins],
+        },
+    ).json()["batch"]
+
+    imported = client.post(
+        f"/api/batches/{batch['id']}/spr-results",
+        headers=auth(owner_token),
+        data={"run_date": "2026-08-01"},
+        files={
+            "file": (
+                "spr-embedded-results.pptx",
+                make_fake_spr_pptx(
+                    [
+                        ("sample-A1XXX", "1.00e-09"),
+                        ("screen_A2_result", "2.00e-09"),
+                    ]
+                ),
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
+        },
+    )
+    assert imported.status_code == 200, imported.text
+    assert imported.json()["experiment"]["details"]["uploaded_positions"] == [
+        "A01",
+        "A02",
+    ]
+
+    ambiguous = client.post(
+        f"/api/batches/{batch['id']}/spr-results",
+        headers=auth(owner_token),
+        data={"run_date": "2026-08-02"},
+        files={
+            "file": (
+                "spr-ambiguous-results.pptx",
+                make_fake_spr_pptx([("sample-A1-B2", "1.00e-09")]),
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
+        },
+    )
+    assert ambiguous.status_code == 400
+    assert "multiple well positions" in ambiguous.json()["detail"]
+
+
+def test_batch_spr_results_upload_detects_dynamic_slides_and_ignores_thumbnails(
+    tmp_path: Path,
+) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "SPR dynamic slides"},
+    ).json()
+    proteins = [
+        client.post(
+            f"/api/projects/{project['id']}/proteins",
+            headers=auth(owner_token),
+            json={"name": f"binder-{index}", "sequence": unique_test_sequence(index)},
+        ).json()
+        for index in range(2)
+    ]
+    batch = client.post(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+        json={
+            "name": "SPR nonstandard deck",
+            "protein_ids": [protein["id"] for protein in proteins],
+        },
+    ).json()["batch"]
+    spr_pptx = make_fake_spr_pptx(
+        [("A1XXX", "1.00e-09"), ("A2XXX", "2.00e-09")],
+        chart_slide_numbers=[3, 7],
+        table_slide_number=18,
+        include_thumbnail_decoys=True,
+        use_relative_chart_targets=True,
+    )
+
+    imported = client.post(
+        f"/api/batches/{batch['id']}/spr-results",
+        headers=auth(owner_token),
+        data={"run_date": "2026-08-01"},
+        files={
+            "file": (
+                "spr-dynamic-results.pptx",
+                spr_pptx,
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
+        },
+    )
+    assert imported.status_code == 200, imported.text
+    payload = imported.json()
+    assert payload["experiment"]["details"]["sample_ids"] == ["A1XXX", "A2XXX"]
+    assert payload["experiment"]["details"]["uploaded_positions"] == ["A01", "A02"]
+    assert "A98XXX" not in payload["experiment"]["details"]["sample_ids"]
+    assert "A99XXX" not in payload["experiment"]["details"]["sample_ids"]
+
+    result_note = json.loads(
+        next(
+            result["result_note"]
+            for result in payload["results"]
+            if result["position"] == "A01"
+        )
+    )
+    assert result_note["slide_number"] == 3
+    assert result_note["table_row"]["Single cycle kinetics 1 Solution"] == "A1XXX"
+
+
+def test_batch_spr_results_upload_maps_a13_test_labels_to_next_row(
+    tmp_path: Path,
+) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "SPR sequential labels"},
+    ).json()
+    proteins = [
+        client.post(
+            f"/api/projects/{project['id']}/proteins",
+            headers=auth(owner_token),
+            json={"name": f"binder-{index}", "sequence": unique_test_sequence(index)},
+        ).json()
+        for index in range(14)
+    ]
+    batch = client.post(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+        json={
+            "name": "SPR plate",
+            "protein_ids": [protein["id"] for protein in proteins],
+        },
+    ).json()["batch"]
+    spr_pptx = make_fake_spr_pptx(
+        [("A13XXX", "1.30e-09"), ("A14XXX", "1.40e-09")]
+    )
+
+    imported = client.post(
+        f"/api/batches/{batch['id']}/spr-results",
+        headers=auth(owner_token),
+        data={"run_date": "2026-08-01"},
+        files={
+            "file": (
+                "spr-sequential-results.pptx",
+                spr_pptx,
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
+        },
+    )
+    assert imported.status_code == 200, imported.text
+    assert {
+        result["position"]: result["result_value"]
+        for result in imported.json()["results"]
+        if result["result_value"]
+    } == {"B01": "SPR A13XXX", "B02": "SPR A14XXX"}
 
 
 def test_batch_translation_generates_dna_on_demand(tmp_path: Path) -> None:
@@ -1996,8 +3529,14 @@ def test_batch_wells_map_results_back_to_project_proteins(tmp_path: Path) -> Non
         headers=auth(owner_token),
         json={"experiment_type": "HPLC", "name": "HPLC purity"},
     )
+    akta = client.post(
+        f"/api/batches/{batch['id']}/experiments",
+        headers=auth(owner_token),
+        json={"experiment_type": "AKTA", "name": "AKTA import"},
+    )
     assert spr.status_code == 200, spr.text
     assert hplc.status_code == 200, hplc.text
+    assert akta.status_code == 200, akta.text
 
     experiments = client.get(
         f"/api/batches/{batch['id']}/experiments",
@@ -2008,6 +3547,7 @@ def test_batch_wells_map_results_back_to_project_proteins(tmp_path: Path) -> Non
         "FPLC",
         "SPR",
         "HPLC",
+        "AKTA",
     }
 
     outsider_experiment = client.get(
@@ -2037,7 +3577,7 @@ def test_batch_wells_map_results_back_to_project_proteins(tmp_path: Path) -> Non
         headers=auth(owner_token),
     )
     assert listed_after_result.status_code == 200
-    assert listed_after_result.json()[0]["experiment_count"] == 3
+    assert listed_after_result.json()[0]["experiment_count"] == 4
     assert listed_after_result.json()[0]["result_count"] == 1
 
     experiment_detail = client.get(
@@ -2141,3 +3681,151 @@ EFG
         files={"file": ("target.pdb", pdb, "chemical/x-pdb")},
     )
     assert outsider_parse.status_code == 403
+
+
+def test_hplc_results_upload_maps_files_and_vial_blocks(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "HPLC project"},
+    ).json()
+
+    protein_a = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={
+            "name": "binder-a",
+            "sequence": "ACDEFG",
+            "protein_type": "TCR",
+        },
+    ).json()
+    protein_b = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={
+            "name": "binder-b",
+            "sequence": "HIKLMN",
+            "protein_type": "TCR",
+        },
+    ).json()
+
+    batch = client.post(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+        json={
+            "name": "HPLC batch",
+            "protein_ids": [protein_a["id"], protein_b["id"]],
+        },
+    ).json()["batch"]
+
+    chromatogram_a = b"0.00,-2.9\n0.50,-2.7\n1.00,-2.5\n1.50,-2.4\n2.00,-2.6\n"
+    chromatogram_b = b"0.00,-3.1\n0.50,-2.8\n1.00,-2.3\n1.50,-2.1\n2.00,-2.2\n"
+    vial_fc_csv = (
+        "样品 名称,20260711 183616D1F-A1-result\n"
+        "编号,位置,开始时间 (min),结束时间 (min),体积 (mL)\n"
+        "1,P1-I22,1.500,1.776,0.18\n"
+        "2,P1-I23,1.779,1.808,0.03\n"
+        "\"参比检测器 = DAD1 (起始延迟时间: 0.096 min, 结束延迟时间: 0.096 min)\"\n\n"
+        "样品 名称,20260711 184745D1F-A2-result\n"
+        "编号,位置,开始时间 (min),结束时间 (min),体积 (mL)\n"
+        "1,P1-J1,0.500,1.250,0.20\n"
+        "\"参比检测器 = DAD1 (起始延迟时间: 0.096 min, 结束延迟时间: 0.096 min)\"\n"
+    ).encode("utf-8")
+
+    response = client.post(
+        f"/api/batches/{batch['id']}/hplc-results",
+        headers=auth(owner_token),
+        data={"source_name": "20260710-TGFR1-48SAMPLES"},
+        files=[
+            (
+                "files",
+                (
+                    "20260711 183616D1F-A1-result.dx_DAD1A.CSV",
+                    chromatogram_a,
+                    "text/csv",
+                ),
+            ),
+            (
+                "files",
+                (
+                    "20260711 184745D1F-A2-result.dx_DAD1A.CSV",
+                    chromatogram_b,
+                    "text/csv",
+                ),
+            ),
+            ("files", ("vial_fc.csv", vial_fc_csv, "text/csv")),
+        ],
+    )
+    assert response.status_code == 200, response.text
+
+    payload = response.json()
+    experiment = payload["experiment"]
+    assert experiment["experiment_type"] == "HPLC"
+    assert experiment["details"]["source_name"] == "20260710-TGFR1-48SAMPLES"
+    assert experiment["details"]["sample_count"] == 2
+    assert [result["position"] for result in payload["results"]] == ["A01", "A02"]
+
+    raw_files_response = client.get(
+        f"/api/experiments/{experiment['id']}/raw-files",
+        headers=auth(owner_token),
+    )
+    assert raw_files_response.status_code == 200, raw_files_response.text
+    raw_files = raw_files_response.json()
+    assert {
+        (item["filename"], item["raw_file_type"])
+        for item in raw_files
+    } == {
+        ("vial_fc.csv", "hplc_vial_fc_csv"),
+        ("20260711 183616D1F-A1-result.dx_DAD1A.CSV", "hplc_chromatogram_csv"),
+        ("20260711 184745D1F-A2-result.dx_DAD1A.CSV", "hplc_chromatogram_csv"),
+    }
+    chromatogram_raw_file = next(
+        item
+        for item in raw_files
+        if item["filename"] == "20260711 183616D1F-A1-result.dx_DAD1A.CSV"
+    )
+    assert chromatogram_raw_file["position"] == "A01"
+    assert chromatogram_raw_file["protein_id"] == protein_a["id"]
+    assert chromatogram_raw_file["protein_name"] == "binder-a"
+    vial_raw_file = next(item for item in raw_files if item["filename"] == "vial_fc.csv")
+    vial_download = client.get(
+        f"/api/experiment-raw-files/{vial_raw_file['id']}/download",
+        headers=auth(owner_token),
+    )
+    assert vial_download.status_code == 200, vial_download.text
+    assert vial_download.content == vial_fc_csv
+
+    first_result = payload["results"][0]
+    note = json.loads(first_result["result_note"])
+    assert note["source"] == "HPLC"
+    assert note["plate_position"] == "A01"
+    assert note["block_count"] == 2
+    assert note["blocks"][0]["position"] == "P1-I22"
+    artifact_id = note["chart_artifact_id"]
+
+    protein_detail = client.get(
+        f"/api/proteins/{protein_a['id']}",
+        headers=auth(owner_token),
+    )
+    assert protein_detail.status_code == 200, protein_detail.text
+    artifact = next(
+        item
+        for item in protein_detail.json()["artifacts"]
+        if item["filename"].startswith("HPLC_A01_")
+    )
+    assert artifact["artifact_type"] == "experimental_result"
+    assert artifact["mime_type"] == "image/svg+xml"
+
+    download = client.get(
+        f"/api/artifacts/{artifact['id']}/download",
+        headers=auth(owner_token),
+    )
+    assert download.status_code == 200, download.text
+    svg = download.text
+    assert "HPLC A01" in svg
+    assert "P1-I22" in svg
+    assert svg.count("<rect") >= 2
+    assert artifact["id"] == artifact_id

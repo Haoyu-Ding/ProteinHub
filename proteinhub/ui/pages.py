@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+from html import escape as html_escape
 import json
-from datetime import date
+from datetime import date, timedelta
+from urllib.parse import urlencode
 
 from nicegui import ui
 
 from proteinhub.ui.support import (
     ARTIFACT_GROUPS,
-    ARTIFACT_TYPE_OPTIONS,
     BATCH_ORDER_STATUS_OPTIONS,
-    MEMBER_DISCIPLINE_OPTIONS,
     PLATE_96_POSITION_OPTIONS,
+    PROTEIN_MANUAL_RATING_OPTIONS,
     PROTEIN_TYPE_OPTIONS,
     ROLE_LABELS,
     TRANSLATION_ORGANISM_OPTIONS,
@@ -23,9 +24,295 @@ from proteinhub.ui.support import (
     humanize,
     notify_error,
     person_label,
+    protein_manual_rating_class,
+    protein_manual_rating_label,
     sequence_display,
     shell,
 )
+
+
+TRANSLATION_REQUEST_TIMEOUT_SECONDS = 360
+PROTEIN_LIST_SORT_OPTIONS = {
+    "time_desc": "时间新到旧",
+    "time_asc": "时间旧到新",
+    "rating_desc": "评级高到低",
+    "rating_asc": "评级低到高",
+}
+HELP_SECTIONS = (
+    {
+        "id": "quick-start",
+        "icon": "rocket_launch",
+        "eyebrow": "开始使用",
+        "title": "快速开始",
+        "summary": "用一条最短路径建立项目、蛋白和第一批实验记录。",
+        "keywords": "快速 开始 项目 蛋白 批次 实验",
+        "steps": (
+            ("1", "创建项目", "进入“项目”页面，新建一个项目。项目是数据和权限的边界。"),
+            ("2", "添加成员", "项目负责人可以在项目工作台的成员区域添加协作者，并设置成员角色。"),
+            ("3", "导入蛋白", "从 PDB/mmCIF 新建或批量导入蛋白；导入后可以在蛋白详情页查看结构和资料。"),
+            ("4", "创建批次", "在项目工作台选择蛋白创建 96 孔板批次，系统会记录孔位与蛋白的映射关系。"),
+            ("5", "上传实验", "进入批次详情页，根据实验类型上传 HPLC、SPR 或 AKTA 文件。"),
+        ),
+        "tips": (
+            "先建立项目和成员，再导入蛋白；后续的批次、实验和资料都会继承项目权限。",
+            "实验结果生成后，可以从蛋白详情页查看对应的实验图和下载文件。",
+        ),
+    },
+    {
+        "id": "protein-batch",
+        "icon": "science",
+        "eyebrow": "核心流程",
+        "title": "蛋白与批次",
+        "summary": "理解 ProteinHub 中蛋白、孔位、批次和实验结果之间的关系。",
+        "keywords": "蛋白 批次 96孔 孔位 结构 序列 结果",
+        "steps": (
+            ("1", "蛋白是核心记录", "每个蛋白包含名称、氨基酸序列、可选 DNA 序列、结构文件和关联资料。"),
+            ("2", "批次组织实验", "Batch 表示一次 96 孔板实验集合；创建时会把项目内蛋白映射到孔位。"),
+            ("3", "实验挂在批次下", "SPR、HPLC、AKTA 等实验记录属于某个批次，并通过孔位回到具体蛋白。"),
+            ("4", "从蛋白查看结果", "蛋白详情页的“批次结果”和“实验资料”会汇总这个蛋白关联的结果、图表和文件。"),
+        ),
+        "tips": (
+            "结果上传后不要随意修改孔位；已经产生结果的批次会限制孔位变更。",
+            "如果看不到某个蛋白或批次，先确认自己是否属于对应项目。",
+        ),
+    },
+    {
+        "id": "experiment-files",
+        "icon": "upload_file",
+        "eyebrow": "文件格式",
+        "title": "实验文件怎么准备",
+        "summary": "上传前先确认孔位识别、文件格式和配套文件，解析失败通常来自这几处。",
+        "keywords": "文件 格式 上传 HPLC SPR AKTA PDB mmCIF vial_fc csv pptx zip 色块",
+        "steps": (
+            ("HPLC", "HPLC 文件", "需要 chromatogram CSV 和 vial_fc.csv。chromatogram 文件名中需要有唯一孔位，例如 `A1.csv`、`A01.csv` 或 `...-A1-result.dx_DAD1A.CSV`；固定馏分映射文件必须命名为 `vial_fc.csv`。"),
+            ("SPR", "SPR 文件", "结果文件上传 `.pptx`；浓度表单独上传 `.csv`。样品标签中需要有唯一孔位，例如 `A1XXX`、`A01XXX` 或 `sample-A1XXX`。"),
+            ("AKTA", "AKTA 文件", "上传 zip 文件，文件名中需要有唯一孔位，例如 `A1.zip`、`A01.zip` 或 `run-A1-result.zip`。服务器需要配置 AKTA 渲染脚本和 Python 环境。"),
+            ("结构", "结构文件", "PDB/mmCIF 文件可以单个创建蛋白，也可以在项目中批量导入。"),
+        ),
+        "tips": (
+            "HPLC 的起始时间和终止时间差小于 0.01 分钟的区间不会绘制成色块，但原始解析记录仍会保留。",
+            "上传失败时先检查扩展名、名称中的孔位、同一名称里是否出现多个孔位，以及是否把同一孔位重复上传。",
+        ),
+    },
+    {
+        "id": "permissions",
+        "icon": "admin_panel_settings",
+        "eyebrow": "权限",
+        "title": "角色和数据权限",
+        "summary": "所有业务数据都按项目隔离，权限不足时不会显示项目内容。",
+        "keywords": "权限 角色 管理员 负责人 成员 下载 删除 项目",
+        "steps": (
+            ("管理员", "全局管理员", "可以查看项目列表，并执行项目删除等管理员操作。"),
+            ("负责人", "项目负责人", "可以管理成员，并删除项目内普通资料文件。"),
+            ("成员", "项目成员", "可以查看项目内容，创建批次、上传实验和回填结果。"),
+            ("下载", "资料下载", "结构文件、实验图和 artifact 下载都需要通过项目权限校验。"),
+        ),
+        "tips": (
+            "项目删除会连带删除项目下的蛋白、批次、实验和资料记录，属于不可逆操作。",
+            "不要把生产环境的管理员邮箱和开发环境混用；上线前确认 PROTEINHUB_ADMIN_EMAILS。",
+        ),
+    },
+    {
+        "id": "troubleshooting",
+        "icon": "build",
+        "eyebrow": "排查问题",
+        "title": "常见问题",
+        "summary": "遇到上传、权限或结果显示问题时，可以按下面顺序检查。",
+        "keywords": "故障 排查 上传失败 看不到项目 HPLC SPR AKTA 图表 服务器 日志",
+        "steps": (
+            ("项目", "看不到项目", "确认当前登录邮箱已被项目负责人添加为成员，并重新登录刷新权限。"),
+            ("HPLC", "HPLC 上传失败", "确认包含 `vial_fc.csv`，chromatogram 文件名能识别出批次中的唯一孔位，且样品名能在 vial 文件中找到。"),
+            ("SPR", "SPR 没有结果", "确认 PPTX 使用了系统支持的结果页结构，样品标签能唯一映射到 A1、A01、A02 等孔位。"),
+            ("AKTA", "AKTA 上传失败", "确认 zip 文件名中能识别出唯一孔位，并检查服务器上的 AKTA Python 和脚本路径配置。"),
+            ("图表", "图表没有显示", "先刷新蛋白详情页；如果仍然失败，检查原始文件是否成功上传以及服务器日志。"),
+        ),
+        "tips": (
+            "服务器部署后，优先查看应用服务日志和 PostgreSQL 连接状态。",
+            "提交问题时最好附上实验类型、文件名和错误提示，不要直接上传包含敏感数据的完整文件到聊天工具。",
+        ),
+    },
+)
+
+
+def _is_akta_png_artifact(artifact: dict) -> bool:
+    filename = artifact.get("filename", "")
+    return (
+        artifact.get("artifact_type") == "experimental_result"
+        and artifact.get("mime_type") == "image/png"
+        and filename.startswith("AKTA_")
+        and filename.lower().endswith(".png")
+    )
+
+
+def _is_spr_svg_artifact(artifact: dict) -> bool:
+    filename = artifact.get("filename", "")
+    return (
+        artifact.get("artifact_type") == "experimental_result"
+        and artifact.get("mime_type") == "image/svg+xml"
+        and filename.startswith("SPR_")
+        and filename.lower().endswith(".svg")
+    )
+
+
+def _is_hplc_svg_artifact(artifact: dict) -> bool:
+    filename = artifact.get("filename", "")
+    return (
+        artifact.get("artifact_type") == "experimental_result"
+        and artifact.get("mime_type") == "image/svg+xml"
+        and filename.startswith("HPLC_")
+        and filename.lower().endswith(".svg")
+    )
+
+
+def _run_date_from_prefixed_filename(filename: str, prefix: str) -> str:
+    if not filename.startswith(prefix):
+        return ""
+    parts = filename.split("_")
+    if len(parts) < 3:
+        return ""
+    try:
+        return date.fromisoformat(parts[1]).isoformat()
+    except ValueError:
+        return ""
+
+
+def _preview_meta(*values: str) -> str:
+    return " · ".join(value for value in values if value)
+
+
+def _spr_result_notes_by_artifact_id(batch_results: list[dict]) -> dict[int, dict]:
+    notes = {}
+    for result in batch_results:
+        if result.get("experiment_type") != "SPR" or not result.get("result_note"):
+            continue
+        try:
+            note = json.loads(result["result_note"])
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(note, dict) or note.get("source") != "SPR":
+            continue
+        artifact_id = note.get("chart_artifact_id")
+        if isinstance(artifact_id, int):
+            notes[artifact_id] = note
+    return notes
+
+
+def _hplc_result_notes_by_artifact_id(batch_results: list[dict]) -> dict[int, dict]:
+    notes = {}
+    for result in batch_results:
+        if result.get("experiment_type") != "HPLC" or not result.get("result_note"):
+            continue
+        try:
+            note = json.loads(result["result_note"])
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(note, dict) or note.get("source") != "HPLC":
+            continue
+        artifact_id = note.get("chart_artifact_id")
+        if isinstance(artifact_id, int):
+            notes[artifact_id] = note
+    return notes
+
+
+def _hplc_display_items(note: dict | None) -> list[tuple[str, str]]:
+    if not note:
+        return []
+    items = []
+    if note.get("sample_key"):
+        items.append(("样品", str(note["sample_key"])))
+    if note.get("plate_position"):
+        items.append(("孔位", str(note["plate_position"])))
+    block_count = note.get("block_count")
+    if isinstance(block_count, int):
+        items.append(("色块", f"{block_count} 个"))
+    return items
+
+
+def _spr_table_display_items(table_row: dict | None) -> list[tuple[str, str]]:
+    if not table_row:
+        return []
+    preferred_keys = [
+        "Single cycle kinetics 1 Solution",
+        "Quality Kinetics Chi² (RU²)",
+        "1:1 binding ka (1/Ms)",
+        "kd (1/s)",
+        "KD (M)",
+        "Rmax (RU)",
+        "tc",
+    ]
+    return [
+        (key, str(table_row[key]))
+        for key in preferred_keys
+        if table_row.get(key) not in (None, "")
+    ]
+
+
+def _batch_result_note_text(result: dict) -> str:
+    note = result.get("result_note") or ""
+    if result.get("experiment_type") == "AKTA":
+        try:
+            parsed = json.loads(note)
+        except (TypeError, ValueError):
+            return note
+        if not isinstance(parsed, dict) or parsed.get("source") != "AKTA":
+            return note
+        bits = [str(parsed.get("run_date") or "AKTA")]
+        if parsed.get("png_artifact_id"):
+            bits.append(f"PNG #{parsed['png_artifact_id']}")
+        return " · ".join(bits)
+    if result.get("experiment_type") == "SPR":
+        try:
+            parsed = json.loads(note)
+        except (TypeError, ValueError):
+            return note
+        if not isinstance(parsed, dict) or parsed.get("source") != "SPR":
+            return note
+        table_row = parsed.get("table_row") or {}
+        bits = [str(parsed.get("sample_id") or "SPR")]
+        if parsed.get("run_date"):
+            bits.append(str(parsed["run_date"]))
+        for key in ("KD (M)", "Rmax (RU)"):
+            if table_row.get(key):
+                bits.append(f"{key} {table_row[key]}")
+        return " · ".join(bits)
+    if result.get("experiment_type") == "HPLC":
+        try:
+            parsed = json.loads(note)
+        except (TypeError, ValueError):
+            return note
+        if not isinstance(parsed, dict) or parsed.get("source") != "HPLC":
+            return note
+        bits = [str(parsed.get("sample_key") or "HPLC")]
+        if parsed.get("plate_position"):
+            bits.append(str(parsed["plate_position"]))
+        block_count = parsed.get("block_count")
+        if isinstance(block_count, int):
+            bits.append(f"{block_count} 个色块")
+        return " · ".join(bits)
+    return note
+
+
+def _format_order_date(value: str | None) -> str:
+    if not value:
+        return "未记录"
+    return value[:10]
+
+
+def _format_days_since(value: int | None) -> str:
+    if value is None:
+        return "未记录"
+    if value == 0:
+        return "今天"
+    return f"{value} 天前"
+
+
+def _cadence_badge_color(status: str) -> str:
+    if status == "on_track":
+        return "positive"
+    if status == "overdue":
+        return "warning"
+    return "secondary"
+
 
 
 def install_ui() -> None:
@@ -70,6 +357,90 @@ def install_ui() -> None:
 
                 ui.button("继续", on_click=submit).classes("w-full").props("unelevated")
 
+    @ui.page("/help")
+    async def help_page() -> None:
+        shell()
+        if not await ensure_logged_in():
+            return
+        with ui.column().classes("ph-page"):
+            with ui.row().classes("ph-page-header w-full"):
+                with ui.column().classes("gap-1"):
+                    ui.label("使用指南").classes("ph-eyebrow")
+                    ui.label("帮助").classes("ph-title")
+                    ui.label("按常见工作流整理 ProteinHub 的操作、文件格式和权限。").classes("ph-subtitle")
+                ui.button(
+                    "返回项目",
+                    icon="folder_open",
+                    on_click=lambda: ui.navigate.to("/projects"),
+                ).props("flat")
+
+            with ui.element("div").classes("ph-help-layout w-full"):
+                with ui.column().classes("ph-help-sidebar"):
+                    help_search = ui.input(
+                        "搜索帮助",
+                        placeholder="例如 HPLC、权限、AKTA",
+                    ).props("outlined clearable dense").classes("w-full")
+                    with ui.column().classes("ph-help-nav"):
+                        ui.label("目录").classes("text-sm font-semibold text-slate-800")
+                        for section in HELP_SECTIONS:
+                            with ui.link(target=f"#{section['id']}").classes("ph-help-nav-link"):
+                                ui.icon(section["icon"]).classes("text-base")
+                                ui.label(section["title"])
+
+                help_topics = ui.column().classes("ph-help-main")
+
+            def matches_query(section: dict, query: str) -> bool:
+                if not query:
+                    return True
+                haystack = " ".join(
+                    [
+                        str(section["title"]),
+                        str(section["summary"]),
+                        str(section["keywords"]),
+                        " ".join(
+                            " ".join(step)
+                            for step in section["steps"]
+                        ),
+                        " ".join(section["tips"]),
+                    ]
+                ).lower()
+                return query in haystack
+
+            def render_help(query: str | None = None) -> None:
+                normalized_query = (query or "").strip().lower()
+                visible_sections = [
+                    section
+                    for section in HELP_SECTIONS
+                    if matches_query(section, normalized_query)
+                ]
+                help_topics.clear()
+                with help_topics:
+                    if not visible_sections:
+                        empty_state("search_off", "没有匹配的帮助条目", "换一个关键词试试看。")
+                        return
+                    for section in visible_sections:
+                        with ui.element("section").props(f"id={section['id']}").classes("ph-help-section"):
+                            with ui.row().classes("ph-help-section-head w-full"):
+                                with ui.element("div").classes("ph-icon-box ph-icon-project"):
+                                    ui.icon(section["icon"])
+                                with ui.column().classes("min-w-0 gap-1"):
+                                    ui.label(section["eyebrow"]).classes("ph-eyebrow")
+                                    ui.label(section["title"]).classes("text-xl font-semibold text-slate-900")
+                                    ui.label(section["summary"]).classes("ph-muted")
+                            with ui.column().classes("w-full gap-0"):
+                                for marker, title, detail in section["steps"]:
+                                    with ui.element("div").classes("ph-help-step"):
+                                        ui.label(marker).classes("ph-help-step-marker")
+                                        with ui.column().classes("min-w-0 gap-1"):
+                                            ui.label(title).classes("font-semibold text-slate-800")
+                                            ui.label(detail).classes("ph-muted")
+                            with ui.column().classes("ph-help-tips w-full"):
+                                for tip in section["tips"]:
+                                    ui.label(tip).classes("ph-help-tip")
+
+            help_search.on_value_change(lambda event: render_help(event.value))
+            render_help()
+
     @ui.page("/projects")
     async def projects_page() -> None:
         shell()
@@ -83,25 +454,35 @@ def install_ui() -> None:
                     ui.label("项目权限会保护每个蛋白记录和实验资料。").classes("ph-subtitle")
                 ui.button("新建项目", icon="add", on_click=lambda: project_dialog.open()).props("unelevated")
 
-            project_grid = ui.grid(columns="repeat(auto-fill, minmax(280px, 1fr))").classes("ph-grid w-full")
+            project_list = ui.column().classes("ph-project-list w-full")
+            project_delete_target = {"project": None}
 
             async def load_projects() -> None:
-                project_grid.clear()
+                project_list.clear()
                 try:
+                    current_user = await ui.run_javascript("return await phApi('/api/me')", timeout=10)
+                    can_delete_projects = current_user.get("global_role") == "admin"
                     projects = await ui.run_javascript("return await phApi('/api/projects')", timeout=10)
-                    with project_grid:
+                    with project_list:
                         if not projects:
                             empty_state("folder_open", "还没有项目", "新建一个项目后，就可以开始收集蛋白。")
                         for project in projects:
-                            with ui.card().classes("ph-resource-card ph-project-card p-4"):
+                            with ui.card().classes("ph-resource-card ph-project-card w-full p-4"):
                                 with ui.row().classes("ph-project-card-main w-full"):
                                     with ui.element("div").classes("ph-icon-box ph-icon-project"):
                                         ui.icon("folder_open")
                                     with ui.column().classes("ph-project-card-text"):
                                         ui.label(project["name"]).classes("ph-card-title")
                                         ui.label(project["description"] or "暂无描述").classes("ph-card-description")
-                                with ui.row().classes("ph-project-card-footer w-full"):
+                                with ui.row().classes("ph-project-card-footer"):
                                     ui.badge(humanize(project["role"])).props("outline")
+                                    if can_delete_projects:
+                                        delete_button = ui.button(
+                                            icon="delete",
+                                            on_click=lambda p=project: open_delete_project(p),
+                                        ).props("flat round dense color=negative")
+                                        with delete_button:
+                                            ui.tooltip("删除项目")
                                     ui.button("打开", icon="arrow_forward", on_click=lambda p=project: ui.navigate.to(f"/projects/{p['id']}")).props("flat")
                 except Exception as error:
                     notify_error(error)
@@ -128,7 +509,191 @@ def install_ui() -> None:
                     ui.button("取消", on_click=project_dialog.close).props("flat")
                     ui.button("创建", icon="add", on_click=create)
 
+            with ui.dialog() as delete_project_dialog, ui.card().classes("ph-dialog-card w-full max-w-md gap-4"):
+                delete_project_title = ui.label().classes("text-lg font-semibold")
+                ui.label("删除后项目内的蛋白、批次、实验和资料记录会一并移除。").classes("ph-muted")
+
+                async def delete_selected_project() -> None:
+                    project = project_delete_target["project"]
+                    if not project:
+                        return
+                    try:
+                        await ui.run_javascript(
+                            f"return await phApi('/api/projects/{project['id']}', {{method: 'DELETE'}})",
+                            timeout=10,
+                        )
+                        delete_project_dialog.close()
+                        project_delete_target["project"] = None
+                        ui.notify("项目已删除", type="positive")
+                        await load_projects()
+                    except Exception as error:
+                        notify_error(error)
+
+                def open_delete_project(project: dict) -> None:
+                    project_delete_target["project"] = project
+                    delete_project_title.text = f"删除项目：{project['name']}"
+                    delete_project_dialog.open()
+
+                with ui.row().classes("justify-end w-full"):
+                    ui.button("取消", on_click=delete_project_dialog.close).props("flat")
+                    ui.button("删除", icon="delete", on_click=delete_selected_project).props("unelevated color=negative")
+
             await load_projects()
+
+    @ui.page("/order-monitor")
+    async def order_monitor_page() -> None:
+        shell()
+        if not await ensure_logged_in():
+            return
+        default_end_date = date.today()
+        default_start_date = default_end_date - timedelta(
+            days=default_end_date.weekday(),
+            weeks=7,
+        )
+        with ui.column().classes("ph-page"):
+            with ui.row().classes("ph-page-header w-full"):
+                with ui.column().classes("gap-1"):
+                    ui.label("管理员").classes("ph-eyebrow")
+                    ui.label("订单监控").classes("ph-title")
+                    ui.label("跟踪批次 order 时间和最近每周订单节奏。").classes("ph-subtitle")
+                refresh_button = ui.button(
+                    "刷新",
+                    icon="refresh",
+                    on_click=lambda: load_monitor(),
+                ).props("unelevated no-wrap")
+
+            summary_grid = ui.element("div").classes("ph-monitor-summary-grid")
+            with ui.column().classes("ph-panel w-full gap-4 p-4"):
+                with ui.row().classes("ph-section-bar w-full"):
+                    with ui.column().classes("gap-0"):
+                        ui.label("按周 order 批次数").classes("text-xl font-semibold")
+                        chart_range_label = ui.label("最近 8 个自然周").classes("ph-muted")
+                    with ui.row().classes("items-end gap-2"):
+                        monitor_start_date = ui.input(
+                            "起始日期",
+                            value=default_start_date.isoformat(),
+                        ).props("outlined dense type=date").classes("ph-monitor-date-input")
+                        monitor_end_date = ui.input(
+                            "终止日期",
+                            value=default_end_date.isoformat(),
+                        ).props("outlined dense type=date").classes("ph-monitor-date-input")
+                        query_button = ui.button(
+                            "查询",
+                            icon="search",
+                            on_click=lambda: load_monitor(),
+                        ).props("unelevated no-wrap")
+                        reset_button = ui.button(
+                            "重置",
+                            icon="restart_alt",
+                            on_click=lambda: reset_monitor_range(),
+                        ).props("flat no-wrap")
+                week_chart = ui.element("div").classes("ph-monitor-bar-chart")
+
+            with ui.column().classes("ph-panel w-full gap-4 p-4"):
+                with ui.row().classes("ph-section-bar w-full"):
+                    with ui.column().classes("gap-0"):
+                        ui.label("已 order 批次").classes("text-xl font-semibold")
+                        ui.label("按 order 时间从新到旧排列。").classes("ph-muted")
+                batch_list = ui.column().classes("w-full gap-2")
+
+            def render_stat(title_text: str, value_text: str, detail_text: str) -> None:
+                with ui.column().classes("ph-monitor-stat gap-2"):
+                    ui.label(title_text).classes("ph-meta")
+                    ui.label(value_text).classes("ph-monitor-stat-value")
+                    ui.label(detail_text).classes("ph-card-description")
+
+            def render_summary(summary: dict) -> None:
+                summary_grid.clear()
+                with summary_grid:
+                    render_stat(
+                        "已 order 批次",
+                        str(summary["total_ordered_batches"]),
+                        f"{summary['total_ordered_proteins']} 个蛋白",
+                    )
+                    render_stat(
+                        "上次 order",
+                        _format_order_date(summary.get("last_ordered_at")),
+                        _format_days_since(summary.get("days_since_last_order")),
+                    )
+                    with ui.column().classes("ph-monitor-stat gap-2"):
+                        ui.label("订单节奏").classes("ph-meta")
+                        ui.label(summary["cadence_text"]).classes("ph-monitor-stat-value")
+                        ui.badge(
+                            f"目标 {summary['cadence_target_days']} 天内",
+                        ).props(f"outline color={_cadence_badge_color(summary['cadence_status'])}")
+
+            def render_weeks(weeks: list[dict]) -> None:
+                week_chart.clear()
+                max_count = max((week["order_count"] for week in weeks), default=0)
+                with week_chart:
+                    for week in weeks:
+                        order_count = week["order_count"]
+                        height = (order_count / max_count) * 100 if max_count else 0
+                        opacity = "1" if order_count else "0.18"
+                        with ui.column().classes("ph-monitor-chart-column gap-2"):
+                            ui.label(str(order_count)).classes("font-semibold text-slate-900")
+                            with ui.element("div").classes("ph-monitor-chart-track"):
+                                ui.element("div").classes("ph-monitor-chart-bar").style(
+                                    f"height: {height}%; opacity: {opacity};"
+                                )
+                            ui.label(week["week_label"]).classes("ph-meta")
+
+            def render_batches(batches: list[dict]) -> None:
+                batch_list.clear()
+                with batch_list:
+                    if not batches:
+                        empty_state("inventory_2", "还没有已 order 批次", "批次状态改为已 order 后会显示在这里。")
+                    for batch in batches:
+                        with ui.element("div").classes("ph-monitor-batch-row"):
+                            with ui.column().classes("min-w-0 gap-1"):
+                                ui.label(batch["name"]).classes("font-semibold text-slate-900")
+                                ui.label(batch["project_name"]).classes("ph-meta")
+                            ui.label(_format_order_date(batch["ordered_at"])).classes("text-sm text-slate-800")
+                            ui.badge(humanize(batch["order_status"])).props("outline color=secondary")
+                            ui.label(f"{batch['well_count']} 个蛋白").classes("ph-meta")
+                            ui.button(
+                                "打开",
+                                icon="open_in_new",
+                                on_click=lambda b=batch: ui.navigate.to(f"/batches/{b['id']}"),
+                            ).props("flat no-wrap")
+
+            async def load_monitor() -> None:
+                try:
+                    refresh_button.disable()
+                    query = urlencode(
+                        {
+                            key: value
+                            for key, value in {
+                                "start_date": monitor_start_date.value,
+                                "end_date": monitor_end_date.value,
+                            }.items()
+                            if value
+                        }
+                    )
+                    endpoint = "/api/order-monitor"
+                    if query:
+                        endpoint = f"{endpoint}?{query}"
+                    payload = await ui.run_javascript(
+                        f"return await phApi({json.dumps(endpoint)})",
+                        timeout=10,
+                    )
+                    chart_range_label.text = (
+                        f"{payload['range_start']} 至 {payload['range_end']}"
+                    )
+                    render_summary(payload["summary"])
+                    render_weeks(payload["weekly_orders"])
+                    render_batches(payload["batches"])
+                except Exception as error:
+                    notify_error(error)
+                finally:
+                    refresh_button.enable()
+
+            async def reset_monitor_range() -> None:
+                monitor_start_date.value = default_start_date.isoformat()
+                monitor_end_date.value = default_end_date.isoformat()
+                await load_monitor()
+
+            await load_monitor()
 
     @ui.page("/projects/{project_id}")
     async def project_page(project_id: int) -> None:
@@ -159,8 +724,48 @@ def install_ui() -> None:
                                 ui.label("蛋白信息").classes("text-xl font-semibold")
                                 ui.label("查询和管理这个项目中的蛋白记录与实验资料。").classes("ph-muted")
                             with ui.row().classes("gap-2"):
-                                ui.button("批量导入", icon="drive_folder_upload", on_click=lambda: bulk_import_dialog.open()).props("flat no-wrap")
-                                ui.button("新建蛋白", icon="add", on_click=lambda: protein_dialog.open()).props("unelevated no-wrap")
+                                bulk_import_button = ui.button("批量导入", icon="drive_folder_upload", on_click=lambda: bulk_import_dialog.open()).props("flat no-wrap")
+                                new_protein_button = ui.button("新建蛋白", icon="add", on_click=lambda: protein_dialog.open()).props("unelevated no-wrap")
+                        with ui.row().classes("ph-protein-filter-row w-full"):
+                            protein_rating_filter = (
+                                ui.select(
+                                    PROTEIN_MANUAL_RATING_OPTIONS,
+                                    value=[],
+                                    label="评级",
+                                    multiple=True,
+                                )
+                                .props("outlined dense use-chips clearable")
+                                .classes("w-full")
+                            )
+                            protein_date_from = (
+                                ui.input("开始日期")
+                                .props("outlined dense type=date")
+                                .classes("w-full")
+                            )
+                            protein_date_to = (
+                                ui.input("结束日期")
+                                .props("outlined dense type=date")
+                                .classes("w-full")
+                            )
+                            protein_sort_select = (
+                                ui.select(
+                                    PROTEIN_LIST_SORT_OPTIONS,
+                                    value="time_desc",
+                                    label="排序",
+                                )
+                                .props("outlined dense")
+                                .classes("w-full")
+                            )
+                            ui.button(
+                                "筛选",
+                                icon="filter_alt",
+                                on_click=lambda: load_proteins(),
+                            ).props("flat no-wrap")
+                            ui.button(
+                                "重置",
+                                icon="restart_alt",
+                                on_click=lambda: reset_protein_filters(),
+                            ).props("flat no-wrap")
                         with ui.element("div").classes("ph-proteins-scroll w-full"):
                             proteins_column = ui.column().classes("w-full gap-3")
                     with ui.tab_panel(batches_tab).classes("ph-batches-panel"):
@@ -168,7 +773,7 @@ def install_ui() -> None:
                             with ui.column().classes("gap-0"):
                                 ui.label("实验批次").classes("text-xl font-semibold")
                                 ui.label("把项目中的蛋白排入 96 孔板，记录每个孔的实验结果。").classes("ph-muted")
-                            ui.button("新建批次", icon="add", on_click=lambda: batch_dialog.open()).props("unelevated")
+                            new_batch_button = ui.button("新建批次", icon="add", on_click=lambda: batch_dialog.open()).props("unelevated")
                         with ui.element("div").classes("ph-batch-scroll w-full"):
                             batches_column = ui.column().classes("w-full gap-3")
                     with ui.tab_panel(members_tab).classes("ph-members-panel"):
@@ -182,6 +787,8 @@ def install_ui() -> None:
 
             project_proteins = {"items": []}
             selected_batch_proteins: set[int] = set()
+            protein_rating_target = {"protein_id": None}
+            project_access = {"role": ""}
 
             async def load_project() -> None:
                 try:
@@ -190,9 +797,13 @@ def install_ui() -> None:
                     title.text = project["name"]
                     description.text = project["description"] or "暂无描述"
                     role_badge.text = humanize(project["role"])
+                    project_access["role"] = project["role"]
+                    can_write_project = project["role"] in {"owner", "member"}
+                    bulk_import_button.visible = can_write_project
+                    new_protein_button.visible = can_write_project
+                    new_batch_button.visible = can_write_project
                     add_member_button.visible = project["role"] == "owner"
                     members_column.clear()
-                    can_manage_members = project["role"] == "owner"
                     with members_column:
                         for member in data["members"]:
                             with ui.row().classes("ph-member-row"):
@@ -201,58 +812,42 @@ def install_ui() -> None:
                                         ui.icon("person")
                                     with ui.column().classes("gap-0"):
                                         ui.label(person_label(member.get("name"), member.get("email"))).classes("font-medium")
-                                        ui.label(f"{member['email']} · {humanize(member.get('discipline'))}").classes("ph-meta")
-                                if can_manage_members:
-                                    with ui.row().classes("items-center gap-2"):
-                                        role_select = (
-                                            ui.select(
-                                                ROLE_LABELS,
-                                                value=member["role"],
-                                                label="角色",
-                                            )
-                                            .props("outlined dense")
-                                            .classes("min-w-32")
-                                        )
-                                        discipline_select = (
-                                            ui.select(
-                                                MEMBER_DISCIPLINE_OPTIONS,
-                                                value=member.get("discipline") or "other",
-                                                label="学科方向",
-                                            )
-                                            .props("outlined dense")
-                                            .classes("min-w-36")
-                                        )
-                                        ui.button(
-                                            "保存",
-                                            icon="save",
-                                            on_click=lambda m=member, r=role_select, d=discipline_select: update_member(
-                                                m["id"], r.value, d.value
-                                            ),
-                                        ).props("flat dense no-wrap")
-                                else:
-                                    with ui.row().classes("gap-2"):
-                                        ui.badge(humanize(member["role"])).props("outline")
-                                        ui.badge(humanize(member.get("discipline"))).props("outline color=secondary")
+                                        ui.label(member["email"]).classes("ph-meta")
+                                ui.badge(humanize(member["role"])).props("outline")
                 except Exception as error:
                     notify_error(error)
 
-            async def update_member(member_id: int, role: str, discipline: str) -> None:
-                try:
-                    payload = {"role": role, "discipline": discipline}
-                    await ui.run_javascript(
-                        f"return await phApi('/api/projects/{project_id}/members/{member_id}', "
-                        f"{{method: 'PATCH', body: {json.dumps(payload)}}})",
-                        timeout=10,
-                    )
-                    ui.notify("成员设置已更新", type="positive")
-                    await load_project()
-                except Exception as error:
-                    notify_error(error)
+            def protein_list_path() -> str:
+                query_params: list[tuple[str, str]] = []
+                rating_values = protein_rating_filter.value or []
+                if isinstance(rating_values, str):
+                    rating_values = [rating_values]
+                for rating in rating_values:
+                    if rating:
+                        query_params.append(("ratings", rating))
+                if protein_date_from.value:
+                    query_params.append(("date_from", protein_date_from.value))
+                if protein_date_to.value:
+                    query_params.append(("date_to", protein_date_to.value))
+                query_params.append(("sort", protein_sort_select.value or "time_desc"))
+                query = urlencode(query_params)
+                path = f"/api/projects/{project_id}/proteins"
+                return f"{path}?{query}" if query else path
+
+            async def reset_protein_filters() -> None:
+                protein_rating_filter.value = []
+                protein_date_from.value = ""
+                protein_date_to.value = ""
+                protein_sort_select.value = "time_desc"
+                await load_proteins()
 
             async def load_proteins() -> None:
                 proteins_column.clear()
                 try:
-                    proteins = await ui.run_javascript(f"return await phApi('/api/projects/{project_id}/proteins')", timeout=10)
+                    proteins = await ui.run_javascript(
+                        f"return await phApi({json.dumps(protein_list_path())})",
+                        timeout=10,
+                    )
                     project_proteins["items"] = proteins
                     with proteins_column:
                         if not proteins:
@@ -262,20 +857,54 @@ def install_ui() -> None:
                                 "..." if len(protein["sequence"]) > 50 else ""
                             )
                             with ui.card().classes("ph-resource-card ph-protein-card w-full p-4"):
-                                with ui.row().classes("w-full items-center justify-between gap-4"):
-                                    with ui.row().classes("min-w-0 flex-1 items-start gap-3"):
+                                with ui.element("div").classes("ph-protein-card-layout"):
+                                    with ui.row().classes("ph-protein-card-main"):
                                         with ui.element("div").classes("ph-icon-box ph-icon-protein"):
                                             ui.icon("science")
-                                        with ui.column().classes("min-w-0 gap-2"):
-                                            with ui.row().classes("items-center gap-2"):
+                                        with ui.column().classes("ph-protein-card-content"):
+                                            with ui.column().classes("w-full gap-1"):
                                                 ui.label(protein["name"]).classes("ph-card-title")
-                                                if protein["protein_type"]:
-                                                    ui.badge(protein["protein_type"]).props("outline")
+                                                with ui.row().classes("ph-protein-tags"):
+                                                    ui.label(
+                                                        protein_manual_rating_label(protein.get("manual_rating"))
+                                                    ).classes(
+                                                        protein_manual_rating_class(
+                                                            protein.get("manual_rating")
+                                                        )
+                                                    )
+                                                    if protein["protein_type"]:
+                                                        ui.badge(protein["protein_type"]).props("outline")
+                                                    if protein.get("sequence_similarity_status") == "high_similarity":
+                                                        ui.badge("高相似度").props("outline color=warning")
                                             ui.label(protein["description"] or "暂无描述").classes("ph-card-description")
                                             target_text = f" · 靶标 {protein['target']}" if protein["target"] else ""
-                                            ui.label(f"{len(protein['sequence'])} 个氨基酸 · {protein['artifact_count']} 份资料{target_text}").classes("ph-meta")
+                                            effective_date = protein.get("effective_date") or protein["created_at"][:10]
+                                            effective_date_source = (
+                                                "记录时间"
+                                                if protein.get("effective_date_source") == "pdb_deposit"
+                                                else "上传时间"
+                                            )
+                                            ui.label(
+                                                f"{len(protein['sequence'])} 个氨基酸 · "
+                                                f"{protein['artifact_count']} 份资料"
+                                                f" · {effective_date_source} {effective_date}"
+                                                f"{target_text}"
+                                            ).classes("ph-meta")
                                             ui.label(preview).classes("ph-protein-sequence-preview font-mono text-sm text-slate-700")
-                                    ui.button("打开", icon="open_in_new", on_click=lambda p=protein: ui.navigate.to(f"/proteins/{p['id']}")).props("flat")
+                                    with ui.row().classes("ph-protein-card-actions"):
+                                        rating_button = ui.button(
+                                            icon="sell",
+                                            on_click=lambda p=protein: open_rating_dialog(p),
+                                        ).props("flat round dense")
+                                        rating_button.visible = project_access["role"] in {"owner", "member"}
+                                        with rating_button:
+                                            ui.tooltip("设置评级")
+                                        open_button = ui.button(
+                                            icon="open_in_new",
+                                            on_click=lambda p=protein: ui.navigate.to(f"/proteins/{p['id']}"),
+                                        ).props("flat round dense")
+                                        with open_button:
+                                            ui.tooltip("打开蛋白")
                     render_batch_protein_options()
                 except Exception as error:
                     notify_error(error)
@@ -311,6 +940,42 @@ def install_ui() -> None:
                                     ).props("flat")
                 except Exception as error:
                     notify_error(error)
+
+            with ui.dialog() as protein_rating_dialog, ui.card().classes("ph-dialog-card w-full max-w-sm gap-4"):
+                ui.label("设置手动评级").classes("text-lg font-semibold")
+                rating_protein_name = ui.label().classes("ph-meta")
+                rating_select = ui.select(
+                    PROTEIN_MANUAL_RATING_OPTIONS,
+                    value="unrated",
+                    label="评级",
+                ).props("outlined").classes("w-full")
+
+                def open_rating_dialog(protein: dict) -> None:
+                    protein_rating_target["protein_id"] = protein["id"]
+                    rating_protein_name.text = protein["name"]
+                    rating_select.value = protein.get("manual_rating") or "unrated"
+                    protein_rating_dialog.open()
+
+                async def save_rating() -> None:
+                    try:
+                        protein_id = protein_rating_target["protein_id"]
+                        if protein_id is None:
+                            return
+                        payload = {"manual_rating": rating_select.value or "unrated"}
+                        await ui.run_javascript(
+                            f"return await phApi('/api/proteins/{protein_id}/manual-rating', "
+                            f"{{method: 'PATCH', body: {json.dumps(payload)}}})",
+                            timeout=10,
+                        )
+                        protein_rating_dialog.close()
+                        ui.notify("评级已更新", type="positive")
+                        await load_proteins()
+                    except Exception as error:
+                        notify_error(error)
+
+                with ui.row().classes("justify-end w-full"):
+                    ui.button("取消", on_click=protein_rating_dialog.close).props("flat")
+                    ui.button("保存", icon="save", on_click=save_rating)
 
             with ui.dialog() as protein_dialog, ui.card().classes("ph-dialog-card w-full max-w-md gap-4"):
                 ui.label("新建蛋白").classes("text-lg font-semibold")
@@ -378,21 +1043,21 @@ def install_ui() -> None:
                 async def create_protein() -> None:
                     try:
                         payload = await ui.run_javascript(
-                            """
-                            const fieldValue = (selector) => {
+                            f"""
+                            const fieldValue = (selector) => {{
                                 const element = document.querySelector(selector);
                                 return element ? element.value : '';
-                            };
-                            return {
+                            }};
+                            return {{
                                 name: fieldValue('.ph-protein-name-input input'),
                                 sequence: fieldValue('.ph-protein-sequence-input textarea'),
                                 description: fieldValue('.ph-protein-description-input textarea'),
                                 protein_type: fieldValue('.ph-protein-type-select input'),
                                 target: fieldValue('.ph-protein-target-input input'),
                                 has_structure_file: Boolean(window.phProteinStructureFile),
-                            };
+                            }};
                             """,
-                            timeout=5,
+                            timeout=10,
                         )
                         if payload.get("has_structure_file"):
                             await ui.run_javascript(
@@ -443,7 +1108,9 @@ def install_ui() -> None:
                 bulk_protein_target = ui.input("靶标").props("outlined").classes("w-full ph-bulk-protein-target-input")
                 bulk_protein_description = ui.textarea("描述").props("outlined").classes("w-full ph-bulk-protein-description-input")
                 bulk_import_status = ui.label("等待选择文件夹").classes("ph-meta ph-bulk-import-status")
-                bulk_select_button = ui.button("选择文件夹", icon="drive_folder_upload").props("flat")
+                with ui.row().classes("gap-2 justify-between w-full"):
+                    bulk_select_button = ui.button("选择文件夹", icon="drive_folder_upload").props("flat no-wrap")
+                    bulk_score_button = ui.button("选择打分表 CSV", icon="table_chart").props("flat no-wrap")
 
                 bulk_select_button.on(
                     "click",
@@ -472,13 +1139,44 @@ def install_ui() -> None:
                                 return;
                             }}
                             window.phBulkImportFiles = files;
-                            if (status) status.textContent = `已选择 ${{files.length}} 个文件，点击导入开始`;
+                            const scoreFile = window.phBulkScoreFile || null;
+                            const scoreText = scoreFile ? `，打分表 ${{scoreFile.name}}` : '';
+                            if (status) status.textContent = `已选择 ${{files.length}} 个文件${{scoreText}}，点击导入开始`;
                             phNotify(`已选择 ${{files.length}} 个文件`, 'positive');
                             input.remove();
                         }}, {{once: true}});
                         document.body.appendChild(input);
                         input.click();
                     }}
+                    """,
+                )
+
+                bulk_score_button.on(
+                    "click",
+                    js_handler="""
+                    () => {
+                        const status = document.querySelector('.ph-bulk-import-status');
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.accept = '.csv,text/csv';
+                        input.style.display = 'none';
+                        input.addEventListener('change', async () => {
+                            if (!input.files || input.files.length === 0) {
+                                input.remove();
+                                return;
+                            }
+                            window.phBulkScoreFile = input.files[0];
+                            if (status) {
+                                const proteinCount = (window.phBulkImportFiles || []).length;
+                                const proteinText = proteinCount ? `${proteinCount} 个文件，` : '';
+                                status.textContent = `已选择 ${proteinText}打分表 ${window.phBulkScoreFile.name}`;
+                            }
+                            phNotify('已选择打分表 CSV', 'positive');
+                            input.remove();
+                        }, {once: true});
+                        document.body.appendChild(input);
+                        input.click();
+                    }
                     """,
                 )
 
@@ -490,6 +1188,7 @@ def install_ui() -> None:
                         async () => {{
                             const status = document.querySelector('.ph-bulk-import-status');
                             const files = window.phBulkImportFiles || [];
+                            const scoreFile = window.phBulkScoreFile || null;
                             const fieldValue = (selector) => {{
                                 const element = document.querySelector(selector);
                                 return element ? element.value : '';
@@ -507,11 +1206,15 @@ def install_ui() -> None:
                                 for (const file of files) {{
                                     form.append('files', file, file.webkitRelativePath || file.name);
                                 }}
+                                if (scoreFile) {{
+                                    form.append('score_file', scoreFile, scoreFile.name);
+                                }}
                                 const imported = await phApi('/api/projects/{project_id}/proteins/import-structures', {{
                                     method: 'POST',
                                     body: form,
                                 }});
                                 window.phBulkImportFiles = [];
+                                window.phBulkScoreFile = null;
                                 if (status) status.textContent = `已导入 ${{imported.length}} 个蛋白`;
                                 phNotify(`已导入 ${{imported.length}} 个蛋白`, 'positive');
                                 window.location.reload();
@@ -581,6 +1284,13 @@ def install_ui() -> None:
                                         ).classes("ph-meta")
                                 if protein["protein_type"]:
                                     ui.badge(protein["protein_type"]).props("outline")
+                                ui.label(
+                                    protein_manual_rating_label(protein.get("manual_rating"))
+                                ).classes(
+                                    protein_manual_rating_class(protein.get("manual_rating"))
+                                )
+                                if protein.get("sequence_similarity_status") == "high_similarity":
+                                    ui.badge("高相似度").props("outline color=warning")
                     update_selected_batch_label()
 
                 async def create_batch_from_selection() -> None:
@@ -628,18 +1338,15 @@ def install_ui() -> None:
                     member_results = ui.column().classes("ph-member-results")
                     with member_results:
                         ui.label("输入姓名并搜索后，候选成员会显示在这里。").classes("ph-muted")
-                with ui.row().classes("w-full items-center gap-3"):
-                    member_role = ui.toggle(["成员", "负责人"], value="成员").props("unelevated")
-                    member_discipline = ui.select(MEMBER_DISCIPLINE_OPTIONS, value="other", label="学科方向").props("outlined").classes("flex-1")
 
                 async def search_members() -> None:
                     query = (member_query.value or "").strip()
                     selected_member["email"] = None
                     selected_member_label.text = "未选择"
                     member_results.clear()
-                    if len(query) < 2:
+                    if not query:
                         with member_results:
-                            ui.label("请输入至少两个字符。").classes("ph-muted")
+                            ui.label("请输入姓名关键词。").classes("ph-muted")
                         return
                     try:
                         candidates = await ui.run_javascript(
@@ -672,10 +1379,9 @@ def install_ui() -> None:
                     if not selected_member["email"]:
                         ui.notify("请先搜索并选择成员", type="warning")
                         return
-                    role_value = "owner" if member_role.value == "负责人" else "member"
                     try:
                         await ui.run_javascript(
-                            f"return await phApi('/api/projects/{project_id}/members', {{method: 'POST', body: {{email: {selected_member['email']!r}, role: {role_value!r}, discipline: {member_discipline.value!r}}}}})",
+                            f"return await phApi('/api/projects/{project_id}/members', {{method: 'POST', body: {{email: {selected_member['email']!r}, role: 'member'}}}})",
                             timeout=10,
                         )
                         member_dialog.close()
@@ -685,8 +1391,6 @@ def install_ui() -> None:
                         member_results.clear()
                         with member_results:
                             ui.label("输入姓名并搜索后，候选成员会显示在这里。").classes("ph-muted")
-                        member_role.value = "成员"
-                        member_discipline.value = "other"
                         await load_project()
                     except Exception as error:
                         notify_error(error)
@@ -746,6 +1450,12 @@ def install_ui() -> None:
             with ui.column().classes("ph-panel w-full gap-4 p-4"):
                 with ui.row().classes("ph-section-bar w-full"):
                     with ui.column().classes("gap-0"):
+                        ui.label("打分密度图").classes("text-xl font-semibold")
+                score_density_column = ui.column().classes("w-full gap-3")
+
+            with ui.column().classes("ph-panel w-full gap-4 p-4"):
+                with ui.row().classes("ph-section-bar w-full"):
+                    with ui.column().classes("gap-0"):
                         ui.label("翻译").classes("text-xl font-semibold")
                         translation_status = ui.label("等待翻译").classes("ph-muted")
                     with ui.row().classes("items-center gap-2"):
@@ -793,25 +1503,251 @@ def install_ui() -> None:
             with ui.column().classes("ph-panel w-full gap-4 p-4"):
                 with ui.row().classes("ph-section-bar w-full"):
                     with ui.column().classes("gap-0"):
-                        ui.label("实验结果").classes("text-xl font-semibold")
-                        ui.label("选择实验类型后上传结果文件。").classes("ph-muted")
-                with ui.element("div").classes("ph-batch-upload-actions w-full"):
-                    experiment_type = ui.select(
-                        {"FPLC": "FPLC", "SPR": "SPR", "HPLC": "HPLC"},
-                        value="FPLC",
-                        label="实验类型",
-                    ).props("outlined dense").classes("w-full")
-                    upload_status = ui.label("等待上传").classes("ph-muted")
-
-                    def update_upload_status() -> None:
-                        upload_status.text = f"{experiment_type.value} 结果文件"
-
-                    experiment_type.on_value_change(lambda _: update_upload_status())
-                    ui.button(
-                        "上传结果",
+                        ui.label("HPLC 结果").classes("text-xl font-semibold")
+                        ui.label("选择包含 chromatogram CSV 和 vial_fc.csv 的文件夹。").classes("ph-muted")
+                with ui.element("div").classes("ph-hplc-upload-actions w-full"):
+                    hplc_upload_status = ui.label("等待选择 HPLC 文件夹").classes(
+                        "ph-muted ph-hplc-upload-status"
+                    )
+                    hplc_upload_button = ui.button(
+                        "上传 HPLC 文件夹",
                         icon="upload_file",
-                        on_click=lambda: ui.notify("实验结果上传流程待接入", type="info"),
-                    ).props("unelevated no-wrap")
+                    ).props("unelevated no-wrap").classes("ph-hplc-upload-button")
+
+                    def hplc_upload_js() -> str:
+                        return f"""
+                        () => {{
+                            const statusLabel = document.querySelector('.ph-hplc-upload-status');
+                            const setStatus = (text) => {{
+                                if (statusLabel) statusLabel.textContent = text;
+                            }};
+                            const input = document.createElement('input');
+                            input.type = 'file';
+                            input.multiple = true;
+                            input.webkitdirectory = true;
+                            input.accept = '.csv,text/csv';
+                            input.style.display = 'none';
+                            input.addEventListener('change', async () => {{
+                                const files = Array.from(input.files || []);
+                                const csvFiles = files.filter((file) => file.name.toLowerCase().endsWith('.csv'));
+                                const chromatogramFiles = csvFiles.filter((file) => file.name.toLowerCase() !== 'vial_fc.csv');
+                                const vialFile = csvFiles.find((file) => file.name.toLowerCase() === 'vial_fc.csv');
+                                if (!csvFiles.length) {{
+                                    setStatus('没有选择 HPLC CSV 文件');
+                                    phNotify('请选择包含 HPLC CSV 的文件夹', 'negative');
+                                    input.remove();
+                                    return;
+                                }}
+                                if (!chromatogramFiles.length) {{
+                                    setStatus('没有找到 chromatogram CSV');
+                                    phNotify('文件夹里没有 chromatogram CSV', 'negative');
+                                    input.remove();
+                                    return;
+                                }}
+                                if (!vialFile) {{
+                                    setStatus('缺少 vial_fc.csv');
+                                    phNotify('文件夹里缺少 vial_fc.csv', 'negative');
+                                    input.remove();
+                                    return;
+                                }}
+                                const sourceName = files.length && files[0].webkitRelativePath
+                                    ? files[0].webkitRelativePath.split('/')[0]
+                                    : '';
+                                const form = new FormData();
+                                form.append('source_name', sourceName);
+                                for (const file of csvFiles) {{
+                                    form.append('files', file, file.webkitRelativePath || file.name);
+                                }}
+                                try {{
+                                    setStatus(`正在上传 ${{chromatogramFiles.length}} 个 HPLC 文件并绘图...`);
+                                    phNotify('HPLC 结果上传中', 'info');
+                                    const result = await phApi('/api/batches/{batch_id}/hplc-results', {{
+                                        method: 'POST',
+                                        body: form,
+                                    }});
+                                    const details = result && result.experiment ? result.experiment.details || {{}} : {{}};
+                                    const count = details.sample_count || details.file_count || chromatogramFiles.length;
+                                    setStatus(`HPLC 结果上传成功：${{count}} 个图`);
+                                    phNotify('HPLC 结果上传成功', 'positive');
+                                    setTimeout(() => window.location.reload(), 800);
+                                }} catch (error) {{
+                                    const message = error && error.message ? error.message : 'HPLC 导入失败';
+                                    setStatus(`HPLC 结果上传失败：${{message}}`);
+                                    phNotifyError(error, 'HPLC 导入失败');
+                                }} finally {{
+                                    input.remove();
+                                }}
+                            }}, {{once: true}});
+                            document.body.appendChild(input);
+                            input.click();
+                        }}
+                        """
+
+                    hplc_upload_button.on("click", js_handler=hplc_upload_js())
+
+            with ui.column().classes("ph-panel w-full gap-4 p-4"):
+                with ui.row().classes("ph-section-bar w-full"):
+                    with ui.column().classes("gap-0"):
+                        ui.label("SPR 结果").classes("text-xl font-semibold")
+                        ui.label("PPTX 和浓度表分别上传。").classes("ph-muted")
+                with ui.element("div").classes("ph-spr-upload-actions w-full"):
+                    spr_run_date = ui.input(
+                        "SPR 日期",
+                        value=date.today().isoformat(),
+                    ).props("outlined dense").classes("w-full ph-spr-run-date")
+                    spr_upload_status = ui.label("等待上传 SPR 文件").classes(
+                        "ph-muted ph-spr-upload-status"
+                    )
+                    spr_upload_button = ui.button(
+                        "上传 SPR PPTX",
+                        icon="upload_file",
+                    ).props("unelevated no-wrap").classes("ph-spr-upload-button")
+                    spr_concentration_button = ui.button(
+                        "上传 SPR 浓度表",
+                        icon="upload_file",
+                    ).props("unelevated no-wrap").classes("ph-spr-upload-button")
+
+                    def spr_pptx_upload_js() -> str:
+                        return f"""
+                        () => {{
+                            const dateInput = document.querySelector('.ph-spr-run-date input');
+                            const statusLabel = document.querySelector('.ph-spr-upload-status');
+                            const setStatus = (text) => {{
+                                if (statusLabel) statusLabel.textContent = text;
+                            }};
+                            const runDate = dateInput ? dateInput.value.trim() : '';
+                            if (!runDate) {{
+                                setStatus('缺少 SPR 日期');
+                                phNotify('请先填写 SPR 日期', 'negative');
+                                return;
+                            }}
+                            const input = document.createElement('input');
+                            input.type = 'file';
+                            input.accept = '.pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation';
+                            input.style.display = 'none';
+                            input.addEventListener('change', async () => {{
+                                const file = input.files && input.files[0];
+                                if (!file) {{
+                                    setStatus('未选择文件');
+                                    input.remove();
+                                    return;
+                                }}
+                                const lower = file.name.toLowerCase();
+                                if (!lower.endsWith('.pptx')) {{
+                                    setStatus('请只选择一个 SPR PPTX');
+                                    phNotify('请只选择一个 SPR PPTX', 'negative');
+                                    input.remove();
+                                    return;
+                                }}
+                                const form = new FormData();
+                                form.append('run_date', runDate);
+                                form.append('file', file, file.name);
+                                try {{
+                                    setStatus('正在上传 SPR PPTX 并解析图表...');
+                                    phNotify('SPR 结果上传中', 'info');
+                                    const result = await phApi('/api/batches/{batch_id}/spr-results', {{
+                                        method: 'POST',
+                                        body: form,
+                                    }});
+                                    const details = result && result.experiment ? result.experiment.details || {{}} : {{}};
+                                    const positions = Array.isArray(details.uploaded_positions)
+                                        ? details.uploaded_positions
+                                        : [];
+                                    const skipped = Array.isArray(details.skipped_positions)
+                                        ? details.skipped_positions
+                                        : [];
+                                    const count = details.sample_count || positions.length || 1;
+                                    const concentrationCount = details.concentration_count || 0;
+                                    const concentrationText = concentrationCount ? '（已关联浓度表）' : '';
+                                    const successNotify = concentrationCount
+                                        ? 'SPR 结果上传成功，已关联浓度表'
+                                        : 'SPR 结果上传成功';
+                                    if (skipped.length) {{
+                                        const uploadedText = positions.length ? positions.join(', ') : '无';
+                                        const skippedText = skipped.join(', ');
+                                        setStatus(`SPR 部分上传成功：成功 ${{uploadedText}}；失败 ${{skippedText}} 已传过${{concentrationText}}`);
+                                        phNotify(`SPR 部分上传成功，失败板位：${{skippedText}} 已传过`, 'warning');
+                                    }} else {{
+                                        const positionText = positions.length ? `：${{positions.join(', ')}}` : '';
+                                        setStatus(`SPR 结果上传成功：${{count}} 个结果${{positionText}}${{concentrationText}}`);
+                                        phNotify(successNotify, 'positive');
+                                    }}
+                                    setTimeout(() => window.location.reload(), 800);
+                                }} catch (error) {{
+                                    const message = error && error.message ? error.message : 'SPR 导入失败';
+                                    setStatus(`SPR 结果上传失败：${{message}}`);
+                                    phNotifyError(error, 'SPR 导入失败');
+                                }} finally {{
+                                    input.remove();
+                                }}
+                            }}, {{once: true}});
+                            document.body.appendChild(input);
+                            input.click();
+                        }}
+                        """
+
+                    def spr_concentration_upload_js() -> str:
+                        return f"""
+                        () => {{
+                            const dateInput = document.querySelector('.ph-spr-run-date input');
+                            const statusLabel = document.querySelector('.ph-spr-upload-status');
+                            const setStatus = (text) => {{
+                                if (statusLabel) statusLabel.textContent = text;
+                            }};
+                            const runDate = dateInput ? dateInput.value.trim() : '';
+                            if (!runDate) {{
+                                setStatus('缺少 SPR 日期');
+                                phNotify('请先填写 SPR 日期', 'negative');
+                                return;
+                            }}
+                            const input = document.createElement('input');
+                            input.type = 'file';
+                            input.accept = '.csv,text/csv';
+                            input.style.display = 'none';
+                            input.addEventListener('change', async () => {{
+                                const file = input.files && input.files[0];
+                                if (!file) {{
+                                    setStatus('未选择文件');
+                                    input.remove();
+                                    return;
+                                }}
+                                const lower = file.name.toLowerCase();
+                                if (!lower.endsWith('.csv')) {{
+                                    setStatus('请只选择一个浓度 CSV');
+                                    phNotify('请只选择一个浓度 CSV', 'negative');
+                                    input.remove();
+                                    return;
+                                }}
+                                const form = new FormData();
+                                form.append('run_date', runDate);
+                                form.append('file', file, file.name);
+                                try {{
+                                    setStatus('正在上传 SPR 浓度表并关联结果...');
+                                    phNotify('SPR 浓度表上传中', 'info');
+                                    const result = await phApi('/api/batches/{batch_id}/spr-concentrations', {{
+                                        method: 'POST',
+                                        body: form,
+                                    }});
+                                    const details = result && result.experiment ? result.experiment.details || {{}} : {{}};
+                                    const concentrationCount = details.concentration_count || 0;
+                                    setStatus(`SPR 浓度表上传成功：${{concentrationCount}} 行`);
+                                    phNotify('SPR 浓度表上传成功', 'positive');
+                                    setTimeout(() => window.location.reload(), 800);
+                                }} catch (error) {{
+                                    const message = error && error.message ? error.message : 'SPR 浓度表导入失败';
+                                    setStatus(`SPR 浓度表上传失败：${{message}}`);
+                                    phNotifyError(error, 'SPR 浓度表导入失败');
+                                }} finally {{
+                                    input.remove();
+                                }}
+                            }}, {{once: true}});
+                            document.body.appendChild(input);
+                            input.click();
+                        }}
+                        """
+
+                    spr_upload_button.on("click", js_handler=spr_pptx_upload_js())
+                    spr_concentration_button.on("click", js_handler=spr_concentration_upload_js())
 
             with ui.column().classes("ph-panel w-full gap-4 p-4"):
                 with ui.row().classes("ph-section-bar w-full"):
@@ -939,7 +1875,7 @@ def install_ui() -> None:
 
             translation_state = {"dna_fasta": ""}
             translation_in_flight = {"value": False}
-            batch_editable_state = {"value": True}
+            batch_editable_state = {"value": True, "can_write": True}
 
             def _fasta_from_sequences(sequences: list[dict]) -> str:
                 lines: list[str] = []
@@ -1053,6 +1989,9 @@ def install_ui() -> None:
                     notify_error(error)
 
             async def translate_batch_sequences_ui() -> None:
+                if not batch_editable_state["can_write"]:
+                    ui.notify("只读模式，不能重新翻译", type="warning")
+                    return
                 if not batch_editable_state["value"]:
                     ui.notify("批次已下单，不能重新翻译", type="warning")
                     return
@@ -1063,7 +2002,7 @@ def install_ui() -> None:
                 previous_button_text = translate_button.text
                 translate_button.text = "翻译中"
                 translate_button.disable()
-                translation_status.text = "翻译中，请稍候"
+                translation_status.text = "翻译中，较大的批次可能需要几分钟"
                 payload = {
                     "padding": translation_padding.value == "yes",
                     "add_additional_w": translation_add_w.value == "yes",
@@ -1079,7 +2018,7 @@ def install_ui() -> None:
                             body: {json.dumps(payload)},
                         }});
                         """,
-                        timeout=30,
+                        timeout=TRANSLATION_REQUEST_TIMEOUT_SECONDS,
                     )
                     render_translation(result)
                     ui.notify("翻译完成", type="positive")
@@ -1156,6 +2095,9 @@ def install_ui() -> None:
                             ui.label(f"{len(dna_sequence)} bp").classes("ph-mapping-cell")
 
             async def save_well_position(well_id: int, position: str) -> None:
+                if not batch_editable_state["can_write"]:
+                    ui.notify("只读模式，不能修改孔位", type="warning")
+                    return
                 if not batch_editable_state["value"]:
                     ui.notify("批次已下单，不能修改孔位", type="warning")
                     return
@@ -1218,17 +2160,23 @@ def install_ui() -> None:
 
             def render_batch(data: dict) -> None:
                 mapping_table.clear()
+                score_density_column.clear()
                 batch = data["batch"]
                 wells = data["wells"]
                 experiments = data["experiments"]
+                score_density_plots = data.get("score_density_plots") or []
                 order_status = batch.get("order_status") or "not_ordered"
-                batch_editable = order_status == "not_ordered"
+                can_write_batch = data.get("access_role") in {"owner", "member"}
+                batch_editable = can_write_batch and order_status == "not_ordered"
                 batch_editable_state["value"] = batch_editable
+                batch_editable_state["can_write"] = can_write_batch
                 batch_title.text = batch["name"]
                 batch_description.text = batch["description"] or "暂无描述"
                 batch_status_badge.text = humanize(order_status)
                 batch_status_value.value = order_status
-                batch_status_button.visible = order_status != "fully_received"
+                batch_status_button.visible = (
+                    can_write_batch and order_status != "fully_received"
+                )
                 batch_meta.clear()
                 with batch_meta:
                     ui.badge(f"{batch['plate_format']} 孔").props("outline")
@@ -1253,10 +2201,27 @@ def install_ui() -> None:
                 mapping_summary.text = (
                     f"{batch['plate_format']} 孔 · {len(wells)} 条蛋白映射 · {len(experiments)} 个实验记录"
                 )
-                update_upload_status()
+                spr_run_date.visible = can_write_batch
+                spr_upload_button.visible = can_write_batch
+                spr_concentration_button.visible = can_write_batch
+                spr_upload_button.enable()
+                spr_concentration_button.enable()
+                spr_upload_status.text = (
+                    "等待选择 SPR PPTX 文件" if can_write_batch else "只读模式"
+                )
+                hplc_upload_button.visible = can_write_batch
+                hplc_upload_button.enable()
+                hplc_upload_status.text = (
+                    "等待选择 HPLC 文件夹" if can_write_batch else "只读模式"
+                )
+                akta_run_date.visible = can_write_batch
+                akta_single_upload_button.visible = can_write_batch
+                akta_upload_button.visible = can_write_batch
                 akta_single_upload_button.enable()
                 akta_upload_button.enable()
-                akta_upload_status.text = "等待选择 AKTA zip 文件"
+                akta_upload_status.text = (
+                    "等待选择 AKTA zip 文件" if can_write_batch else "只读模式"
+                )
                 saved_translation = _saved_translation_from_batch(data)
                 if saved_translation:
                     render_translation(
@@ -1267,6 +2232,26 @@ def install_ui() -> None:
                     translation_results.clear()
                     translation_status.text = "等待翻译"
                     translation_state["dna_fasta"] = ""
+                with score_density_column:
+                    if not score_density_plots:
+                        empty_state(
+                            "show_chart",
+                            "暂无打分密度图",
+                            "这个批次里还没有可用于作图的数值字段。",
+                        )
+                    else:
+                        with ui.element("div").classes("ph-score-density-grid"):
+                            for plot in score_density_plots:
+                                with ui.element("div").classes("ph-score-density-card"):
+                                    with ui.row().classes("ph-score-density-card-header"):
+                                        with ui.column().classes("gap-0"):
+                                            ui.label(plot["label"]).classes("font-semibold text-slate-900")
+                                            ui.label(
+                                                f"{plot['sample_count']} 个数值"
+                                            ).classes("ph-meta")
+                                        ui.badge(plot["metric"]).props("outline")
+                                    with ui.element("div").classes("ph-score-density-frame"):
+                                        ui.html(plot["svg"])
                 with mapping_table:
                     with ui.element("div").classes("ph-mapping-row ph-mapping-head"):
                         ui.label("孔位").classes("ph-mapping-cell")
@@ -1343,6 +2328,8 @@ def install_ui() -> None:
                     sequence_length_badge = ui.badge().props("outline")
                 sequence_text = ui.label().classes("ph-sequence-text")
 
+            score_details_section = ui.column().classes("w-full gap-3")
+
             with ui.row().classes("ph-section-bar w-full"):
                 with ui.column().classes("gap-0"):
                     ui.label("结构文件").classes("text-xl font-semibold")
@@ -1358,20 +2345,24 @@ def install_ui() -> None:
             with ui.row().classes("ph-section-bar w-full"):
                 with ui.column().classes("gap-0"):
                     ui.label("实验资料").classes("text-xl font-semibold")
-                    ui.label("上传这个蛋白相关的结构模型、实验结果和分析报告。").classes("ph-muted")
-                with ui.row().classes("gap-2"):
-                    artifact_type_select = ui.select(ARTIFACT_TYPE_OPTIONS, value="design_output", label="类型").props("outlined dense").classes("min-w-56")
-                    artifact_type_select.props("id=protein-artifact-type-select")
-                    upload_button = ui.button("上传", icon="upload").props("unelevated")
+                    ui.label("这个蛋白关联的文件和生成结果会显示在这里。").classes("ph-muted")
             artifacts_column = ui.column().classes("w-full gap-3")
 
             async def load_protein() -> None:
                 artifacts_column.clear()
                 batch_results_column.clear()
+                score_details_section.clear()
                 structure_file_column.clear()
                 try:
                     data = await ui.run_javascript(f"return await phApi('/api/proteins/{protein_id}')", timeout=10)
                     protein = data["protein"]
+                    can_delete_artifacts = data.get("access_role") == "owner"
+                    spr_notes_by_artifact_id = _spr_result_notes_by_artifact_id(
+                        data["batch_results"]
+                    )
+                    hplc_notes_by_artifact_id = _hplc_result_notes_by_artifact_id(
+                        data["batch_results"]
+                    )
                     protein_title.text = protein["name"]
                     sequence_text.text = sequence_display(protein["sequence"])
                     protein_description.text = protein["description"] or "暂无描述"
@@ -1380,8 +2371,27 @@ def install_ui() -> None:
                     with protein_meta:
                         if protein["protein_type"]:
                             ui.badge(protein["protein_type"]).props("outline")
+                        ui.label(
+                            protein_manual_rating_label(protein.get("manual_rating"))
+                        ).classes(
+                            protein_manual_rating_class(protein.get("manual_rating"))
+                        )
                         if protein["target"]:
                             ui.badge(f"靶标 {protein['target']}").props("outline color=secondary")
+                        if protein.get("sequence_similarity_status") == "high_similarity":
+                            ui.badge("高相似度").props("outline color=warning")
+                    with score_details_section:
+                        score_details = protein.get("score_details") or {}
+                        if score_details:
+                            with ui.row().classes("ph-section-bar w-full"):
+                                with ui.column().classes("gap-0"):
+                                    ui.label("打分表数据").classes("text-xl font-semibold")
+                                    ui.label("批量导入时按 pdb_name 匹配到这个蛋白的表格数据。").classes("ph-muted")
+                            with ui.element("div").classes("ph-spr-result-grid"):
+                                for key_text, value_text in score_details.items():
+                                    with ui.element("div").classes("ph-spr-result-item"):
+                                        ui.label(str(key_text)).classes("ph-spr-result-key")
+                                        ui.label(str(value_text)).classes("ph-spr-result-value")
                     with structure_file_column:
                         if not protein["structure_storage_path"]:
                             empty_state("description", "还没有结构文件", "从 PDB/mmCIF 新建或批量导入蛋白后会显示在这里。")
@@ -1415,8 +2425,9 @@ def install_ui() -> None:
                                         meta = result["experiment_type"]
                                         ui.label(meta).classes("ph-meta")
                                         ui.label(result.get("result_value") or "未回填").classes("text-sm text-slate-800")
-                                        if result.get("result_note"):
-                                            ui.label(result["result_note"]).classes("ph-card-description")
+                                        note_text = _batch_result_note_text(result)
+                                        if note_text:
+                                            ui.label(note_text).classes("ph-card-description")
                                 ui.button(
                                     "打开批次",
                                     icon="open_in_new",
@@ -1424,7 +2435,10 @@ def install_ui() -> None:
                                 ).props("flat")
                     with artifacts_column:
                         if not data["artifacts"]:
-                            empty_state("upload_file", "还没有上传资料", "上传这个蛋白相关的文件或生成结果。")
+                            empty_state("description", "还没有实验资料", "从批次上传或系统生成后会显示在这里。")
+                        akta_preview_artifact_ids = []
+                        spr_preview_artifact_ids = []
+                        hplc_preview_artifact_ids = []
                         grouped: dict[str, list[dict]] = {}
                         group_titles: dict[str, str] = {}
                         for key, title_text in ARTIFACT_GROUPS:
@@ -1439,16 +2453,174 @@ def install_ui() -> None:
                             with ui.column().classes("ph-artifact-group"):
                                 ui.label(group_titles.get(key, humanize(key))).classes("font-semibold text-slate-800")
                                 for artifact in files:
-                                    with ui.row().classes("ph-file-row"):
-                                        with ui.row().classes("min-w-0 flex-1 items-center gap-3"):
-                                            with ui.element("div").classes("ph-icon-box ph-icon-artifact"):
-                                                ui.icon("description")
-                                            with ui.column().classes("min-w-0 gap-1"):
-                                                ui.label(artifact["filename"]).classes("font-semibold text-slate-900")
-                                                ui.label(f"{humanize(artifact['artifact_type'])} · {format_bytes(artifact['size_bytes'])}").classes("ph-meta")
-                                        with ui.row().classes("gap-2"):
-                                            ui.button("下载", icon="download", on_click=lambda a=artifact: download_artifact(a["id"], a["filename"])).props("flat")
-                                            ui.button("删除", icon="delete", on_click=lambda a=artifact: delete_artifact(a["id"])).props("flat color=negative")
+                                    if _is_akta_png_artifact(artifact):
+                                        akta_preview_artifact_ids.append(artifact["id"])
+                                        akta_run_date = _run_date_from_prefixed_filename(
+                                            artifact["filename"], "AKTA_"
+                                        )
+                                        with ui.column().classes("ph-akta-preview"):
+                                            with ui.row().classes("ph-akta-preview-header"):
+                                                with ui.row().classes("min-w-0 flex-1 items-center gap-3"):
+                                                    with ui.element("div").classes("ph-icon-box ph-icon-artifact"):
+                                                        ui.icon("show_chart")
+                                                    with ui.column().classes("min-w-0 gap-1"):
+                                                        ui.label(artifact["filename"]).classes("font-semibold text-slate-900")
+                                                        ui.label(
+                                                            _preview_meta(
+                                                                "AKTA 在线预览",
+                                                                akta_run_date,
+                                                                format_bytes(artifact["size_bytes"]),
+                                                            )
+                                                        ).classes("ph-meta")
+                                                with ui.row().classes("gap-2"):
+                                                    ui.button(
+                                                        "下载",
+                                                        icon="download",
+                                                        on_click=lambda a=artifact: download_artifact(a["id"], a["filename"]),
+                                                    ).props("flat")
+                                            with ui.element("div").classes("ph-akta-preview-frame"):
+                                                ui.html(
+                                                    (
+                                                        '<div class="ph-akta-preview-content">'
+                                                        '<img class="ph-akta-preview-image" '
+                                                        f'data-akta-artifact-id="{artifact["id"]}" '
+                                                        f'alt="{html_escape(artifact["filename"], quote=True)}">'
+                                                        '<div class="ph-muted ph-akta-preview-status">'
+                                                        "正在加载 AKTA 图像..."
+                                                        "</div>"
+                                                        "</div>"
+                                                    )
+                                                )
+                                    elif _is_hplc_svg_artifact(artifact):
+                                        hplc_preview_artifact_ids.append(artifact["id"])
+                                        hplc_note = hplc_notes_by_artifact_id.get(
+                                            artifact["id"], {}
+                                        )
+                                        with ui.column().classes("ph-akta-preview"):
+                                            with ui.row().classes("ph-akta-preview-header"):
+                                                with ui.row().classes("min-w-0 flex-1 items-center gap-3"):
+                                                    with ui.element("div").classes("ph-icon-box ph-icon-artifact"):
+                                                        ui.icon("show_chart")
+                                                    with ui.column().classes("min-w-0 gap-1"):
+                                                        ui.label(artifact["filename"]).classes("font-semibold text-slate-900")
+                                                        ui.label(
+                                                            _preview_meta(
+                                                                "HPLC 在线预览",
+                                                                hplc_note.get("plate_position") or "",
+                                                                format_bytes(artifact["size_bytes"]),
+                                                            )
+                                                        ).classes("ph-meta")
+                                                with ui.row().classes("gap-2"):
+                                                    ui.button(
+                                                        "下载",
+                                                        icon="download",
+                                                        on_click=lambda a=artifact: download_artifact(a["id"], a["filename"]),
+                                                    ).props("flat")
+                                            with ui.element("div").classes("ph-akta-preview-frame"):
+                                                ui.html(
+                                                    (
+                                                        '<div class="ph-akta-preview-content">'
+                                                        '<img class="ph-akta-preview-image" '
+                                                        f'data-hplc-artifact-id="{artifact["id"]}" '
+                                                        f'alt="{html_escape(artifact["filename"], quote=True)}">'
+                                                        '<div class="ph-muted ph-akta-preview-status">'
+                                                        "正在加载 HPLC 图像..."
+                                                        "</div>"
+                                                        "</div>"
+                                                    )
+                                                )
+                                            display_items = _hplc_display_items(hplc_note)
+                                            if display_items:
+                                                with ui.element("div").classes("ph-spr-result-grid"):
+                                                    for key_text, value_text in display_items:
+                                                        with ui.element("div").classes("ph-spr-result-item"):
+                                                            ui.label(key_text).classes("ph-spr-result-key")
+                                                            ui.label(value_text).classes("ph-spr-result-value")
+                                    elif _is_spr_svg_artifact(artifact):
+                                        spr_preview_artifact_ids.append(artifact["id"])
+                                        spr_note = spr_notes_by_artifact_id.get(
+                                            artifact["id"], {}
+                                        )
+                                        with ui.column().classes("ph-akta-preview"):
+                                            with ui.row().classes("ph-akta-preview-header"):
+                                                with ui.row().classes("min-w-0 flex-1 items-center gap-3"):
+                                                    with ui.element("div").classes("ph-icon-box ph-icon-artifact"):
+                                                        ui.icon("show_chart")
+                                                    with ui.column().classes("min-w-0 gap-1"):
+                                                        ui.label(artifact["filename"]).classes("font-semibold text-slate-900")
+                                                        sample_id = spr_note.get("sample_id") or "SPR"
+                                                        spr_run_date = str(
+                                                            spr_note.get("run_date") or ""
+                                                        )
+                                                        ui.label(
+                                                            _preview_meta(
+                                                                "SPR 在线预览",
+                                                                sample_id,
+                                                                spr_run_date,
+                                                                format_bytes(artifact["size_bytes"]),
+                                                            )
+                                                        ).classes("ph-meta")
+                                                with ui.row().classes("gap-2"):
+                                                    ui.button(
+                                                        "下载",
+                                                        icon="download",
+                                                        on_click=lambda a=artifact: download_artifact(a["id"], a["filename"]),
+                                                    ).props("flat")
+                                            with ui.element("div").classes("ph-akta-preview-frame"):
+                                                ui.html(
+                                                    (
+                                                        '<div class="ph-akta-preview-content">'
+                                                        '<img class="ph-akta-preview-image" '
+                                                        f'data-spr-artifact-id="{artifact["id"]}" '
+                                                        f'alt="{html_escape(artifact["filename"], quote=True)}">'
+                                                        '<div class="ph-muted ph-akta-preview-status">'
+                                                        "正在加载 SPR 图像..."
+                                                        "</div>"
+                                                        "</div>"
+                                                    )
+                                                )
+                                            display_items = _spr_table_display_items(
+                                                spr_note.get("table_row")
+                                            )
+                                            if display_items:
+                                                with ui.element("div").classes("ph-spr-result-grid"):
+                                                    for key_text, value_text in display_items:
+                                                        with ui.element("div").classes("ph-spr-result-item"):
+                                                            ui.label(key_text).classes("ph-spr-result-key")
+                                                            ui.label(value_text).classes("ph-spr-result-value")
+                                    else:
+                                        with ui.row().classes("ph-file-row"):
+                                            with ui.row().classes("min-w-0 flex-1 items-center gap-3"):
+                                                with ui.element("div").classes("ph-icon-box ph-icon-artifact"):
+                                                    ui.icon("description")
+                                                with ui.column().classes("min-w-0 gap-1"):
+                                                    ui.label(artifact["filename"]).classes("font-semibold text-slate-900")
+                                                    ui.label(f"{humanize(artifact['artifact_type'])} · {format_bytes(artifact['size_bytes'])}").classes("ph-meta")
+                                            with ui.row().classes("gap-2"):
+                                                ui.button("下载", icon="download", on_click=lambda a=artifact: download_artifact(a["id"], a["filename"])).props("flat")
+                                                delete_button = ui.button("删除", icon="delete", on_click=lambda a=artifact: delete_artifact(a["id"])).props("flat color=negative")
+                                                delete_button.visible = (
+                                                    can_delete_artifacts
+                                                    and artifact["artifact_type"] != "experimental_result"
+                                                )
+                        if akta_preview_artifact_ids:
+                            await load_preview_images(
+                                akta_preview_artifact_ids,
+                                data_attribute="data-akta-artifact-id",
+                                error_message="AKTA 图像加载失败",
+                            )
+                        if spr_preview_artifact_ids:
+                            await load_preview_images(
+                                spr_preview_artifact_ids,
+                                data_attribute="data-spr-artifact-id",
+                                error_message="SPR 图像加载失败",
+                            )
+                        if hplc_preview_artifact_ids:
+                            await load_preview_images(
+                                hplc_preview_artifact_ids,
+                                data_attribute="data-hplc-artifact-id",
+                                error_message="HPLC 图像加载失败",
+                            )
                 except Exception as error:
                     notify_error(error)
 
@@ -1525,38 +2697,68 @@ def install_ui() -> None:
                 except Exception as error:
                     notify_error(error)
 
-            upload_button.on(
-                "click",
-                js_handler=f"""
-                () => {{
-                    const artifactTypeLabels = {json.dumps({label: key for key, label in ARTIFACT_TYPE_OPTIONS.items()}, ensure_ascii=False)};
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.style.display = 'none';
-                    input.addEventListener('change', async () => {{
-                        if (!input.files || input.files.length === 0) {{
-                            input.remove();
-                            return;
-                        }}
-                        const form = new FormData();
-                        form.append('file', input.files[0]);
-                        try {{
-                            const selectedType = document.querySelector('#protein-artifact-type-select input')?.value || '其他文件';
-                            const artifactType = artifactTypeLabels[selectedType] || selectedType || 'other';
-                            await phApi('/api/proteins/{protein_id}/artifacts?artifact_type=' + encodeURIComponent(artifactType), {{
-                                method: 'POST',
-                                body: form,
-                            }});
-                            window.location.reload();
-                        }} catch (error) {{
-                            phNotifyError(error, '上传失败');
-                        }} finally {{
-                            input.remove();
-                        }}
-                    }}, {{once: true}});
-                    document.body.appendChild(input);
-                    input.click();
-                }}
-                """,
-            )
+            async def load_preview_images(
+                artifact_ids: list[int],
+                *,
+                data_attribute: str,
+                error_message: str,
+            ) -> None:
+                try:
+                    await ui.run_javascript(
+                        f"""
+                        const artifactIds = {json.dumps(artifact_ids)};
+                        const dataAttribute = {json.dumps(data_attribute)};
+                        const errorMessage = {json.dumps(error_message, ensure_ascii=False)};
+                        const waitForPreviewImage = async (artifactId) => {{
+                            for (let attempt = 0; attempt < 20; attempt += 1) {{
+                                const image = document.querySelector(`[${{dataAttribute}}="${{artifactId}}"]`);
+                                if (image) return image;
+                                await new Promise((resolve) => setTimeout(resolve, 50));
+                            }}
+                            return null;
+                        }};
+                        await Promise.all(artifactIds.map(async (artifactId) => {{
+                            const image = await waitForPreviewImage(artifactId);
+                            if (!image) return;
+                            const frame = image.closest('.ph-akta-preview-frame');
+                            const status = frame ? frame.querySelector('.ph-akta-preview-status') : null;
+                            try {{
+                                const token = phToken();
+                                const response = await fetch(`/api/artifacts/${{artifactId}}/download`, {{
+                                    headers: {{Authorization: `Bearer ${{token}}`}}
+                                }});
+                                if (!response.ok) {{
+                                    const text = await response.text();
+                                    let detail = text || errorMessage;
+                                    try {{
+                                        const parsed = JSON.parse(text);
+                                        detail = parsed.detail || detail;
+                                    }} catch (error) {{}}
+                                    throw new Error(phErrorText(detail));
+                                }}
+                                const blob = await response.blob();
+                                const previousUrl = image.dataset.objectUrl;
+                                if (previousUrl) URL.revokeObjectURL(previousUrl);
+                                const url = URL.createObjectURL(blob);
+                                image.dataset.objectUrl = url;
+                                image.src = url;
+                                image.style.display = 'block';
+                                if (status) {{
+                                    status.textContent = '';
+                                    status.style.display = 'none';
+                                }}
+                            }} catch (error) {{
+                                image.style.display = 'none';
+                                if (status) {{
+                                    status.textContent = error && error.message ? error.message : errorMessage;
+                                    status.style.display = 'block';
+                                }}
+                            }}
+                        }}));
+                        """,
+                        timeout=30,
+                    )
+                except Exception as error:
+                    notify_error(error, error_message)
+
             await load_protein()
