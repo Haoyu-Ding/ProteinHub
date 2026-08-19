@@ -62,10 +62,14 @@ ProteinHub 启动时会初始化当前 schema。生产环境上线后，每次�
 
 ## 3. 部署应用
 
-把代码放到 `/opt/proteinhub`，例如：
+把代码放到 `/opt/proteinhub`。如果仓库是公开的，最省事的是先把目录让当前
+用户可写，再用 HTTPS clone；如果仓库是私有的，就给执行 clone 的那个用户
+配置 GitHub SSH key 或 PAT。
 
 ```bash
-sudo git clone <repo-url> /opt/proteinhub
+sudo mkdir -p /opt/proteinhub
+sudo chown -R "$USER":"$USER" /opt/proteinhub
+git clone https://github.com/Haoyu-Ding/ProteinHub.git /opt/proteinhub
 sudo chown -R proteinhub:proteinhub /opt/proteinhub
 cd /opt/proteinhub
 sudo -u proteinhub python3 -m venv .venv

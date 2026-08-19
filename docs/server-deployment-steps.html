@@ -353,8 +353,14 @@ sudo -u postgres createdb proteinhub -O proteinhub</code></pre>
 
     <section id="app">
       <h2>4. 应用部署</h2>
-      <p>从 GitHub 拉取代码。如果当前改动还没合并到 <code>main</code>，就先部署当前分支。</p>
-      <pre><code>sudo git clone git@github.com:Haoyu-Ding/ProteinHub.git /opt/proteinhub
+      <p>
+        从 GitHub 拉取代码。如果仓库是公开的，最省事的是先把目录让当前用户可写，
+        再用 HTTPS clone；如果仓库是私有的，就给执行 clone 的那个用户配置 GitHub SSH key 或 PAT。
+        如果当前改动还没合并到 <code>main</code>，就先部署当前分支。
+      </p>
+      <pre><code>sudo mkdir -p /opt/proteinhub
+sudo chown -R "$USER":"$USER" /opt/proteinhub
+git clone https://github.com/Haoyu-Ding/ProteinHub.git /opt/proteinhub
 sudo chown -R proteinhub:proteinhub /opt/proteinhub
 cd /opt/proteinhub
 sudo -u proteinhub git checkout codex-architecture-cleanup</code></pre>
