@@ -398,8 +398,8 @@ sudo -u proteinhub .venv/bin/python -m compileall -q proteinhub tests main.py</c
       <pre><code>sudo -u proteinhub git -C /opt/proteinhub pull --ff-only</code></pre>
       <p>复制环境变量模板：</p>
       <pre><code>sudo cp /opt/proteinhub/.env.example /etc/proteinhub.env
-sudo chmod 600 /etc/proteinhub.env
-sudo chown root:root /etc/proteinhub.env
+sudo chown root:proteinhub /etc/proteinhub.env
+sudo chmod 640 /etc/proteinhub.env
 sudo editor /etc/proteinhub.env</code></pre>
       <p>至少要改这些配置：</p>
       <table>
@@ -443,8 +443,8 @@ sudo editor /etc/proteinhub.env</code></pre>
       <h3>如果你已经完成依赖安装，从这里继续</h3>
       <p>你刚执行完 <code>pip install -e ".[dev]"</code> 后，下一步就是创建并编辑生产环境变量文件：</p>
       <pre><code>sudo cp /opt/proteinhub/.env.example /etc/proteinhub.env
-sudo chmod 600 /etc/proteinhub.env
-sudo chown root:root /etc/proteinhub.env
+sudo chown root:proteinhub /etc/proteinhub.env
+sudo chmod 640 /etc/proteinhub.env
 sudo editor /etc/proteinhub.env</code></pre>
       <p>编辑时至少替换成你的真实值：</p>
       <pre><code>PROTEINHUB_DATABASE_URL=postgresql://proteinhub:&lt;真实数据库密码&gt;@127.0.0.1:5432/proteinhub

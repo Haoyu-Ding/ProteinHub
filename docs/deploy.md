@@ -130,8 +130,8 @@ sudo -u proteinhub git -C /opt/proteinhub pull --ff-only
 
 ```bash
 sudo cp /opt/proteinhub/.env.example /etc/proteinhub.env
-sudo chmod 600 /etc/proteinhub.env
-sudo chown root:root /etc/proteinhub.env
+sudo chown root:proteinhub /etc/proteinhub.env
+sudo chmod 640 /etc/proteinhub.env
 ```
 
 编辑 `/etc/proteinhub.env`，至少替换：
@@ -154,8 +154,8 @@ PY
 
 ```bash
 sudo cp /opt/proteinhub/.env.example /etc/proteinhub.env
-sudo chmod 600 /etc/proteinhub.env
-sudo chown root:root /etc/proteinhub.env
+sudo chown root:proteinhub /etc/proteinhub.env
+sudo chmod 640 /etc/proteinhub.env
 sudo editor /etc/proteinhub.env
 ```
 
