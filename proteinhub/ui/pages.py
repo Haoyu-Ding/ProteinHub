@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from html import escape as html_escape
 import json
 from datetime import date, timedelta
@@ -843,12 +844,15 @@ def install_ui() -> None:
 
             async def load_proteins() -> None:
                 proteins_column.clear()
+                with proteins_column:
+                    ui.label("正在加载蛋白...").classes("ph-muted")
                 try:
                     proteins = await ui.run_javascript(
                         f"return await phApi({json.dumps(protein_list_path())})",
                         timeout=10,
                     )
                     project_proteins["items"] = proteins
+                    proteins_column.clear()
                     with proteins_column:
                         if not proteins:
                             empty_state("science", "还没有蛋白", "先创建蛋白并填写序列。")
@@ -907,12 +911,18 @@ def install_ui() -> None:
                                             ui.tooltip("打开蛋白")
                     render_batch_protein_options()
                 except Exception as error:
+                    proteins_column.clear()
+                    with proteins_column:
+                        ui.label("蛋白加载失败，请稍后重试。").classes("ph-muted")
                     notify_error(error)
 
             async def load_batches() -> None:
                 batches_column.clear()
+                with batches_column:
+                    ui.label("正在加载批次...").classes("ph-muted")
                 try:
                     batches = await ui.run_javascript(f"return await phApi('/api/projects/{project_id}/batches')", timeout=10)
+                    batches_column.clear()
                     with batches_column:
                         if not batches:
                             empty_state("grid_view", "还没有实验批次", "选择一批蛋白创建 96 孔板。")
@@ -939,6 +949,9 @@ def install_ui() -> None:
                                         on_click=lambda b=batch: ui.navigate.to(f"/batches/{b['id']}"),
                                     ).props("flat")
                 except Exception as error:
+                    batches_column.clear()
+                    with batches_column:
+                        ui.label("批次加载失败，请稍后重试。").classes("ph-muted")
                     notify_error(error)
 
             with ui.dialog() as protein_rating_dialog, ui.card().classes("ph-dialog-card w-full max-w-sm gap-4"):
@@ -1399,9 +1412,11 @@ def install_ui() -> None:
                     ui.button("取消", on_click=member_dialog.close).props("flat")
                     ui.button("添加", icon="person_add", on_click=add_member)
 
-            await load_project()
-            await load_proteins()
-            await load_batches()
+            async def load_project_workspace() -> None:
+                await load_project()
+                await asyncio.gather(load_proteins(), load_batches())
+
+            ui.timer(0.1, load_project_workspace, once=True)
 
     @ui.page("/batches/{batch_id}")
     async def batch_page(batch_id: int) -> None:

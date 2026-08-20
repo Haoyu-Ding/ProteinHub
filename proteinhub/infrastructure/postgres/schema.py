@@ -161,6 +161,17 @@ CREATE TABLE IF NOT EXISTS artifacts (
     created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text),
     deleted_at TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_proteins_project_created
+    ON proteins(project_id, created_at, id);
+CREATE INDEX IF NOT EXISTS idx_artifacts_protein_deleted
+    ON artifacts(protein_id, is_deleted);
+CREATE INDEX IF NOT EXISTS idx_batches_project_created
+    ON batches(project_id, created_at, id);
+CREATE INDEX IF NOT EXISTS idx_batch_experiments_batch
+    ON batch_experiments(batch_id);
+CREATE INDEX IF NOT EXISTS idx_experiment_well_results_experiment
+    ON experiment_well_results(experiment_id);
 """
 
 
