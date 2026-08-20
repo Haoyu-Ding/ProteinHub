@@ -5,6 +5,7 @@ import argparse
 import os
 import shlex
 import sys
+import time
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -12,6 +13,10 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from proteinhub.config import get_settings
+from proteinhub.domain.errors import DomainError
+from proteinhub.infrastructure.translation.legacy_domesticator import (
+    optimize_with_legacy_domesticator,
+)
 
 
 def main() -> int:
@@ -32,6 +37,11 @@ def main() -> int:
         "--require-domesticator",
         action="store_true",
         help="Exit non-zero if legacy domesticator optimization is not fully configured.",
+    )
+    parser.add_argument(
+        "--smoke-domesticator",
+        action="store_true",
+        help="Run a short legacy domesticator optimization smoke test.",
     )
     args = parser.parse_args()
 
@@ -61,6 +71,9 @@ def main() -> int:
         required=args.require_domesticator,
         failures=failures,
     )
+    if args.smoke_domesticator:
+        print("")
+        smoke_check_domesticator(settings, failures)
 
     if failures:
         print("")
@@ -69,6 +82,23 @@ def main() -> int:
             print(f"- {failure}")
         return 1
     return 0
+
+
+def smoke_check_domesticator(settings, failures: list[str]) -> None:
+    print("Legacy domesticator smoke test:")
+    started_at = time.monotonic()
+    try:
+        result = optimize_with_legacy_domesticator(
+            {"A01_smoke": "MGK"},
+            settings=settings,
+        )
+    except DomainError as error:
+        print(f"  failed: {error.message}")
+        failures.append(f"Legacy domesticator smoke test failed: {error.message}")
+        return
+    elapsed = time.monotonic() - started_at
+    dna = result.get("A01_smoke", "")
+    print(f"  ok: optimized 1 record in {elapsed:.1f}s ({len(dna)} bp)")
 
 
 def load_env_file(path: Path) -> None:

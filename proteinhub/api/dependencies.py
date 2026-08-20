@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +15,9 @@ from proteinhub.security import decode_token
 from proteinhub.application.auth_service import get_user
 
 
+logger = logging.getLogger(__name__)
+
+
 @dataclass(frozen=True)
 class ApiContext:
     database_path: Path
@@ -22,6 +26,8 @@ class ApiContext:
 
 
 def map_domain_error(error: DomainError) -> HTTPException:
+    if error.status_code >= 500:
+        logger.error("%s: %s", error.__class__.__name__, error.message)
     return HTTPException(status_code=error.status_code, detail=error.message)
 
 
