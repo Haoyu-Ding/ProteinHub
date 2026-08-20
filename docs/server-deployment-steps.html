@@ -539,21 +539,43 @@ sudo -u proteinhub .venv/bin/python scripts/check-external-tools.py \
 
     <section id="systemd">
       <h2>6. systemd 后台服务</h2>
-      <p>安装 systemd service，让 ProteinHub 开机自启、异常自动重启。</p>
+      <h3>你现在从这里继续</h3>
+      <p>
+        如果第 5 步外部工具检查已经显示 AKTA 和 Legacy domesticator 都是
+        <code>configured</code> 且每个路径都是 <code>ok</code>，就按下面顺序继续。
+      </p>
+      <p>先在服务器上跑一次代码检查：</p>
+      <pre><code>cd /opt/proteinhub
+sudo -u proteinhub .venv/bin/python -m pytest
+sudo -u proteinhub .venv/bin/python -m compileall -q proteinhub tests main.py</code></pre>
+      <p>然后安装并启动后台服务：</p>
       <pre><code>sudo cp /opt/proteinhub/deploy/proteinhub.service /etc/systemd/system/proteinhub.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now proteinhub
 sudo systemctl status proteinhub</code></pre>
-      <p>看实时日志：</p>
-      <pre><code>journalctl -u proteinhub -f</code></pre>
-      <p>健康检查：</p>
+      <p>
+        <code>systemctl status</code> 页面如果占住终端，按 <code>q</code> 退出。
+        服务启动后立刻做本机健康检查：
+      </p>
       <pre><code>curl http://127.0.0.1:8080/api/health</code></pre>
-      <p>期望看到类似结果：</p>
-      <pre><code>{
-  "status": "ok",
-  "database": "ok",
-  "storage": "ok"
-}</code></pre>
+      <p>期望看到 <code>"status":"ok"</code>、<code>"database":"ok"</code>、<code>"storage":"ok"</code>。</p>
+      <p>如果健康检查失败，先看最近日志：</p>
+      <pre><code>journalctl -u proteinhub -n 100 --no-pager</code></pre>
+      <p>健康检查通过后，先按内网模式配置 Caddy：</p>
+      <pre><code>sudo cp /opt/proteinhub/deploy/Caddyfile.lan.example /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+hostname -I
+curl http://127.0.0.1/api/health</code></pre>
+      <p>
+        记下 <code>hostname -I</code> 输出里的内网 IP，同一网络里的电脑访问
+        <code>http://&lt;内网 IP&gt;/</code>。
+      </p>
+      <p>最后先做一次手动备份，确认备份链路可用：</p>
+      <pre><code>sudo -u proteinhub PROTEINHUB_ENV_FILE=/etc/proteinhub.env /opt/proteinhub/scripts/backup-postgres.sh</code></pre>
+      <div class="callout ok">
+        做到这里，第一版内网部署就跑起来了。接下来进入浏览器注册/登录管理员账号，
+        创建一个项目和蛋白，再试一次 HPLC/SPR/AKTA 上传。
+      </div>
     </section>
 
     <section id="https">
