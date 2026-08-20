@@ -163,7 +163,7 @@ class ProjectRepository:
                 JOIN projects ON projects.id = project_members.project_id
                 WHERE project_members.project_id = ?
                   AND users.id != projects.owner_id
-            )
+            ) AS project_member_rows
             ORDER BY role DESC, name, email
             """,
             (project_id, project_id),

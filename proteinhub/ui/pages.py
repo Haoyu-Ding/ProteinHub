@@ -31,7 +31,7 @@ from proteinhub.ui.support import (
 )
 
 
-TRANSLATION_REQUEST_TIMEOUT_SECONDS = 360
+TRANSLATION_REQUEST_TIMEOUT_SECONDS = 1800
 PROTEIN_LIST_SORT_OPTIONS = {
     "time_desc": "时间新到旧",
     "time_asc": "时间旧到新",
@@ -2003,6 +2003,7 @@ def install_ui() -> None:
                 translate_button.text = "翻译中"
                 translate_button.disable()
                 translation_status.text = "翻译中，较大的批次可能需要几分钟"
+                ui.notify("翻译已开始，完成前请不要关闭页面", type="info")
                 payload = {
                     "padding": translation_padding.value == "yes",
                     "add_additional_w": translation_add_w.value == "yes",
@@ -2023,7 +2024,10 @@ def install_ui() -> None:
                     render_translation(result)
                     ui.notify("翻译完成", type="positive")
                 except Exception as error:
-                    translation_status.text = previous_status
+                    message = str(error).strip()
+                    if message.startswith("Error: "):
+                        message = message.removeprefix("Error: ").strip()
+                    translation_status.text = f"翻译失败：{message or '操作失败'}"
                     notify_error(error)
                 finally:
                     translate_button.text = previous_button_text
