@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import asyncio
 from html import escape as html_escape
 import json
 from datetime import date, timedelta
@@ -1412,11 +1410,10 @@ def install_ui() -> None:
                     ui.button("取消", on_click=member_dialog.close).props("flat")
                     ui.button("添加", icon="person_add", on_click=add_member)
 
-            async def load_project_workspace() -> None:
-                await load_project()
-                await asyncio.gather(load_proteins(), load_batches())
-
-            ui.timer(0.1, load_project_workspace, once=True)
+            await ui.context.client.connected()
+            await load_project()
+            await load_proteins()
+            await load_batches()
 
     @ui.page("/batches/{batch_id}")
     async def batch_page(batch_id: int) -> None:
