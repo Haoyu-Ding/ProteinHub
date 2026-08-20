@@ -30,7 +30,7 @@ from proteinhub.ui.support import (
 )
 
 
-TRANSLATION_REQUEST_TIMEOUT_SECONDS = 1800
+TRANSLATION_REQUEST_TIMEOUT_SECONDS = 420
 PROTEIN_LIST_SORT_OPTIONS = {
     "time_desc": "时间新到旧",
     "time_asc": "时间旧到新",

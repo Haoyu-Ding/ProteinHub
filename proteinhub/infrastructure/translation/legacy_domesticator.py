@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import os
+import signal
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from Bio.Seq import Seq
@@ -29,6 +32,7 @@ XIAOPANG_SPECIES = "e_coli"
 XIAOPANG_AVOID_KMERS = "8"
 XIAOPANG_AVOID_KMERS_BOOST = "25"
 XIAOPANG_OUTPUT_FILENAME = "xiaopang_translated.DNA.fasta"
+logger = logging.getLogger(__name__)
 
 
 def optimize_with_legacy_domesticator(
@@ -52,21 +56,37 @@ def optimize_with_legacy_domesticator(
             input_path=input_path,
             output_path=output_path,
         )
+        started_at = time.monotonic()
+        logger.info(
+            "Starting legacy domesticator for %s records with timeout %s seconds",
+            len(records),
+            settings.legacy_domesticator_timeout_seconds,
+        )
         try:
-            completed = subprocess.run(
+            completed = _run_command(
                 command,
                 cwd=work_dir,
                 env=_domesticator_env(database_path),
-                capture_output=True,
-                text=True,
                 timeout=settings.legacy_domesticator_timeout_seconds,
-                check=False,
             )
         except subprocess.TimeoutExpired as exc:
-            raise ExternalToolError("Legacy domesticator timed out") from exc
+            detail = _process_output_detail(exc.stdout, exc.stderr)
+            message = (
+                "Legacy domesticator timed out after "
+                f"{settings.legacy_domesticator_timeout_seconds} seconds"
+            )
+            if detail:
+                message = f"{message}: {detail}"
+            raise ExternalToolError(message) from exc
         except OSError as exc:
             raise ExternalToolError("Legacy domesticator could not be started") from exc
 
+        elapsed_seconds = time.monotonic() - started_at
+        logger.info(
+            "Legacy domesticator finished in %.1f seconds for %s records",
+            elapsed_seconds,
+            len(records),
+        )
         if completed.returncode != 0:
             detail = (completed.stderr or completed.stdout).strip()
             message = "Legacy domesticator failed"
@@ -80,6 +100,73 @@ def optimize_with_legacy_domesticator(
         _validate_output_records(input_ids=set(records), output_ids=set(optimized))
         _validate_dna_translations(input_records=records, optimized_records=optimized)
         return optimized
+
+
+def _run_command(
+    command: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    timeout: int,
+) -> subprocess.CompletedProcess:
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=(os.name == "posix"),
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        _kill_process_tree(process)
+        try:
+            stdout, stderr = process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            stdout = exc.stdout
+            stderr = exc.stderr
+        raise subprocess.TimeoutExpired(
+            cmd=command,
+            timeout=timeout,
+            output=stdout,
+            stderr=stderr,
+        ) from exc
+    return subprocess.CompletedProcess(
+        command,
+        process.returncode,
+        stdout,
+        stderr,
+    )
+
+
+def _kill_process_tree(process: subprocess.Popen) -> None:
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+            return
+        except ProcessLookupError:
+            return
+    process.kill()
+
+
+def _process_output_detail(
+    stdout: str | bytes | None,
+    stderr: str | bytes | None,
+) -> str:
+    parts = []
+    for label, value in (("stderr", stderr), ("stdout", stdout)):
+        if value is None:
+            continue
+        if isinstance(value, bytes):
+            text = value.decode(errors="replace")
+        else:
+            text = value
+        text = text.strip()
+        if text:
+            parts.append(f"{label}: {text[-500:]}")
+    return "; ".join(parts)
 
 
 def _configured_paths(settings: Settings) -> tuple[Path, Path, Path]:
