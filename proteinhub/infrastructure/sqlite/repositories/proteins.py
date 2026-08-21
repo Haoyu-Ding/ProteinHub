@@ -284,6 +284,20 @@ class ProteinRepository:
             (manual_rating, protein_id),
         )
 
+    def update_score_details(
+        self, *, protein_id: int, score_details: dict[str, str]
+    ) -> None:
+        self.connection.execute(
+            """
+            UPDATE proteins
+            SET
+                score_details_json = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (json.dumps(score_details, ensure_ascii=False), protein_id),
+        )
+
 
 def _protein_list_order_by(sort: str) -> str:
     orders = {

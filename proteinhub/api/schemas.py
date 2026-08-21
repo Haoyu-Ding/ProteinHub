@@ -100,6 +100,12 @@ class ProteinSequenceCheckResponse(BaseModel):
     similarity_threshold: float
 
 
+class ProjectProteinScoreImportResponse(BaseModel):
+    matched_count: int
+    skipped_count: int
+    skipped_names: list[str] = Field(default_factory=list)
+
+
 class BatchCreateRequest(BaseModel):
     name: str
     protein_ids: list[int]

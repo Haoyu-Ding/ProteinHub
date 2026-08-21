@@ -177,7 +177,6 @@ def import_proteins_from_structures(
     project_id: int,
     user_id: int,
     files: list[tuple[str, str, bytes]],
-    score_file: tuple[str, str, bytes] | None = None,
     description: str = "",
     protein_type: str = "TCR",
     target: str = "",
@@ -188,9 +187,6 @@ def import_proteins_from_structures(
         raise DomainError("At least one structure file is required")
 
     normalized_type = normalize_protein_type(protein_type)
-    score_details_by_name = (
-        _parse_score_details_table(score_file) if score_file is not None else {}
-    )
     parsed_proteins = []
     for filename, content_type, content in files:
         sequence = extract_structure_sequence(filename, content)["sequence"]
@@ -202,7 +198,6 @@ def import_proteins_from_structures(
                 "filename": filename,
                 "content_type": content_type,
                 "content": content,
-                "score_details": score_details_by_name.get(_score_key(protein_name), {}),
             }
         )
     sequence_check = _check_project_sequence_items(
@@ -225,7 +220,6 @@ def import_proteins_from_structures(
                 protein_type=normalized_type,
                 target=target.strip(),
                 manual_rating="unrated",
-                score_details=parsed["score_details"],
                 **_sequence_similarity_insert_fields(check_item),
             )
             stored = store.save_protein_structure(
@@ -252,6 +246,41 @@ def import_proteins_from_structures(
         get_protein(connection, protein_id=protein_id, user_id=user_id)
         for protein_id in protein_ids
     ]
+
+
+def import_project_protein_score_table(
+    connection: sqlite3.Connection,
+    *,
+    project_id: int,
+    user_id: int,
+    score_file: tuple[str, str, bytes],
+) -> dict:
+    require_project_write(connection, project_id=project_id, user_id=user_id)
+    score_details_by_name = _parse_score_details_table(score_file)
+    proteins = ProteinRepository(connection)
+    proteins_by_key: dict[str, list[dict]] = {}
+    for protein in proteins.list_sequences_for_project(project_id):
+        proteins_by_key.setdefault(_score_key(protein["name"]), []).append(protein)
+    matched_keys = [key for key in score_details_by_name if key in proteins_by_key]
+    skipped_names = [
+        key for key in score_details_by_name if key not in proteins_by_key
+    ]
+    matched_count = 0
+
+    with transaction(connection):
+        for key in matched_keys:
+            for protein in proteins_by_key[key]:
+                proteins.update_score_details(
+                    protein_id=int(protein["id"]),
+                    score_details=score_details_by_name[key],
+                )
+                matched_count += 1
+
+    return {
+        "matched_count": matched_count,
+        "skipped_count": len(skipped_names),
+        "skipped_names": skipped_names,
+    }
 
 
 def get_protein_structure_file(
