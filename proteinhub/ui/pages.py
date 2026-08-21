@@ -333,20 +333,14 @@ def install_ui() -> None:
                     with ui.column().classes("gap-0"):
                         ui.label("ProteinHub").classes("text-2xl font-semibold text-slate-900")
                         ui.label("以蛋白为中心的信息与实验资料库").classes("ph-muted")
-                name = ui.input("姓名").props("outlined").classes("w-full")
                 email = ui.input("邮箱").props("outlined").classes("w-full")
                 password = ui.input("密码", password=True, password_toggle_button=True).props("outlined").classes("w-full")
-                mode = ui.toggle(["登录", "注册"], value="登录").props("unelevated")
-                name.bind_visibility_from(mode, "value", lambda value: value == "注册")
 
                 async def submit() -> None:
-                    endpoint = "/api/auth/login" if mode.value == "登录" else "/api/auth/register"
                     body = {"email": email.value, "password": password.value}
-                    if mode.value == "注册":
-                        body["name"] = name.value
                     try:
                         result = await ui.run_javascript(
-                            f"return await phApi('{endpoint}', {{method: 'POST', body: {json.dumps(body)}}})",
+                            f"return await phApi('/api/auth/login', {{method: 'POST', body: {json.dumps(body)}}})",
                             timeout=10,
                         )
                         await ui.run_javascript(f"phSetToken({result['access_token']!r})")

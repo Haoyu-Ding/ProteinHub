@@ -38,10 +38,30 @@ def register_user(
     *,
     admin_emails: tuple[str, ...] = (),
 ) -> dict:
+    return create_user(
+        connection,
+        email=email,
+        password=password,
+        name=name,
+        global_role="user",
+        admin_emails=admin_emails,
+    )
+
+
+def create_user(
+    connection: sqlite3.Connection,
+    *,
+    email: str,
+    password: str,
+    name: str,
+    global_role: str = "user",
+    admin_emails: tuple[str, ...] = (),
+) -> dict:
     normalized_email = required(email, "Email").lower()
     display_name = required(name, "Name")
     if len(password) < 8:
         raise DomainError("Password must be at least 8 characters")
+    normalized_role = _normalize_global_role(global_role)
 
     users = UserRepository(connection)
     try:
@@ -51,6 +71,8 @@ def register_user(
                 email=normalized_email,
                 password_hash=hash_password(password),
             )
+            if normalized_role != "user":
+                users.set_global_role(user_id=user_id, global_role=normalized_role)
         return get_user(connection, user_id, admin_emails=admin_emails)
     except sqlite3.IntegrityError as exc:
         raise ConflictError("Email is already registered") from exc
@@ -87,3 +109,10 @@ def _apply_configured_admin_role(
         user["global_role"] = "admin"
     user.setdefault("global_role", "user")
     return user
+
+
+def _normalize_global_role(value: str) -> str:
+    role = (value or "user").strip().lower()
+    if role not in {"user", "admin"}:
+        raise DomainError("Global role must be user or admin")
+    return role

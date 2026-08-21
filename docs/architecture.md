@@ -56,7 +56,7 @@ API 路由中不能写 SQL 查询，也不能直接承载业务策略。
 
 Application 层负责业务用例：
 
-- 用户注册和认证流程
+- 服务器端账号创建和认证流程
 - 项目成员和 owner 规则
 - project、protein、artifact 用例
 - batch、experiment 和 batch well 结果回填用例

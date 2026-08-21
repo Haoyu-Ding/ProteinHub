@@ -573,8 +573,9 @@ curl http://127.0.0.1/api/health</code></pre>
       <p>最后先做一次手动备份，确认备份链路可用：</p>
       <pre><code>sudo -u proteinhub PROTEINHUB_ENV_FILE=/etc/proteinhub.env /opt/proteinhub/scripts/backup-postgres.sh</code></pre>
       <div class="callout ok">
-        做到这里，第一版内网部署就跑起来了。接下来进入浏览器注册/登录管理员账号，
-        创建一个项目和蛋白，再试一次 HPLC/SPR/AKTA 上传。
+        做到这里，第一版内网部署就跑起来了。接下来用
+        <code>scripts/create-user.py</code> 在服务器上创建管理员账号，再进入浏览器登录，
+        创建一个项目和蛋白，最后试一次 HPLC/SPR/AKTA 上传。
       </div>
     </section>
 

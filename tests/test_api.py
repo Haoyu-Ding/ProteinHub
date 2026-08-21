@@ -11,9 +11,11 @@ from zipfile import ZipFile
 from fastapi.testclient import TestClient
 
 from proteinhub.api import create_api_router
+from proteinhub.application.auth_service import create_user
 from proteinhub.application.reverse_translation import translate_dna
 from proteinhub.config import Settings
 from proteinhub.db import init_db
+from proteinhub.infrastructure.database.connection import connect
 from proteinhub.infrastructure.spr.pptx import _chart_svg
 
 
@@ -38,6 +40,7 @@ def make_client(tmp_path: Path) -> TestClient:
     from fastapi import FastAPI
 
     app = FastAPI()
+    app.state.settings = settings
     app.include_router(
         create_api_router(
             database_path=settings.database_path,
@@ -348,14 +351,22 @@ def _spr_table_row_xml(values: list[str]) -> str:
 
 
 def register(client: TestClient, email: str, name: str = "") -> str:
-    payload = {
-        "name": name or email.split("@", 1)[0],
-        "email": email,
-        "password": "password123",
-    }
+    settings = client.app.state.settings
+    connection = connect(settings)
+    try:
+        create_user(
+            connection,
+            name=name or email.split("@", 1)[0],
+            email=email,
+            password="password123",
+            admin_emails=settings.admin_emails,
+        )
+    finally:
+        connection.close()
+
     response = client.post(
-        "/api/auth/register",
-        json=payload,
+        "/api/auth/login",
+        json={"email": email, "password": "password123"},
     )
     assert response.status_code == 200, response.text
     return response.json()["access_token"]
@@ -795,22 +806,24 @@ def test_init_db_removes_retired_collaboration_schema_from_existing_database(
     assert well == (11, 9, 7, "A01")
 
 
-def test_register_requires_name_but_login_does_not(tmp_path: Path) -> None:
+def test_public_registration_route_is_not_available(tmp_path: Path) -> None:
     client = make_client(tmp_path)
 
-    missing_name = client.post(
+    response = client.post(
         "/api/auth/register",
-        json={"email": "noname@example.com", "password": "password123"},
+        json={
+            "name": "公网访客",
+            "email": "visitor@example.com",
+            "password": "password123",
+        },
     )
-    assert missing_name.status_code == 422
+    assert response.status_code == 404
 
-    blank_name = client.post(
-        "/api/auth/register",
-        json={"name": " ", "email": "blank@example.com", "password": "password123"},
-    )
-    assert blank_name.status_code == 400
 
+def test_admin_created_user_can_login(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
     token = register(client, "named@example.com", "有姓名用户")
+
     login = client.post(
         "/api/auth/login",
         json={"email": "named@example.com", "password": "password123"},
@@ -824,18 +837,7 @@ def test_register_requires_name_but_login_does_not(tmp_path: Path) -> None:
 def test_configured_admin_email_gets_global_role(tmp_path: Path) -> None:
     client = make_client(tmp_path)
 
-    admin_register = client.post(
-        "/api/auth/register",
-        json={
-            "name": "陈若澜",
-            "email": "ruolan.chen@northstar-bio.local",
-            "password": "password123",
-        },
-    )
-    assert admin_register.status_code == 200, admin_register.text
-    assert admin_register.json()["user"]["global_role"] == "admin"
-
-    admin_token = admin_register.json()["access_token"]
+    admin_token = register(client, "ruolan.chen@northstar-bio.local", "陈若澜")
     admin_me = client.get("/api/me", headers=auth(admin_token))
     assert admin_me.status_code == 200, admin_me.text
     assert admin_me.json()["global_role"] == "admin"
@@ -850,16 +852,35 @@ def test_configured_admin_email_gets_global_role(tmp_path: Path) -> None:
     assert admin_login.status_code == 200, admin_login.text
     assert admin_login.json()["user"]["global_role"] == "admin"
 
-    normal_register = client.post(
-        "/api/auth/register",
-        json={
-            "name": "普通用户",
-            "email": "normal@example.com",
-            "password": "password123",
-        },
+    normal_token = register(client, "normal@example.com", "普通用户")
+    normal_me = client.get("/api/me", headers=auth(normal_token))
+    assert normal_me.status_code == 200, normal_me.text
+    assert normal_me.json()["global_role"] == "user"
+
+
+def test_internal_user_creation_can_assign_admin_role(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    settings = client.app.state.settings
+    connection = connect(settings)
+    try:
+        user = create_user(
+            connection,
+            name="运维管理员",
+            email="ops@example.com",
+            password="password123",
+            global_role="admin",
+            admin_emails=settings.admin_emails,
+        )
+    finally:
+        connection.close()
+
+    assert user["global_role"] == "admin"
+    login = client.post(
+        "/api/auth/login",
+        json={"email": "ops@example.com", "password": "password123"},
     )
-    assert normal_register.status_code == 200, normal_register.text
-    assert normal_register.json()["user"]["global_role"] == "user"
+    assert login.status_code == 200, login.text
+    assert login.json()["user"]["global_role"] == "admin"
 
 
 def test_project_to_artifact_integration_flow(tmp_path: Path) -> None:

@@ -8,11 +8,10 @@ from fastapi import APIRouter, Depends
 from proteinhub.api.dependencies import ApiContext, map_domain_error
 from proteinhub.api.schemas import (
     LoginRequest,
-    RegisterRequest,
     TokenResponse,
     UserResponse,
 )
-from proteinhub.application.auth_service import authenticate_user, register_user
+from proteinhub.application.auth_service import authenticate_user
 from proteinhub.domain.errors import DomainError
 from proteinhub.security import create_token
 
@@ -24,29 +23,6 @@ def create_auth_router(
     current_user: Callable,
 ) -> APIRouter:
     router = APIRouter()
-
-    @router.post("/auth/register", response_model=TokenResponse)
-    def register(
-        payload: RegisterRequest,
-        connection: sqlite3.Connection = Depends(get_connection),
-    ) -> dict:
-        try:
-            user = register_user(
-                connection,
-                payload.email,
-                payload.password,
-                payload.name,
-                admin_emails=context.settings.admin_emails,
-            )
-            token = create_token(
-                user["id"],
-                context.settings.jwt_secret,
-                issuer=context.settings.jwt_issuer,
-                ttl_seconds=context.settings.token_ttl_seconds,
-            )
-            return {"access_token": token, "user": user}
-        except DomainError as error:
-            raise map_domain_error(error) from error
 
     @router.post("/auth/login", response_model=TokenResponse)
     def login(

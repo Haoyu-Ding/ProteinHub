@@ -76,7 +76,6 @@ Detailed project standards live in:
 ## API
 
 - `GET /api/health`
-- `POST /api/auth/register`
 - `POST /api/auth/login`
 - `GET /api/me`
 - `GET /api/projects`

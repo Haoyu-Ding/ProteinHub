@@ -9,6 +9,7 @@ from proteinhub.application.artifact_service import (
 )
 from proteinhub.application.auth_service import (
     authenticate_user,
+    create_user,
     get_user,
     register_user,
 )
@@ -79,6 +80,7 @@ __all__ = [
     "create_batch_experiment",
     "create_project",
     "create_protein",
+    "create_user",
     "delete_project",
     "get_artifact",
     "get_batch",

@@ -13,12 +13,6 @@ class HealthResponse(BaseModel):
     artifact_storage_backend: str
 
 
-class RegisterRequest(BaseModel):
-    name: str
-    email: str
-    password: str = Field(min_length=8)
-
-
 class LoginRequest(BaseModel):
     email: str
     password: str
