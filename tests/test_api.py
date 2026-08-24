@@ -424,6 +424,10 @@ def test_database_schema_has_no_sequence_or_collaboration_tables(tmp_path: Path)
         protein_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(proteins)")
         }
+        public_protein_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(public_proteins)")
+        }
         batch_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(batches)")
         }
@@ -445,6 +449,7 @@ def test_database_schema_has_no_sequence_or_collaboration_tables(tmp_path: Path)
     assert "hplc_experiments" in tables
     assert "akta_experiments" in tables
     assert "experiment_well_results" in tables
+    assert "public_proteins" in tables
     assert "schema_migrations" in tables
     assert "0001_current_schema" in applied_migrations
     assert "global_role" in user_columns
@@ -459,6 +464,16 @@ def test_database_schema_has_no_sequence_or_collaboration_tables(tmp_path: Path)
     assert "structure_size_bytes" in protein_columns
     assert "structure_storage_path" in protein_columns
     assert "structure_deposit_date" in protein_columns
+    assert {
+        "project_id",
+        "name",
+        "sequence",
+        "description",
+        "protein_type",
+        "target",
+        "created_by",
+        "updated_at",
+    }.issubset(public_protein_columns)
     assert "version_tag" not in protein_columns
     assert "experiment_type" not in batch_columns
     assert "order_status" in batch_columns
@@ -942,6 +957,98 @@ def test_project_to_artifact_integration_flow(tmp_path: Path) -> None:
     )
     assert download.status_code == 200
     assert download.content == b"ATOM"
+
+
+def test_project_public_proteins_are_project_bound_crud_records(
+    tmp_path: Path,
+) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+    member_token = register(client, "member@example.com")
+    outsider_token = register(client, "outsider@example.com")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Tool proteins"},
+    ).json()
+
+    created = client.post(
+        f"/api/projects/{project['id']}/public-proteins",
+        headers=auth(owner_token),
+        json={
+            "name": "TEV protease",
+            "sequence": "acdefg",
+            "description": "cleavage control",
+            "protein_type": "enzyme",
+            "target": "purification",
+        },
+    )
+    assert created.status_code == 200, created.text
+    public_protein = created.json()
+    assert public_protein["project_id"] == project["id"]
+    assert public_protein["name"] == "TEV protease"
+    assert public_protein["sequence"] == "ACDEFG"
+    assert public_protein["description"] == "cleavage control"
+    assert public_protein["protein_type"] == "enzyme"
+    assert public_protein["target"] == "purification"
+    assert public_protein["created_by_email"] == "owner@example.com"
+
+    synthetic_proteins = client.get(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+    )
+    assert synthetic_proteins.status_code == 200
+    assert synthetic_proteins.json() == []
+
+    outsider_list = client.get(
+        f"/api/projects/{project['id']}/public-proteins",
+        headers=auth(outsider_token),
+    )
+    assert outsider_list.status_code == 403
+
+    added_member = client.post(
+        f"/api/projects/{project['id']}/members",
+        headers=auth(owner_token),
+        json={"email": "member@example.com", "role": "member"},
+    )
+    assert added_member.status_code == 200, added_member.text
+
+    member_list = client.get(
+        f"/api/projects/{project['id']}/public-proteins",
+        headers=auth(member_token),
+    )
+    assert member_list.status_code == 200, member_list.text
+    assert [item["name"] for item in member_list.json()] == ["TEV protease"]
+
+    updated = client.patch(
+        f"/api/projects/{project['id']}/public-proteins/{public_protein['id']}",
+        headers=auth(member_token),
+        json={
+            "name": "TEV protease v2",
+            "sequence": "hiklmn",
+            "description": "updated control",
+            "protein_type": "tool enzyme",
+            "target": "tag removal",
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["name"] == "TEV protease v2"
+    assert updated.json()["sequence"] == "HIKLMN"
+    assert updated.json()["target"] == "tag removal"
+
+    deleted = client.delete(
+        f"/api/projects/{project['id']}/public-proteins/{public_protein['id']}",
+        headers=auth(member_token),
+    )
+    assert deleted.status_code == 204
+
+    empty = client.get(
+        f"/api/projects/{project['id']}/public-proteins",
+        headers=auth(owner_token),
+    )
+    assert empty.status_code == 200
+    assert empty.json() == []
 
 
 def test_create_protein_with_structure_file_can_download_structure(tmp_path: Path) -> None:

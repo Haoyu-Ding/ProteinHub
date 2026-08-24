@@ -60,6 +60,19 @@ CREATE TABLE IF NOT EXISTS proteins (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS public_proteins (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    sequence TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    protein_type TEXT NOT NULL DEFAULT '',
+    target TEXT NOT NULL DEFAULT '',
+    created_by INTEGER NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS batches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -166,6 +179,8 @@ CREATE TABLE IF NOT EXISTS artifacts (
 
 CREATE INDEX IF NOT EXISTS idx_proteins_project_created
     ON proteins(project_id, created_at, id);
+CREATE INDEX IF NOT EXISTS idx_public_proteins_project_created
+    ON public_proteins(project_id, created_at, id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_protein_deleted
     ON artifacts(protein_id, is_deleted);
 CREATE INDEX IF NOT EXISTS idx_batches_project_created

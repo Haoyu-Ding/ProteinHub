@@ -55,6 +55,18 @@ class ProteinCreateRequest(BaseModel):
     allow_high_similarity: bool = False
 
 
+class PublicProteinCreateRequest(BaseModel):
+    name: str
+    sequence: str
+    description: str = ""
+    protein_type: str = ""
+    target: str = ""
+
+
+class PublicProteinUpdateRequest(PublicProteinCreateRequest):
+    pass
+
+
 class ProteinManualRatingUpdateRequest(BaseModel):
     manual_rating: str = "unrated"
 
@@ -203,6 +215,21 @@ class ProteinResponse(BaseModel):
 
 class ProjectProteinResponse(ProteinResponse):
     artifact_count: int
+
+
+class PublicProteinResponse(BaseModel):
+    id: int
+    project_id: int
+    name: str
+    sequence: str
+    description: str
+    protein_type: str
+    target: str
+    created_by: int
+    created_by_name: str
+    created_by_email: str
+    created_at: str
+    updated_at: str
 
 
 class StructureSequenceResponse(BaseModel):

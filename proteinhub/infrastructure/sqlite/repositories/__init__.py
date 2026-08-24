@@ -8,6 +8,9 @@ from proteinhub.infrastructure.sqlite.repositories.experiment_raw_files import (
 )
 from proteinhub.infrastructure.sqlite.repositories.projects import ProjectRepository
 from proteinhub.infrastructure.sqlite.repositories.proteins import ProteinRepository
+from proteinhub.infrastructure.sqlite.repositories.public_proteins import (
+    PublicProteinRepository,
+)
 from proteinhub.infrastructure.sqlite.repositories.users import UserRepository
 
 __all__ = [
@@ -17,5 +20,6 @@ __all__ = [
     "ExperimentRawFileRepository",
     "ProjectRepository",
     "ProteinRepository",
+    "PublicProteinRepository",
     "UserRepository",
 ]

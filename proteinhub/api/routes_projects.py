@@ -19,6 +19,9 @@ from proteinhub.api.schemas import (
     ProteinResponse,
     ProteinSequenceCheckRequest,
     ProteinSequenceCheckResponse,
+    PublicProteinCreateRequest,
+    PublicProteinResponse,
+    PublicProteinUpdateRequest,
     StructureSequenceResponse,
     UserResponse,
 )
@@ -40,6 +43,12 @@ from proteinhub.application.protein_service import (
     import_proteins_from_structures,
     list_proteins,
     parse_protein_sequence,
+)
+from proteinhub.application.public_protein_service import (
+    create_public_protein,
+    delete_public_protein,
+    list_public_proteins,
+    update_public_protein,
 )
 from proteinhub.domain.errors import DomainError
 
@@ -206,6 +215,94 @@ def create_projects_router(
                 protein_type=payload.protein_type,
                 target=payload.target,
                 allow_high_similarity=payload.allow_high_similarity,
+            )
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.get(
+        "/projects/{project_id}/public-proteins",
+        response_model=list[PublicProteinResponse],
+    )
+    def public_proteins(
+        project_id: int,
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> list[dict]:
+        try:
+            return list_public_proteins(
+                connection,
+                project_id=project_id,
+                user_id=user["id"],
+            )
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.post(
+        "/projects/{project_id}/public-proteins",
+        response_model=PublicProteinResponse,
+    )
+    def create_public_protein_route(
+        project_id: int,
+        payload: PublicProteinCreateRequest,
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> dict:
+        try:
+            return create_public_protein(
+                connection,
+                project_id=project_id,
+                user_id=user["id"],
+                name=payload.name,
+                sequence=payload.sequence,
+                description=payload.description,
+                protein_type=payload.protein_type,
+                target=payload.target,
+            )
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.patch(
+        "/projects/{project_id}/public-proteins/{public_protein_id}",
+        response_model=PublicProteinResponse,
+    )
+    def update_public_protein_route(
+        project_id: int,
+        public_protein_id: int,
+        payload: PublicProteinUpdateRequest,
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> dict:
+        try:
+            return update_public_protein(
+                connection,
+                project_id=project_id,
+                public_protein_id=public_protein_id,
+                user_id=user["id"],
+                name=payload.name,
+                sequence=payload.sequence,
+                description=payload.description,
+                protein_type=payload.protein_type,
+                target=payload.target,
+            )
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.delete(
+        "/projects/{project_id}/public-proteins/{public_protein_id}",
+        status_code=204,
+    )
+    def delete_public_protein_route(
+        project_id: int,
+        public_protein_id: int,
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> None:
+        try:
+            delete_public_protein(
+                connection,
+                project_id=project_id,
+                public_protein_id=public_protein_id,
+                user_id=user["id"],
             )
         except DomainError as error:
             raise map_domain_error(error) from error
