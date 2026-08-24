@@ -1572,14 +1572,15 @@ def install_ui() -> None:
                     hplc_upload_status = ui.label("等待选择 HPLC 文件夹").classes(
                         "ph-muted ph-hplc-upload-status"
                     )
-                    hplc_mapping_button = ui.button(
-                        "选择板位映射 CSV",
-                        icon="table_chart",
-                    ).props("outline no-wrap").classes("ph-hplc-mapping-button")
-                    hplc_upload_button = ui.button(
-                        "上传 HPLC 文件夹",
-                        icon="upload_file",
-                    ).props("unelevated no-wrap").classes("ph-hplc-upload-button")
+                    with ui.row().classes("gap-2 items-center justify-end no-wrap ph-hplc-upload-buttons"):
+                        hplc_mapping_button = ui.button(
+                            "选择板位映射 CSV",
+                            icon="table_chart",
+                        ).props("outline no-wrap").classes("ph-hplc-mapping-button")
+                        hplc_upload_button = ui.button(
+                            "上传 HPLC 文件夹",
+                            icon="upload_file",
+                        ).props("unelevated no-wrap").classes("ph-hplc-upload-button")
 
                     def hplc_upload_js() -> str:
                         return f"""
@@ -1684,18 +1685,19 @@ def install_ui() -> None:
                     spr_upload_status = ui.label("等待上传 SPR 文件").classes(
                         "ph-muted ph-spr-upload-status"
                     )
-                    spr_mapping_button = ui.button(
-                        "选择板位映射 CSV",
-                        icon="table_chart",
-                    ).props("outline no-wrap").classes("ph-spr-mapping-button")
-                    spr_upload_button = ui.button(
-                        "上传 SPR PPTX",
-                        icon="upload_file",
-                    ).props("unelevated no-wrap").classes("ph-spr-upload-button")
-                    spr_concentration_button = ui.button(
-                        "上传 SPR 浓度表",
-                        icon="upload_file",
-                    ).props("unelevated no-wrap").classes("ph-spr-upload-button")
+                    with ui.row().classes("gap-2 items-center justify-end no-wrap ph-spr-upload-buttons"):
+                        spr_mapping_button = ui.button(
+                            "选择板位映射 CSV",
+                            icon="table_chart",
+                        ).props("outline no-wrap").classes("ph-spr-mapping-button")
+                        spr_upload_button = ui.button(
+                            "上传 SPR PPTX",
+                            icon="upload_file",
+                        ).props("unelevated no-wrap").classes("ph-spr-upload-button")
+                        spr_concentration_button = ui.button(
+                            "上传 SPR 浓度表",
+                            icon="upload_file",
+                        ).props("unelevated no-wrap").classes("ph-spr-upload-button")
 
                     def spr_pptx_upload_js() -> str:
                         return f"""
