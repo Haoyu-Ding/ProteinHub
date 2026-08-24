@@ -1523,6 +1523,46 @@ def install_ui() -> None:
                     .props("tabindex=0")
                 )
 
+            def position_mapping_select_js(
+                *,
+                state_name: str,
+                status_selector: str,
+                waiting_text: str,
+            ) -> str:
+                return f"""
+                () => {{
+                    const statusLabel = document.querySelector('{status_selector}');
+                    const setStatus = (text) => {{
+                        if (statusLabel) statusLabel.textContent = text;
+                    }};
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.accept = '.csv,text/csv';
+                    input.style.display = 'none';
+                    input.addEventListener('change', () => {{
+                        const file = input.files && input.files[0];
+                        if (!file) {{
+                            setStatus('{waiting_text}');
+                            input.remove();
+                            return;
+                        }}
+                        if (!file.name.toLowerCase().endsWith('.csv')) {{
+                            window.{state_name} = null;
+                            setStatus('板位映射 CSV 选择失败');
+                            phNotify('请只选择一个板位映射 CSV', 'negative');
+                            input.remove();
+                            return;
+                        }}
+                        window.{state_name} = file;
+                        setStatus(`已选择板位映射 CSV：${{file.name}}`);
+                        phNotify('已选择板位映射 CSV', 'positive');
+                        input.remove();
+                    }}, {{once: true}});
+                    document.body.appendChild(input);
+                    input.click();
+                }}
+                """
+
             with ui.column().classes("ph-panel w-full gap-4 p-4"):
                 with ui.row().classes("ph-section-bar w-full"):
                     with ui.column().classes("gap-0"):
@@ -1532,6 +1572,10 @@ def install_ui() -> None:
                     hplc_upload_status = ui.label("等待选择 HPLC 文件夹").classes(
                         "ph-muted ph-hplc-upload-status"
                     )
+                    hplc_mapping_button = ui.button(
+                        "选择板位映射 CSV",
+                        icon="table_chart",
+                    ).props("outline no-wrap").classes("ph-hplc-mapping-button")
                     hplc_upload_button = ui.button(
                         "上传 HPLC 文件夹",
                         icon="upload_file",
@@ -1576,36 +1620,7 @@ def install_ui() -> None:
                                 const sourceName = files.length && files[0].webkitRelativePath
                                     ? files[0].webkitRelativePath.split('/')[0]
                                     : '';
-                                const mappingFile = await new Promise((resolve) => {{
-                                    if (!window.confirm('是否同时上传板位映射 CSV？')) {{
-                                        resolve(null);
-                                        return;
-                                    }}
-                                    const mappingInput = document.createElement('input');
-                                    mappingInput.type = 'file';
-                                    mappingInput.accept = '.csv,text/csv';
-                                    mappingInput.style.display = 'none';
-                                    mappingInput.addEventListener('change', () => {{
-                                        const file = mappingInput.files && mappingInput.files[0];
-                                        mappingInput.remove();
-                                        if (!file) {{
-                                            resolve(null);
-                                            return;
-                                        }}
-                                        if (!file.name.toLowerCase().endsWith('.csv')) {{
-                                            phNotify('请只选择一个板位映射 CSV', 'negative');
-                                            resolve(false);
-                                            return;
-                                        }}
-                                        resolve(file);
-                                    }}, {{once: true}});
-                                    document.body.appendChild(mappingInput);
-                                    mappingInput.click();
-                                }});
-                                if (mappingFile === false) {{
-                                    input.remove();
-                                    return;
-                                }}
+                                const mappingFile = window.phHplcPositionMappingFile || null;
                                 const form = new FormData();
                                 form.append('source_name', sourceName);
                                 for (const file of csvFiles) {{
@@ -1631,6 +1646,7 @@ def install_ui() -> None:
                                         : '';
                                     setStatus(`HPLC 结果上传成功：${{count}} 个图${{skippedText}}`);
                                     phNotify(skippedResultPositions.length ? 'HPLC 部分结果上传成功' : 'HPLC 结果上传成功', skippedResultPositions.length ? 'warning' : 'positive');
+                                    window.phHplcPositionMappingFile = null;
                                     setTimeout(() => window.location.reload(), 800);
                                 }} catch (error) {{
                                     const message = error && error.message ? error.message : 'HPLC 导入失败';
@@ -1645,6 +1661,14 @@ def install_ui() -> None:
                         }}
                         """
 
+                    hplc_mapping_button.on(
+                        "click",
+                        js_handler=position_mapping_select_js(
+                            state_name="phHplcPositionMappingFile",
+                            status_selector=".ph-hplc-upload-status",
+                            waiting_text="等待选择 HPLC 文件夹",
+                        ),
+                    )
                     hplc_upload_button.on("click", js_handler=hplc_upload_js())
 
             with ui.column().classes("ph-panel w-full gap-4 p-4"):
@@ -1660,6 +1684,10 @@ def install_ui() -> None:
                     spr_upload_status = ui.label("等待上传 SPR 文件").classes(
                         "ph-muted ph-spr-upload-status"
                     )
+                    spr_mapping_button = ui.button(
+                        "选择板位映射 CSV",
+                        icon="table_chart",
+                    ).props("outline no-wrap").classes("ph-spr-mapping-button")
                     spr_upload_button = ui.button(
                         "上传 SPR PPTX",
                         icon="upload_file",
@@ -1704,36 +1732,7 @@ def install_ui() -> None:
                                 const form = new FormData();
                                 form.append('run_date', runDate);
                                 form.append('file', file, file.name);
-                                const mappingFile = await new Promise((resolve) => {{
-                                    if (!window.confirm('是否同时上传板位映射 CSV？')) {{
-                                        resolve(null);
-                                        return;
-                                    }}
-                                    const mappingInput = document.createElement('input');
-                                    mappingInput.type = 'file';
-                                    mappingInput.accept = '.csv,text/csv';
-                                    mappingInput.style.display = 'none';
-                                    mappingInput.addEventListener('change', () => {{
-                                        const mapping = mappingInput.files && mappingInput.files[0];
-                                        mappingInput.remove();
-                                        if (!mapping) {{
-                                            resolve(null);
-                                            return;
-                                        }}
-                                        if (!mapping.name.toLowerCase().endsWith('.csv')) {{
-                                            phNotify('请只选择一个板位映射 CSV', 'negative');
-                                            resolve(false);
-                                            return;
-                                        }}
-                                        resolve(mapping);
-                                    }}, {{once: true}});
-                                    document.body.appendChild(mappingInput);
-                                    mappingInput.click();
-                                }});
-                                if (mappingFile === false) {{
-                                    input.remove();
-                                    return;
-                                }}
+                                const mappingFile = window.phSprPositionMappingFile || null;
                                 if (mappingFile) {{
                                     form.append('position_mapping_file', mappingFile, mappingFile.name);
                                 }}
@@ -1775,6 +1774,7 @@ def install_ui() -> None:
                                         setStatus(`SPR 结果上传成功：${{count}} 个结果${{positionText}}${{concentrationText}}`);
                                         phNotify(successNotify, 'positive');
                                     }}
+                                    window.phSprPositionMappingFile = null;
                                     setTimeout(() => window.location.reload(), 800);
                                 }} catch (error) {{
                                     const message = error && error.message ? error.message : 'SPR 导入失败';
@@ -1849,6 +1849,14 @@ def install_ui() -> None:
                         }}
                         """
 
+                    spr_mapping_button.on(
+                        "click",
+                        js_handler=position_mapping_select_js(
+                            state_name="phSprPositionMappingFile",
+                            status_selector=".ph-spr-upload-status",
+                            waiting_text="等待上传 SPR 文件",
+                        ),
+                    )
                     spr_upload_button.on("click", js_handler=spr_pptx_upload_js())
                     spr_concentration_button.on("click", js_handler=spr_concentration_upload_js())
 
@@ -1866,6 +1874,10 @@ def install_ui() -> None:
                         "ph-muted ph-akta-upload-status"
                     )
                     with ui.row().classes("gap-2 items-center justify-end no-wrap ph-akta-upload-buttons"):
+                        akta_mapping_button = ui.button(
+                            "选择板位映射 CSV",
+                            icon="table_chart",
+                        ).props("outline no-wrap").classes("ph-akta-mapping-button")
                         akta_single_upload_button = ui.button(
                             "上传单个 AKTA ZIP",
                             icon="upload_file",
@@ -1908,36 +1920,7 @@ def install_ui() -> None:
                                 for (const file of input.files) {{
                                     form.append('files', file, file.name);
                                 }}
-                                const mappingFile = await new Promise((resolve) => {{
-                                    if (!window.confirm('是否同时上传板位映射 CSV？')) {{
-                                        resolve(null);
-                                        return;
-                                    }}
-                                    const mappingInput = document.createElement('input');
-                                    mappingInput.type = 'file';
-                                    mappingInput.accept = '.csv,text/csv';
-                                    mappingInput.style.display = 'none';
-                                    mappingInput.addEventListener('change', () => {{
-                                        const mapping = mappingInput.files && mappingInput.files[0];
-                                        mappingInput.remove();
-                                        if (!mapping) {{
-                                            resolve(null);
-                                            return;
-                                        }}
-                                        if (!mapping.name.toLowerCase().endsWith('.csv')) {{
-                                            phNotify('请只选择一个板位映射 CSV', 'negative');
-                                            resolve(false);
-                                            return;
-                                        }}
-                                        resolve(mapping);
-                                    }}, {{once: true}});
-                                    document.body.appendChild(mappingInput);
-                                    mappingInput.click();
-                                }});
-                                if (mappingFile === false) {{
-                                    input.remove();
-                                    return;
-                                }}
+                                const mappingFile = window.phAktaPositionMappingFile || null;
                                 if (mappingFile) {{
                                     form.append('position_mapping_file', mappingFile, mappingFile.name);
                                 }}
@@ -1979,6 +1962,7 @@ def install_ui() -> None:
                                         );
                                         phNotify(multiple ? 'AKTA 结果上传成功' : 'AKTA 单个结果上传成功', 'positive');
                                     }}
+                                    window.phAktaPositionMappingFile = null;
                                     setTimeout(() => window.location.reload(), 800);
                                 }} catch (error) {{
                                     const message = error && error.message ? error.message : 'AKTA 导入失败';
@@ -1993,6 +1977,14 @@ def install_ui() -> None:
                         }}
                         """
 
+                    akta_mapping_button.on(
+                        "click",
+                        js_handler=position_mapping_select_js(
+                            state_name="phAktaPositionMappingFile",
+                            status_selector=".ph-akta-upload-status",
+                            waiting_text="等待选择 AKTA zip 文件",
+                        ),
+                    )
                     akta_single_upload_button.on(
                         "click",
                         js_handler=akta_upload_js(multiple=False),
@@ -2350,21 +2342,27 @@ def install_ui() -> None:
                     f"{batch['plate_format']} 孔 · {len(wells)} 条蛋白映射 · {len(experiments)} 个实验记录"
                 )
                 spr_run_date.visible = can_write_batch
+                spr_mapping_button.visible = can_write_batch
                 spr_upload_button.visible = can_write_batch
                 spr_concentration_button.visible = can_write_batch
+                spr_mapping_button.enable()
                 spr_upload_button.enable()
                 spr_concentration_button.enable()
                 spr_upload_status.text = (
                     "等待选择 SPR PPTX 文件" if can_write_batch else "只读模式"
                 )
+                hplc_mapping_button.visible = can_write_batch
                 hplc_upload_button.visible = can_write_batch
+                hplc_mapping_button.enable()
                 hplc_upload_button.enable()
                 hplc_upload_status.text = (
                     "等待选择 HPLC 文件夹" if can_write_batch else "只读模式"
                 )
                 akta_run_date.visible = can_write_batch
+                akta_mapping_button.visible = can_write_batch
                 akta_single_upload_button.visible = can_write_batch
                 akta_upload_button.visible = can_write_batch
+                akta_mapping_button.enable()
                 akta_single_upload_button.enable()
                 akta_upload_button.enable()
                 akta_upload_status.text = (
