@@ -121,6 +121,11 @@ def design_system() -> None:
             box-shadow: 0 8px 18px rgba(37, 99, 235, 0.18);
         }
 
+        .ph-brand-link {
+            color: var(--ph-text);
+            text-decoration: none;
+        }
+
         .ph-page {
             width: min(1180px, calc(100vw - 32px));
             margin: 0 auto;
@@ -1312,10 +1317,11 @@ def shell() -> None:
     api_script()
     ui.colors(primary="#2563eb", secondary="#0f766e", accent="#f97316")
     with ui.header().classes("ph-header items-center justify-between text-slate-900"):
-        with ui.row().classes("items-center gap-3"):
-            with ui.element("div").classes("ph-brand-mark"):
-                ui.icon("hub").classes("text-lg")
-            ui.link("ProteinHub", "/").classes("text-lg font-semibold no-underline text-slate-900")
+        with ui.link(target="/projects").classes("ph-brand-link"):
+            with ui.row().classes("items-center gap-3 no-wrap"):
+                with ui.element("div").classes("ph-brand-mark"):
+                    ui.icon("hub").classes("text-lg")
+                ui.label("ProteinHub").classes("text-lg font-semibold")
         with ui.row().classes("items-center gap-2"):
             ui.link("项目", "/projects").classes("text-sm no-underline text-slate-700")
             ui.link("订单监控", "/order-monitor").classes(
