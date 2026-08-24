@@ -1576,10 +1576,43 @@ def install_ui() -> None:
                                 const sourceName = files.length && files[0].webkitRelativePath
                                     ? files[0].webkitRelativePath.split('/')[0]
                                     : '';
+                                const mappingFile = await new Promise((resolve) => {{
+                                    if (!window.confirm('是否同时上传板位映射 CSV？')) {{
+                                        resolve(null);
+                                        return;
+                                    }}
+                                    const mappingInput = document.createElement('input');
+                                    mappingInput.type = 'file';
+                                    mappingInput.accept = '.csv,text/csv';
+                                    mappingInput.style.display = 'none';
+                                    mappingInput.addEventListener('change', () => {{
+                                        const file = mappingInput.files && mappingInput.files[0];
+                                        mappingInput.remove();
+                                        if (!file) {{
+                                            resolve(null);
+                                            return;
+                                        }}
+                                        if (!file.name.toLowerCase().endsWith('.csv')) {{
+                                            phNotify('请只选择一个板位映射 CSV', 'negative');
+                                            resolve(false);
+                                            return;
+                                        }}
+                                        resolve(file);
+                                    }}, {{once: true}});
+                                    document.body.appendChild(mappingInput);
+                                    mappingInput.click();
+                                }});
+                                if (mappingFile === false) {{
+                                    input.remove();
+                                    return;
+                                }}
                                 const form = new FormData();
                                 form.append('source_name', sourceName);
                                 for (const file of csvFiles) {{
                                     form.append('files', file, file.webkitRelativePath || file.name);
+                                }}
+                                if (mappingFile) {{
+                                    form.append('position_mapping_file', mappingFile, mappingFile.name);
                                 }}
                                 try {{
                                     setStatus(`正在上传 ${{chromatogramFiles.length}} 个 HPLC 文件并绘图...`);
@@ -1590,8 +1623,14 @@ def install_ui() -> None:
                                     }});
                                     const details = result && result.experiment ? result.experiment.details || {{}} : {{}};
                                     const count = details.sample_count || details.file_count || chromatogramFiles.length;
-                                    setStatus(`HPLC 结果上传成功：${{count}} 个图`);
-                                    phNotify('HPLC 结果上传成功', 'positive');
+                                    const skippedResultPositions = Array.isArray(details.skipped_result_positions)
+                                        ? details.skipped_result_positions
+                                        : [];
+                                    const skippedText = skippedResultPositions.length
+                                        ? `，跳过未映射板位 ${{skippedResultPositions.join(', ')}}`
+                                        : '';
+                                    setStatus(`HPLC 结果上传成功：${{count}} 个图${{skippedText}}`);
+                                    phNotify(skippedResultPositions.length ? 'HPLC 部分结果上传成功' : 'HPLC 结果上传成功', skippedResultPositions.length ? 'warning' : 'positive');
                                     setTimeout(() => window.location.reload(), 800);
                                 }} catch (error) {{
                                     const message = error && error.message ? error.message : 'HPLC 导入失败';
@@ -1665,6 +1704,39 @@ def install_ui() -> None:
                                 const form = new FormData();
                                 form.append('run_date', runDate);
                                 form.append('file', file, file.name);
+                                const mappingFile = await new Promise((resolve) => {{
+                                    if (!window.confirm('是否同时上传板位映射 CSV？')) {{
+                                        resolve(null);
+                                        return;
+                                    }}
+                                    const mappingInput = document.createElement('input');
+                                    mappingInput.type = 'file';
+                                    mappingInput.accept = '.csv,text/csv';
+                                    mappingInput.style.display = 'none';
+                                    mappingInput.addEventListener('change', () => {{
+                                        const mapping = mappingInput.files && mappingInput.files[0];
+                                        mappingInput.remove();
+                                        if (!mapping) {{
+                                            resolve(null);
+                                            return;
+                                        }}
+                                        if (!mapping.name.toLowerCase().endsWith('.csv')) {{
+                                            phNotify('请只选择一个板位映射 CSV', 'negative');
+                                            resolve(false);
+                                            return;
+                                        }}
+                                        resolve(mapping);
+                                    }}, {{once: true}});
+                                    document.body.appendChild(mappingInput);
+                                    mappingInput.click();
+                                }});
+                                if (mappingFile === false) {{
+                                    input.remove();
+                                    return;
+                                }}
+                                if (mappingFile) {{
+                                    form.append('position_mapping_file', mappingFile, mappingFile.name);
+                                }}
                                 try {{
                                     setStatus('正在上传 SPR PPTX 并解析图表...');
                                     phNotify('SPR 结果上传中', 'info');
@@ -1679,6 +1751,9 @@ def install_ui() -> None:
                                     const skipped = Array.isArray(details.skipped_positions)
                                         ? details.skipped_positions
                                         : [];
+                                    const skippedResultPositions = Array.isArray(details.skipped_result_positions)
+                                        ? details.skipped_result_positions
+                                        : [];
                                     const count = details.sample_count || positions.length || 1;
                                     const concentrationCount = details.concentration_count || 0;
                                     const concentrationText = concentrationCount ? '（已关联浓度表）' : '';
@@ -1690,6 +1765,11 @@ def install_ui() -> None:
                                         const skippedText = skipped.join(', ');
                                         setStatus(`SPR 部分上传成功：成功 ${{uploadedText}}；失败 ${{skippedText}} 已传过${{concentrationText}}`);
                                         phNotify(`SPR 部分上传成功，失败板位：${{skippedText}} 已传过`, 'warning');
+                                    }} else if (skippedResultPositions.length) {{
+                                        const skippedText = skippedResultPositions.join(', ');
+                                        const positionText = positions.length ? `：${{positions.join(', ')}}` : '';
+                                        setStatus(`SPR 部分上传成功：${{count}} 个结果${{positionText}}；跳过未映射板位 ${{skippedText}}${{concentrationText}}`);
+                                        phNotify(`SPR 部分结果上传成功，跳过未映射板位：${{skippedText}}`, 'warning');
                                     }} else {{
                                         const positionText = positions.length ? `：${{positions.join(', ')}}` : '';
                                         setStatus(`SPR 结果上传成功：${{count}} 个结果${{positionText}}${{concentrationText}}`);
@@ -1828,6 +1908,39 @@ def install_ui() -> None:
                                 for (const file of input.files) {{
                                     form.append('files', file, file.name);
                                 }}
+                                const mappingFile = await new Promise((resolve) => {{
+                                    if (!window.confirm('是否同时上传板位映射 CSV？')) {{
+                                        resolve(null);
+                                        return;
+                                    }}
+                                    const mappingInput = document.createElement('input');
+                                    mappingInput.type = 'file';
+                                    mappingInput.accept = '.csv,text/csv';
+                                    mappingInput.style.display = 'none';
+                                    mappingInput.addEventListener('change', () => {{
+                                        const mapping = mappingInput.files && mappingInput.files[0];
+                                        mappingInput.remove();
+                                        if (!mapping) {{
+                                            resolve(null);
+                                            return;
+                                        }}
+                                        if (!mapping.name.toLowerCase().endsWith('.csv')) {{
+                                            phNotify('请只选择一个板位映射 CSV', 'negative');
+                                            resolve(false);
+                                            return;
+                                        }}
+                                        resolve(mapping);
+                                    }}, {{once: true}});
+                                    document.body.appendChild(mappingInput);
+                                    mappingInput.click();
+                                }});
+                                if (mappingFile === false) {{
+                                    input.remove();
+                                    return;
+                                }}
+                                if (mappingFile) {{
+                                    form.append('position_mapping_file', mappingFile, mappingFile.name);
+                                }}
                                 try {{
                                     setStatus(multiple
                                         ? `正在上传 ${{selectedCount}} 个 AKTA zip 并生成图片...`
@@ -1845,11 +1958,19 @@ def install_ui() -> None:
                                     const skipped = Array.isArray(details.skipped_positions)
                                         ? details.skipped_positions
                                         : [];
+                                    const skippedResultPositions = Array.isArray(details.skipped_result_positions)
+                                        ? details.skipped_result_positions
+                                        : [];
                                     if (skipped.length) {{
                                         const uploadedText = uploaded.length ? uploaded.join(', ') : '无';
                                         const skippedText = skipped.join(', ');
                                         setStatus(`AKTA 部分上传成功：成功 ${{uploadedText}}；失败 ${{skippedText}} 已传过`);
                                         phNotify(`AKTA 部分上传成功，失败板位：${{skippedText}} 已传过`, 'warning');
+                                    }} else if (skippedResultPositions.length) {{
+                                        const uploadedText = uploaded.length ? uploaded.join(', ') : '无';
+                                        const skippedText = skippedResultPositions.join(', ');
+                                        setStatus(`AKTA 部分上传成功：成功 ${{uploadedText}}；跳过未映射板位 ${{skippedText}}`);
+                                        phNotify(`AKTA 部分结果上传成功，跳过未映射板位：${{skippedText}}`, 'warning');
                                     }} else {{
                                         const uploadedCount = uploaded.length || selectedCount;
                                         setStatus(multiple

@@ -219,6 +219,7 @@ def create_batches_router(
         batch_id: int,
         run_date: str = Form(...),
         files: list[UploadFile] = File(...),
+        position_mapping_file: UploadFile | None = File(default=None),
         user: dict = Depends(current_user),
         connection: sqlite3.Connection = Depends(get_connection),
     ) -> dict:
@@ -238,6 +239,15 @@ def create_batches_router(
                     for file in files
                 ],
                 settings=context.settings,
+                position_mapping_file=(
+                    (
+                        position_mapping_file.filename or "position-mapping.csv",
+                        position_mapping_file.content_type or "text/csv",
+                        position_mapping_file.file.read(),
+                    )
+                    if position_mapping_file is not None
+                    else None
+                ),
             )
         except DomainError as error:
             raise map_domain_error(error) from error
@@ -250,6 +260,7 @@ def create_batches_router(
         batch_id: int,
         run_date: str = Form(...),
         file: UploadFile = File(...),
+        position_mapping_file: UploadFile | None = File(default=None),
         user: dict = Depends(current_user),
         connection: sqlite3.Connection = Depends(get_connection),
     ) -> dict:
@@ -264,6 +275,15 @@ def create_batches_router(
                 content_type=file.content_type
                 or "application/vnd.openxmlformats-officedocument.presentationml.presentation",
                 content=file.file.read(),
+                position_mapping_file=(
+                    (
+                        position_mapping_file.filename or "position-mapping.csv",
+                        position_mapping_file.content_type or "text/csv",
+                        position_mapping_file.file.read(),
+                    )
+                    if position_mapping_file is not None
+                    else None
+                ),
             )
         except DomainError as error:
             raise map_domain_error(error) from error
@@ -301,6 +321,7 @@ def create_batches_router(
         batch_id: int,
         source_name: str = Form(default=""),
         files: list[UploadFile] = File(...),
+        position_mapping_file: UploadFile | None = File(default=None),
         user: dict = Depends(current_user),
         connection: sqlite3.Connection = Depends(get_connection),
     ) -> dict:
@@ -319,6 +340,15 @@ def create_batches_router(
                     )
                     for file in files
                 ],
+                position_mapping_file=(
+                    (
+                        position_mapping_file.filename or "position-mapping.csv",
+                        position_mapping_file.content_type or "text/csv",
+                        position_mapping_file.file.read(),
+                    )
+                    if position_mapping_file is not None
+                    else None
+                ),
             )
         except DomainError as error:
             raise map_domain_error(error) from error

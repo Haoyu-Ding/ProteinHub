@@ -11,6 +11,10 @@ from proteinhub.application.batch_service import (
     project_for_batch,
 )
 from proteinhub.application.permissions import require_project_write
+from proteinhub.application.position_mapping import (
+    parse_position_mapping_file,
+    require_mapping_batch_positions,
+)
 from proteinhub.domain.errors import DomainError, NotFoundError
 from proteinhub.infrastructure.hplc import (
     plate_position_from_filename,
@@ -38,6 +42,7 @@ def import_hplc_results(
     user_id: int,
     source_name: str = "",
     files: list[tuple[str, str, bytes]],
+    position_mapping_file: tuple[str, str, bytes] | None = None,
 ) -> dict:
     project_id = project_for_batch(connection, batch_id)
     require_project_write(connection, project_id=project_id, user_id=user_id)
@@ -48,10 +53,14 @@ def import_hplc_results(
     wells_by_position = {
         well["position"]: well for well in batch_repository.list_wells(batch_id)
     }
+    position_mapping = parse_position_mapping_file(position_mapping_file)
+    require_mapping_batch_positions(position_mapping, wells_by_position)
 
     chromatogram_files = []
     vial_fc_file: tuple[str, str, bytes] | None = None
     seen_positions: set[str] = set()
+    observed_result_positions: set[str] = set()
+    skipped_result_positions: set[str] = set()
     for filename, content_type, content in files:
         file_name = Path(filename.replace("\\", "/")).name
         if not file_name:
@@ -63,7 +72,15 @@ def import_hplc_results(
             continue
         if not file_name.lower().endswith(".csv"):
             continue
-        plate_position = plate_position_from_filename(file_name)
+        result_position = plate_position_from_filename(file_name)
+        observed_result_positions.add(result_position)
+        plate_position = result_position
+        if position_mapping is not None:
+            mapped_position = position_mapping.batch_position_for(result_position)
+            if mapped_position is None:
+                skipped_result_positions.add(result_position)
+                continue
+            plate_position = mapped_position
         if plate_position not in wells_by_position:
             raise DomainError(f"HPLC file {file_name} does not map to this batch")
         if plate_position in seen_positions:
@@ -75,11 +92,14 @@ def import_hplc_results(
                 "content_type": content_type,
                 "content": content,
                 "sample_key": sample_key_from_filename(file_name),
+                "result_position": result_position,
                 "plate_position": plate_position,
             }
         )
 
     if not chromatogram_files:
+        if position_mapping is not None and skipped_result_positions:
+            raise DomainError("Position mapping did not match any HPLC chromatogram CSV")
         raise DomainError("At least one HPLC chromatogram CSV is required")
     if vial_fc_file is None:
         raise DomainError("vial_fc.csv is required")
@@ -127,6 +147,16 @@ def import_hplc_results(
         "sample_keys": [result["sample_key"] for result in prepared_results],
         "plate_positions": [result["plate_position"] for result in prepared_results],
     }
+    if position_mapping is not None:
+        details.update(
+            position_mapping.details_for(
+                used_result_positions={
+                    result["result_position"] for result in prepared_results
+                },
+                skipped_result_positions=skipped_result_positions,
+                observed_result_positions=observed_result_positions,
+            )
+        )
 
     experiments = ExperimentRepository(connection)
     artifacts = ArtifactRepository(connection)
@@ -149,6 +179,15 @@ def import_hplc_results(
             mime_type=vial_fc_file[1] or "text/csv",
             content=vial_fc_file[2],
         )
+        if position_mapping is not None:
+            raw_files.insert(
+                experiment_id=experiment_id,
+                uploaded_by=user_id,
+                filename=position_mapping.filename,
+                raw_file_type="position_mapping_csv",
+                mime_type=position_mapping.content_type or "text/csv",
+                content=position_mapping.content,
+            )
         for result in prepared_results:
             well = wells_by_position.get(result["plate_position"])
             if not well:
@@ -180,6 +219,7 @@ def import_hplc_results(
                         "source": "HPLC",
                         "source_name": normalized_source_name,
                         "sample_key": result["sample_key"],
+                        "result_position": result["result_position"],
                         "plate_position": result["plate_position"],
                         "source_filename": result["filename"],
                         "vial_fc_filename": vial_fc_file[0],

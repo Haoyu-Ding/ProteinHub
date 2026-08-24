@@ -15,6 +15,11 @@ from proteinhub.application.permissions import (
     require_project_read,
     require_project_write,
 )
+from proteinhub.application.position_mapping import (
+    PositionMapping,
+    parse_position_mapping_file,
+    require_mapping_batch_positions,
+)
 from proteinhub.application.plate_workbook import (
     build_plate_workbook,
     build_summary_workbook,
@@ -350,6 +355,7 @@ def import_akta_results(
     run_date: str,
     files: list[tuple[str, str, bytes]],
     settings: Settings,
+    position_mapping_file: tuple[str, str, bytes] | None = None,
 ) -> dict:
     project_id = project_for_batch(connection, batch_id)
     require_project_write(connection, project_id=project_id, user_id=user_id)
@@ -365,7 +371,15 @@ def import_akta_results(
     wells_by_position = {
         well["position"]: well for well in batch_repository.list_wells(batch_id)
     }
-    uploads = _normalize_akta_uploads(files, wells_by_position)
+    position_mapping = parse_position_mapping_file(position_mapping_file)
+    require_mapping_batch_positions(position_mapping, wells_by_position)
+    uploads, skipped_result_positions, observed_result_positions = _normalize_akta_uploads(
+        files,
+        wells_by_position,
+        position_mapping=position_mapping,
+    )
+    if not uploads and position_mapping is not None and skipped_result_positions:
+        raise DomainError("Position mapping did not match any AKTA zip file")
     upload_positions = {upload["position"] for upload in uploads}
     existing_experiment = experiments.find_for_batch_type_run_date(
         batch_id=batch_id,
@@ -396,6 +410,7 @@ def import_akta_results(
     )
 
     artifacts = ArtifactRepository(connection)
+    raw_files = ExperimentRawFileRepository(connection)
     store = file_store_for(connection, storage_root)
     with transaction(connection):
         current_experiment = experiments.find_for_batch_type_run_date(
@@ -432,8 +447,18 @@ def import_akta_results(
             run_date=normalized_run_date,
             uploaded_positions=current_uploaded_positions,
             skipped_positions=sorted(skipped_positions),
-            requested_file_count=len(uploads),
+            requested_file_count=len(files),
         )
+        if position_mapping is not None:
+            details.update(
+                position_mapping.details_for(
+                    used_result_positions={
+                        upload["result_position"] for upload in uploads_to_import
+                    },
+                    skipped_result_positions=skipped_result_positions,
+                    observed_result_positions=observed_result_positions,
+                )
+            )
         if experiment_id:
             experiments.update_details(
                 experiment_id=experiment_id,
@@ -448,6 +473,15 @@ def import_akta_results(
                 description="AKTA result import",
                 created_by=user_id,
                 details=details,
+            )
+        if position_mapping is not None:
+            raw_files.insert(
+                experiment_id=experiment_id,
+                uploaded_by=user_id,
+                filename=position_mapping.filename,
+                raw_file_type="position_mapping_csv",
+                mime_type=position_mapping.content_type or "text/csv",
+                content=position_mapping.content,
             )
         for upload in uploads_to_import:
             well = upload["well"]
@@ -482,6 +516,8 @@ def import_akta_results(
                     {
                         "source": "AKTA",
                         "run_date": normalized_run_date,
+                        "result_position": upload["result_position"],
+                        "plate_position": position,
                         "png_artifact_id": png_artifact_id,
                         "raw_zip_artifact_id": zip_artifact_id,
                     },
@@ -507,6 +543,7 @@ def import_spr_results(
     filename: str,
     content_type: str,
     content: bytes,
+    position_mapping_file: tuple[str, str, bytes] | None = None,
 ) -> dict:
     project_id = project_for_batch(connection, batch_id)
     require_project_write(connection, project_id=project_id, user_id=user_id)
@@ -522,6 +559,8 @@ def import_spr_results(
     wells_by_position = {
         well["position"]: well for well in batch_repository.list_wells(batch_id)
     }
+    position_mapping = parse_position_mapping_file(position_mapping_file)
+    require_mapping_batch_positions(position_mapping, wells_by_position)
     experiments = ExperimentRepository(connection)
     existing_experiment = experiments.find_for_batch_type_run_date(
         batch_id=batch_id,
@@ -539,9 +578,20 @@ def import_spr_results(
             sample_id,
             wells_by_position=wells_by_position,
             concentrations_by_protein=concentration_details_by_protein,
+            position_mapping=position_mapping,
         ),
     )
-    mapped_results = _map_spr_results_to_wells(spr_results, wells_by_position)
+    (
+        mapped_results,
+        skipped_result_positions,
+        observed_result_positions,
+    ) = _map_spr_results_to_wells(
+        spr_results,
+        wells_by_position,
+        position_mapping=position_mapping,
+    )
+    if not mapped_results and position_mapping is not None and skipped_result_positions:
+        raise DomainError("Position mapping did not match any SPR result")
     mapped_positions = {result["position"] for result in mapped_results}
     existing_positions = (
         experiments.result_positions_for_experiment(
@@ -602,10 +652,20 @@ def import_spr_results(
             uploaded_positions=current_uploaded_positions,
             skipped_positions=sorted(skipped_positions),
             sample_ids=current_sample_ids,
-            requested_sample_count=len(mapped_results),
+            requested_sample_count=len(spr_results),
             concentration_filename=concentration_filename,
             concentrations_by_protein=concentration_details_by_protein,
         )
+        if position_mapping is not None:
+            details.update(
+                position_mapping.details_for(
+                    used_result_positions={
+                        result["result_position"] for result in results_to_import
+                    },
+                    skipped_result_positions=skipped_result_positions,
+                    observed_result_positions=observed_result_positions,
+                )
+            )
         if experiment_id:
             experiments.update_details(
                 experiment_id=experiment_id,
@@ -630,6 +690,15 @@ def import_spr_results(
             or "application/vnd.openxmlformats-officedocument.presentationml.presentation",
             content=content,
         )
+        if position_mapping is not None:
+            raw_files.insert(
+                experiment_id=experiment_id,
+                uploaded_by=user_id,
+                filename=position_mapping.filename,
+                raw_file_type="position_mapping_csv",
+                mime_type=position_mapping.content_type or "text/csv",
+                content=position_mapping.content,
+            )
         for result in results_to_import:
             well = result["well"]
             position = result["position"]
@@ -660,6 +729,8 @@ def import_spr_results(
                         "source": "SPR",
                         "run_date": normalized_run_date,
                         "sample_id": sample_id,
+                        "result_position": result["result_position"],
+                        "plate_position": position,
                         "chart_artifact_id": artifact_id,
                         "slide_number": result["slide_number"],
                         "table_row": result["table_row"],
@@ -1037,8 +1108,15 @@ def _spr_concentration_text_for_sample_id(
     *,
     wells_by_position: dict[str, dict],
     concentrations_by_protein: dict[str, dict[str, str]],
+    position_mapping: PositionMapping | None = None,
 ) -> str:
-    position = _position_from_spr_sample_id(sample_id)
+    result_position = _position_from_spr_sample_id(sample_id)
+    position = result_position
+    if position_mapping is not None:
+        mapped_position = position_mapping.batch_position_for(result_position)
+        if mapped_position is None:
+            return ""
+        position = mapped_position
     well = wells_by_position.get(position)
     if not well:
         return ""
@@ -1229,11 +1307,23 @@ def _score_density_label(metric: str) -> str:
 def _normalize_akta_uploads(
     files: list[tuple[str, str, bytes]],
     wells_by_position: dict[str, dict],
-) -> list[dict]:
+    *,
+    position_mapping: PositionMapping | None = None,
+) -> tuple[list[dict], set[str], set[str]]:
     uploads = []
     seen_positions: set[str] = set()
+    observed_result_positions: set[str] = set()
+    skipped_result_positions: set[str] = set()
     for filename, content_type, content in files:
-        position = _position_from_akta_filename(filename)
+        result_position = _position_from_akta_filename(filename)
+        observed_result_positions.add(result_position)
+        position = result_position
+        if position_mapping is not None:
+            mapped_position = position_mapping.batch_position_for(result_position)
+            if mapped_position is None:
+                skipped_result_positions.add(result_position)
+                continue
+            position = mapped_position
         if position in seen_positions:
             raise DomainError(f"Duplicate AKTA file for position {position}")
         seen_positions.add(position)
@@ -1243,13 +1333,14 @@ def _normalize_akta_uploads(
         uploads.append(
             {
                 "position": position,
+                "result_position": result_position,
                 "well": well,
                 "adapter_filename": f"{position}.zip",
                 "content_type": content_type,
                 "content": content,
             }
         )
-    return uploads
+    return uploads, skipped_result_positions, observed_result_positions
 
 
 def _duplicate_result_message(source: str, positions: set[str], run_date: str) -> str:
@@ -1278,22 +1369,43 @@ def _position_from_akta_filename(filename: str) -> str:
 def _map_spr_results_to_wells(
     results: list[dict],
     wells_by_position: dict[str, dict],
-) -> list[dict]:
+    *,
+    position_mapping: PositionMapping | None = None,
+) -> tuple[list[dict], set[str], set[str]]:
     mapped = []
     seen_positions: set[str] = set()
+    observed_result_positions: set[str] = set()
+    skipped_result_positions: set[str] = set()
     for result in results:
         sample_id = required(str(result.get("sample_id") or ""), "SPR sample id")
-        position = _position_from_spr_sample_id(sample_id)
+        result_position = _position_from_spr_sample_id(sample_id)
+        observed_result_positions.add(result_position)
+        position = result_position
+        if position_mapping is not None:
+            mapped_position = position_mapping.batch_position_for(result_position)
+            if mapped_position is None:
+                skipped_result_positions.add(result_position)
+                continue
+            position = mapped_position
         if position in seen_positions:
             raise DomainError(f"Duplicate SPR result for position {position}")
         seen_positions.add(position)
         well = wells_by_position.get(position)
         if well is None:
             raise DomainError(f"SPR sample {sample_id} does not map to this batch")
-        mapped.append({**result, "position": position, "well": well})
+        mapped.append(
+            {
+                **result,
+                "position": position,
+                "result_position": result_position,
+                "well": well,
+            }
+        )
     if not mapped:
+        if position_mapping is not None and skipped_result_positions:
+            return mapped, skipped_result_positions, observed_result_positions
         raise DomainError("SPR PowerPoint did not include importable results")
-    return mapped
+    return mapped, skipped_result_positions, observed_result_positions
 
 
 def _position_from_spr_sample_id(sample_id: str) -> str:

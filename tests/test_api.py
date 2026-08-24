@@ -2693,6 +2693,70 @@ def test_batch_akta_results_upload_maps_pngs_to_batch_proteins(tmp_path: Path) -
     assert png_download.content == b"PNG for A01.zip"
 
 
+def test_akta_results_upload_uses_position_mapping_csv(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Mapped AKTA batch"},
+    ).json()
+    protein = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "binder-a", "sequence": "ACDEFG"},
+    ).json()
+    batch = client.post(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+        json={"name": "Mapped AKTA plate", "protein_ids": [protein["id"]]},
+    ).json()["batch"]
+    mapping_csv = b"result_position,batch_position\nB1,A1\n"
+
+    response = client.post(
+        f"/api/batches/{batch['id']}/akta-results",
+        headers=auth(owner_token),
+        data={"run_date": "2026-08-03"},
+        files=[
+            ("files", ("B01.zip", b"zip-b", "application/zip")),
+            ("files", ("C01.zip", b"zip-c", "application/zip")),
+            ("position_mapping_file", ("mapping.csv", mapping_csv, "text/csv")),
+        ],
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    details = payload["experiment"]["details"]
+    assert details["uploaded_positions"] == ["A01"]
+    assert details["skipped_result_positions"] == ["C01"]
+    assert details["unused_mapping_positions"] == []
+    assert details["mapped_positions"] == [
+        {"result_position": "B01", "batch_position": "A01"}
+    ]
+    assert {
+        result["position"]: result["result_value"]
+        for result in payload["results"]
+        if result["result_value"]
+    } == {"A01": "AKTA 2026-08-03"}
+    note = json.loads(
+        next(
+            result["result_note"]
+            for result in payload["results"]
+            if result["position"] == "A01"
+        )
+    )
+    assert note["result_position"] == "B01"
+    assert note["plate_position"] == "A01"
+    raw_files = client.get(
+        f"/api/experiments/{payload['experiment']['id']}/raw-files",
+        headers=auth(owner_token),
+    ).json()
+    assert ("mapping.csv", "position_mapping_csv") in {
+        (item["filename"], item["raw_file_type"]) for item in raw_files
+    }
+
+
 def test_batch_spr_results_upload_maps_charts_and_table_rows(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     owner_token = register(client, "owner@example.com")
@@ -2969,6 +3033,80 @@ def test_batch_spr_results_upload_maps_charts_and_table_rows(tmp_path: Path) -> 
     assert different_date.json()["experiment"]["details"]["uploaded_positions"] == [
         "A01"
     ]
+
+
+def test_spr_results_upload_uses_position_mapping_csv(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Mapped SPR batch"},
+    ).json()
+    protein = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "binder-a", "sequence": "ACDEFG"},
+    ).json()
+    batch = client.post(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+        json={"name": "Mapped SPR plate", "protein_ids": [protein["id"]]},
+    ).json()["batch"]
+    mapping_csv = b"result_position,batch_position\nB1,A1\n"
+
+    response = client.post(
+        f"/api/batches/{batch['id']}/spr-results",
+        headers=auth(owner_token),
+        data={"run_date": "2026-08-03"},
+        files=[
+            (
+                "file",
+                (
+                    "spr-mapped-results.pptx",
+                    make_fake_spr_pptx(
+                        [("B1XXX", "1.00e-09"), ("C1XXX", "2.00e-09")]
+                    ),
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                ),
+            ),
+            ("position_mapping_file", ("mapping.csv", mapping_csv, "text/csv")),
+        ],
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    details = payload["experiment"]["details"]
+    assert details["uploaded_positions"] == ["A01"]
+    assert details["skipped_result_positions"] == ["C01"]
+    assert details["unused_mapping_positions"] == []
+    assert details["mapped_positions"] == [
+        {"result_position": "B01", "batch_position": "A01"}
+    ]
+    assert details["requested_sample_count"] == 2
+    assert details["sample_count"] == 1
+    assert {
+        result["position"]: result["result_value"]
+        for result in payload["results"]
+        if result["result_value"]
+    } == {"A01": "SPR B1XXX"}
+    note = json.loads(
+        next(
+            result["result_note"]
+            for result in payload["results"]
+            if result["position"] == "A01"
+        )
+    )
+    assert note["result_position"] == "B01"
+    assert note["plate_position"] == "A01"
+    raw_files = client.get(
+        f"/api/experiments/{payload['experiment']['id']}/raw-files",
+        headers=auth(owner_token),
+    ).json()
+    assert ("mapping.csv", "position_mapping_csv") in {
+        (item["filename"], item["raw_file_type"]) for item in raw_files
+    }
 
 
 def test_spr_chart_legend_renames_numeric_series_labels() -> None:
@@ -3886,3 +4024,74 @@ def test_hplc_results_upload_maps_files_and_vial_blocks(tmp_path: Path) -> None:
     assert "P1-I22" in svg
     assert svg.count("<rect") >= 2
     assert artifact["id"] == artifact_id
+
+
+def test_hplc_results_upload_uses_position_mapping_csv(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Mapped HPLC project"},
+    ).json()
+    protein = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "binder-a", "sequence": "ACDEFG"},
+    ).json()
+    batch = client.post(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+        json={"name": "Mapped HPLC batch", "protein_ids": [protein["id"]]},
+    ).json()["batch"]
+    chromatogram_b = b"0.00,-2.9\n0.50,-2.7\n1.00,-2.5\n"
+    chromatogram_c = b"0.00,-3.1\n0.50,-2.8\n1.00,-2.3\n"
+    vial_fc_csv = (
+        "样品 名称,run-B1-result\n"
+        "编号,位置,开始时间 (min),结束时间 (min),体积 (mL)\n"
+        "1,P1-I22,0.100,0.500,0.18\n\n"
+        "样品 名称,run-C1-result\n"
+        "编号,位置,开始时间 (min),结束时间 (min),体积 (mL)\n"
+        "1,P1-J1,0.500,1.000,0.20\n"
+    ).encode("utf-8")
+    mapping_csv = b"result_position,batch_position\nB1,A1\n"
+
+    response = client.post(
+        f"/api/batches/{batch['id']}/hplc-results",
+        headers=auth(owner_token),
+        data={"source_name": "mapped-run"},
+        files=[
+            (
+                "files",
+                ("run-B1-result.dx_DAD1A.CSV", chromatogram_b, "text/csv"),
+            ),
+            (
+                "files",
+                ("run-C1-result.dx_DAD1A.CSV", chromatogram_c, "text/csv"),
+            ),
+            ("files", ("vial_fc.csv", vial_fc_csv, "text/csv")),
+            ("position_mapping_file", ("mapping.csv", mapping_csv, "text/csv")),
+        ],
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    details = payload["experiment"]["details"]
+    assert details["plate_positions"] == ["A01"]
+    assert details["skipped_result_positions"] == ["C01"]
+    assert details["unused_mapping_positions"] == []
+    assert details["mapped_positions"] == [
+        {"result_position": "B01", "batch_position": "A01"}
+    ]
+    assert [result["position"] for result in payload["results"]] == ["A01"]
+    note = json.loads(payload["results"][0]["result_note"])
+    assert note["result_position"] == "B01"
+    assert note["plate_position"] == "A01"
+    raw_files = client.get(
+        f"/api/experiments/{payload['experiment']['id']}/raw-files",
+        headers=auth(owner_token),
+    ).json()
+    assert ("mapping.csv", "position_mapping_csv") in {
+        (item["filename"], item["raw_file_type"]) for item in raw_files
+    }
