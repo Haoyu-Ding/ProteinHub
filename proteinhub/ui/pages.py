@@ -345,9 +345,9 @@ def _render_sequence_similarity_matches(protein: dict, container) -> None:
             ui.label("没有保存的相似蛋白详情。").classes("ph-muted")
             return
         for match in matches:
-            with ui.row().classes("ph-file-row"):
+            with ui.row().classes("ph-file-row items-start no-wrap"):
                 with ui.column().classes("min-w-0 flex-1 gap-1"):
-                    ui.label(match.get("protein_name") or "未命名蛋白").classes("font-medium")
+                    ui.label(match.get("protein_name") or "未命名蛋白").classes("font-medium break-all")
                     ui.label(
                         f"{_sequence_similarity_scope_label(match.get('scope'))} · "
                         f"{_sequence_similarity_type_label(match.get('match_type'))} · "
@@ -361,7 +361,7 @@ def _render_sequence_similarity_matches(protein: dict, container) -> None:
                         on_click=lambda target_id=protein_id: ui.navigate.to(
                             f"/proteins/{target_id}"
                         ),
-                    ).props("flat dense no-wrap")
+                    ).props("flat dense no-wrap").classes("shrink-0")
 
 
 def _cadence_badge_color(status: str) -> str:
@@ -857,7 +857,7 @@ def install_ui() -> None:
             protein_rating_target = {"protein_id": None}
             project_access = {"role": ""}
 
-            with ui.dialog() as similarity_dialog, ui.card().classes("ph-dialog-card w-full max-w-md gap-4"):
+            with ui.dialog() as similarity_dialog, ui.card().classes("ph-dialog-card w-full max-w-2xl gap-4"):
                 similarity_title = ui.label("相似蛋白").classes("text-lg font-semibold")
                 similarity_subtitle = ui.label().classes("ph-meta")
                 similarity_matches_column = ui.column().classes("w-full gap-2")
@@ -2803,7 +2803,7 @@ def install_ui() -> None:
                     ui.label("这个蛋白关联的文件和生成结果会显示在这里。").classes("ph-muted")
             artifacts_column = ui.column().classes("w-full gap-3")
 
-            with ui.dialog() as similarity_dialog, ui.card().classes("ph-dialog-card w-full max-w-md gap-4"):
+            with ui.dialog() as similarity_dialog, ui.card().classes("ph-dialog-card w-full max-w-2xl gap-4"):
                 similarity_title = ui.label("相似蛋白").classes("text-lg font-semibold")
                 similarity_subtitle = ui.label().classes("ph-meta")
                 similarity_matches_column = ui.column().classes("w-full gap-2")
