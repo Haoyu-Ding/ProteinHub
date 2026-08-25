@@ -1534,17 +1534,12 @@ EFG
     assert pdb_download.status_code == 200, pdb_download.text
     assert pdb_download.content == pdb
 
-    score_import = client.post(
+    standalone_score_import = client.post(
         f"/api/projects/{project['id']}/proteins/score-table",
         headers=auth(owner_token),
         files=[("file", ("scores.csv", score_csv, "text/csv"))],
     )
-    assert score_import.status_code == 200, score_import.text
-    assert score_import.json() == {
-        "matched_count": 2,
-        "skipped_count": 1,
-        "skipped_names": ["unrelated"],
-    }
+    assert standalone_score_import.status_code == 404
 
     rejected = client.post(
         f"/api/projects/{project['id']}/proteins/import-structures",
@@ -1561,21 +1556,16 @@ EFG
     assert "chain A" in rejected.json()["detail"]
 
     bad_score_table = client.post(
-        f"/api/projects/{project['id']}/proteins/score-table",
+        f"/api/projects/{project['id']}/proteins/import-structures",
         headers=auth(owner_token),
+        data={"protein_type": "TCR", "target": "bad score"},
         files=[
-            ("file", ("scores.csv", b"name,ddg\nbinder-c,-1\n", "text/csv")),
+            ("files", ("folder/binder-c.pdb", pdb, "chemical/x-pdb")),
+            ("score_file", ("scores.csv", b"name,ddg\nbinder-c,-1\n", "text/csv")),
         ],
     )
     assert bad_score_table.status_code == 400
     assert "pdb_name" in bad_score_table.json()["detail"]
-
-    outsider_score_import = client.post(
-        f"/api/projects/{project['id']}/proteins/score-table",
-        headers=auth(outsider_token),
-        files=[("file", ("scores.csv", score_csv, "text/csv"))],
-    )
-    assert outsider_score_import.status_code == 403
 
     project_proteins = client.get(
         f"/api/projects/{project['id']}/proteins",

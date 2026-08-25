@@ -262,32 +262,6 @@ def import_proteins_from_structures(
     }
 
 
-def import_project_protein_score_table(
-    connection: sqlite3.Connection,
-    *,
-    project_id: int,
-    user_id: int,
-    score_file: tuple[str, str, bytes],
-) -> dict:
-    require_project_write(connection, project_id=project_id, user_id=user_id)
-    score_details_by_name = _parse_score_details_table(score_file)
-    proteins = ProteinRepository(connection)
-    proteins_by_key: dict[str, list[dict]] = {}
-    for protein in proteins.list_sequences_for_project(project_id):
-        proteins_by_key.setdefault(_score_key(protein["name"]), []).append(protein)
-    protein_ids_by_key = {
-        key: [int(protein["id"]) for protein in protein_rows]
-        for key, protein_rows in proteins_by_key.items()
-    }
-
-    with transaction(connection):
-        return _apply_score_details(
-            proteins,
-            proteins_by_score_key=protein_ids_by_key,
-            score_details_by_name=score_details_by_name,
-        )
-
-
 def _apply_score_details(
     proteins: ProteinRepository,
     *,

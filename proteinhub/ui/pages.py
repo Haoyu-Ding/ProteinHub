@@ -1287,7 +1287,7 @@ def install_ui() -> None:
                 bulk_protein_type = ui.select(PROTEIN_TYPE_OPTIONS, value="TCR", label="类型").props("outlined").classes("w-full ph-bulk-protein-type-select")
                 bulk_protein_target = ui.input("靶标").props("outlined").classes("w-full ph-bulk-protein-target-input")
                 bulk_protein_description = ui.textarea("描述").props("outlined").classes("w-full ph-bulk-protein-description-input")
-                bulk_import_status = ui.label("等待选择文件夹和打分表").classes("ph-meta ph-bulk-import-status")
+                bulk_import_status = ui.label("等待选择结构文件夹；打分表 CSV 可选").classes("ph-meta ph-bulk-import-status")
                 with ui.row().classes("w-full items-center justify-between gap-2"):
                     bulk_select_button = ui.button("选择结构文件夹", icon="drive_folder_upload").props("flat no-wrap")
                     bulk_score_button = ui.button("选择打分表 CSV", icon="table_chart").props("flat no-wrap")
@@ -1322,7 +1322,7 @@ def install_ui() -> None:
                             const scoreFile = window.phBulkScoreFile || null;
                             if (status) status.textContent = scoreFile
                                 ? `已选择 ${{files.length}} 个文件和打分表，点击导入开始`
-                                : `已选择 ${{files.length}} 个文件，继续选择打分表 CSV`;
+                                : `已选择 ${{files.length}} 个文件，可直接导入或继续选择打分表 CSV`;
                             phNotify(`已选择 ${{files.length}} 个文件`, 'positive');
                             input.remove();
                         }}, {{once: true}});
@@ -1384,17 +1384,17 @@ def install_ui() -> None:
                                 phNotify('请先选择结构文件夹', 'negative');
                                 return;
                             }}
-                            if (!scoreFile) {{
-                                phNotify('请先选择打分表 CSV', 'negative');
-                                return;
-                            }}
                             try {{
-                                if (status) status.textContent = `正在导入 ${{files.length}} 个文件并上传打分表...`;
+                                if (status) status.textContent = scoreFile
+                                    ? `正在导入 ${{files.length}} 个文件并上传打分表...`
+                                    : `正在导入 ${{files.length}} 个文件...`;
                                 const form = new FormData();
                                 form.append('protein_type', fieldValue('.ph-bulk-protein-type-select input') || 'TCR');
                                 form.append('target', fieldValue('.ph-bulk-protein-target-input input'));
                                 form.append('description', fieldValue('.ph-bulk-protein-description-input textarea'));
-                                form.append('score_file', scoreFile, scoreFile.name);
+                                if (scoreFile) {{
+                                    form.append('score_file', scoreFile, scoreFile.name);
+                                }}
                                 for (const file of files) {{
                                     form.append('files', file, file.webkitRelativePath || file.name);
                                 }}
@@ -1412,7 +1412,10 @@ def install_ui() -> None:
                                     : [];
                                 window.phBulkImportFiles = [];
                                 window.phBulkScoreFile = null;
-                                if (skipped.length) {{
+                                if (!scoreFile) {{
+                                    if (status) status.textContent = `已导入 ${{proteins.length}} 个合成蛋白`;
+                                    phNotify(`已导入 ${{proteins.length}} 个合成蛋白`, 'positive');
+                                }} else if (skipped.length) {{
                                     const preview = skipped.slice(0, 6).join(', ');
                                     const suffix = skipped.length > 6 ? `${{preview}} 等 ${{skipped.length}} 行` : preview;
                                     if (status) status.textContent = `已导入 ${{proteins.length}} 个合成蛋白，打分表匹配 ${{matched}} 个，跳过 ${{skipped.length}} 行`;

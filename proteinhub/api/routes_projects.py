@@ -12,7 +12,6 @@ from proteinhub.api.schemas import (
     ProjectCreateRequest,
     ProjectDetailResponse,
     ProjectMemberResponse,
-    ProjectProteinScoreImportResponse,
     ProjectProteinResponse,
     ProjectResponse,
     ProteinCreateRequest,
@@ -40,7 +39,6 @@ from proteinhub.application.protein_service import (
     check_project_protein_sequences,
     create_protein,
     create_protein_with_structure_file,
-    import_project_protein_score_table,
     import_proteins_from_structures,
     list_proteins,
     parse_protein_sequence,
@@ -373,30 +371,6 @@ def create_projects_router(
                     )
                     if score_file is not None
                     else None
-                ),
-            )
-        except DomainError as error:
-            raise map_domain_error(error) from error
-
-    @router.post(
-        "/projects/{project_id}/proteins/score-table",
-        response_model=ProjectProteinScoreImportResponse,
-    )
-    def import_protein_score_table_route(
-        project_id: int,
-        file: UploadFile = File(...),
-        user: dict = Depends(current_user),
-        connection: sqlite3.Connection = Depends(get_connection),
-    ) -> dict:
-        try:
-            return import_project_protein_score_table(
-                connection,
-                project_id=project_id,
-                user_id=user["id"],
-                score_file=(
-                    file.filename or "scores.csv",
-                    file.content_type or "text/csv",
-                    file.file.read(),
                 ),
             )
         except DomainError as error:
