@@ -1495,17 +1495,27 @@ EFG
         files=[
             ("files", ("folder/binder-a.pdb", pdb, "chemical/x-pdb")),
             ("files", ("folder/binder-b.cif", mmcif, "chemical/x-mmcif")),
+            ("score_file", ("scores.csv", score_csv, "text/csv")),
         ],
     )
     assert imported.status_code == 200, imported.text
-    proteins = imported.json()
+    payload = imported.json()
+    proteins = payload["proteins"]
+    assert payload["score_import"] == {
+        "matched_count": 2,
+        "skipped_count": 1,
+        "skipped_names": ["unrelated"],
+    }
     assert [protein["name"] for protein in proteins] == ["binder-a", "binder-b"]
     assert [protein["sequence"] for protein in proteins] == ["MGK", "ACDEFG"]
     assert {protein["protein_type"] for protein in proteins} == {"TCR"}
     assert {protein["target"] for protein in proteins} == {"MAGE-A4"}
     assert {protein["description"] for protein in proteins} == {"folder import"}
     assert {protein["manual_rating"] for protein in proteins} == {"unrated"}
-    assert [protein["score_details"] for protein in proteins] == [{}, {}]
+    assert [protein["score_details"] for protein in proteins] == [
+        {"ddg": "-1.0", "sap_score": "37.3919", "norm_score": "99"},
+        {"ddg": "-2.0", "sap_score": "12.25", "norm_score": "88"},
+    ]
     assert "score" not in proteins[0]
     assert [protein["structure_filename"] for protein in proteins] == [
         "binder-a.pdb",
@@ -1523,18 +1533,6 @@ EFG
     )
     assert pdb_download.status_code == 200, pdb_download.text
     assert pdb_download.content == pdb
-
-    bundled_score_table = client.post(
-        f"/api/projects/{project['id']}/proteins/import-structures",
-        headers=auth(owner_token),
-        data={"protein_type": "TCR"},
-        files=[
-            ("files", ("folder/binder-c.pdb", pdb, "chemical/x-pdb")),
-            ("score_file", ("scores.csv", score_csv, "text/csv")),
-        ],
-    )
-    assert bundled_score_table.status_code == 400
-    assert "after proteins are imported" in bundled_score_table.json()["detail"]
 
     score_import = client.post(
         f"/api/projects/{project['id']}/proteins/score-table",
@@ -1637,7 +1635,13 @@ def test_import_proteins_from_structures_tags_incoming_duplicate_sequences(
     )
 
     assert imported.status_code == 200, imported.text
-    proteins = imported.json()
+    payload = imported.json()
+    proteins = payload["proteins"]
+    assert payload["score_import"] == {
+        "matched_count": 0,
+        "skipped_count": 0,
+        "skipped_names": [],
+    }
     assert [protein["name"] for protein in proteins] == ["binder-a", "binder-b"]
     assert {protein["manual_rating"] for protein in proteins} == {"unrated"}
     assert {
@@ -1699,18 +1703,13 @@ EFG
         files=[
             ("files", ("folder/binder-a.pdb", pdb, "chemical/x-pdb")),
             ("files", ("folder/binder-b.cif", mmcif, "chemical/x-mmcif")),
+            ("score_file", ("scores.csv", score_csv, "text/csv")),
         ],
     )
     assert imported.status_code == 200, imported.text
-    proteins = imported.json()
-
-    score_import = client.post(
-        f"/api/projects/{project['id']}/proteins/score-table",
-        headers=auth(owner_token),
-        files=[("file", ("scores.csv", score_csv, "text/csv"))],
-    )
-    assert score_import.status_code == 200, score_import.text
-    assert score_import.json() == {
+    payload = imported.json()
+    proteins = payload["proteins"]
+    assert payload["score_import"] == {
         "matched_count": 2,
         "skipped_count": 0,
         "skipped_names": [],

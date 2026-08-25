@@ -719,7 +719,6 @@ def install_ui() -> None:
                                 ui.label("查询和管理这个项目中进入批次和实验流程的蛋白。").classes("ph-muted")
                             with ui.row().classes("gap-2"):
                                 bulk_import_button = ui.button("批量导入", icon="drive_folder_upload", on_click=lambda: bulk_import_dialog.open()).props("flat no-wrap")
-                                score_import_button = ui.button("上传打分表", icon="table_chart").props("flat no-wrap")
                                 new_protein_button = ui.button("新建合成蛋白", icon="add", on_click=lambda: protein_dialog.open()).props("unelevated no-wrap")
                         with ui.row().classes("ph-protein-filter-row w-full"):
                             protein_rating_filter = (
@@ -799,59 +798,6 @@ def install_ui() -> None:
             protein_rating_target = {"protein_id": None}
             project_access = {"role": ""}
 
-            score_import_button.on(
-                "click",
-                js_handler=f"""
-                () => {{
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.accept = '.csv,text/csv';
-                    input.style.display = 'none';
-                    input.addEventListener('change', async () => {{
-                        const file = input.files && input.files[0];
-                        if (!file) {{
-                            input.remove();
-                            return;
-                        }}
-                        if (!file.name.toLowerCase().endsWith('.csv')) {{
-                            phNotify('请只选择一个打分表 CSV', 'negative');
-                            input.remove();
-                            return;
-                        }}
-                        const form = new FormData();
-                        form.append('file', file, file.name);
-                        try {{
-                            phNotify('打分表上传中', 'info');
-                            const result = await phApi('/api/projects/{project_id}/proteins/score-table', {{
-                                method: 'POST',
-                                body: form,
-                            }});
-                            const matched = result && Number.isFinite(result.matched_count)
-                                ? result.matched_count
-                                : 0;
-                            const skipped = result && Array.isArray(result.skipped_names)
-                                ? result.skipped_names
-                                : [];
-                            if (skipped.length) {{
-                                const preview = skipped.slice(0, 6).join(', ');
-                                const suffix = skipped.length > 6 ? `${{preview}} 等 ${{skipped.length}} 行` : preview;
-                                phNotify(`打分表已更新 ${{matched}} 个蛋白，跳过 ${{skipped.length}} 行：${{suffix}}`, 'warning');
-                            }} else {{
-                                phNotify(`打分表已更新 ${{matched}} 个蛋白`, 'positive');
-                            }}
-                            setTimeout(() => window.location.reload(), 800);
-                        }} catch (error) {{
-                            phNotifyError(error, '打分表上传失败');
-                        }} finally {{
-                            input.remove();
-                        }}
-                    }}, {{once: true}});
-                    document.body.appendChild(input);
-                    input.click();
-                }}
-                """,
-            )
-
             async def load_project() -> None:
                 try:
                     data = await ui.run_javascript(f"return await phApi('/api/projects/{project_id}')", timeout=10)
@@ -862,7 +808,6 @@ def install_ui() -> None:
                     project_access["role"] = project["role"]
                     can_write_project = project["role"] in {"owner", "member"}
                     bulk_import_button.visible = can_write_project
-                    score_import_button.visible = can_write_project
                     new_protein_button.visible = can_write_project
                     new_public_protein_button.visible = can_write_project
                     new_batch_button.visible = can_write_project
@@ -1342,8 +1287,10 @@ def install_ui() -> None:
                 bulk_protein_type = ui.select(PROTEIN_TYPE_OPTIONS, value="TCR", label="类型").props("outlined").classes("w-full ph-bulk-protein-type-select")
                 bulk_protein_target = ui.input("靶标").props("outlined").classes("w-full ph-bulk-protein-target-input")
                 bulk_protein_description = ui.textarea("描述").props("outlined").classes("w-full ph-bulk-protein-description-input")
-                bulk_import_status = ui.label("等待选择文件夹").classes("ph-meta ph-bulk-import-status")
-                bulk_select_button = ui.button("选择文件夹", icon="drive_folder_upload").props("flat no-wrap")
+                bulk_import_status = ui.label("等待选择文件夹和打分表").classes("ph-meta ph-bulk-import-status")
+                with ui.row().classes("w-full items-center justify-between gap-2"):
+                    bulk_select_button = ui.button("选择结构文件夹", icon="drive_folder_upload").props("flat no-wrap")
+                    bulk_score_button = ui.button("选择打分表 CSV", icon="table_chart").props("flat no-wrap")
 
                 bulk_select_button.on(
                     "click",
@@ -1372,8 +1319,46 @@ def install_ui() -> None:
                                 return;
                             }}
                             window.phBulkImportFiles = files;
-                            if (status) status.textContent = `已选择 ${{files.length}} 个文件，点击导入开始`;
+                            const scoreFile = window.phBulkScoreFile || null;
+                            if (status) status.textContent = scoreFile
+                                ? `已选择 ${{files.length}} 个文件和打分表，点击导入开始`
+                                : `已选择 ${{files.length}} 个文件，继续选择打分表 CSV`;
                             phNotify(`已选择 ${{files.length}} 个文件`, 'positive');
+                            input.remove();
+                        }}, {{once: true}});
+                        document.body.appendChild(input);
+                        input.click();
+                    }}
+                    """,
+                )
+
+                bulk_score_button.on(
+                    "click",
+                    js_handler=f"""
+                    () => {{
+                        const status = document.querySelector('.ph-bulk-import-status');
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.accept = '.csv,text/csv';
+                        input.style.display = 'none';
+                        input.addEventListener('change', () => {{
+                            const file = input.files && input.files[0];
+                            if (!file) {{
+                                input.remove();
+                                return;
+                            }}
+                            if (!file.name.toLowerCase().endsWith('.csv')) {{
+                                window.phBulkScoreFile = null;
+                                phNotify('请只选择一个打分表 CSV', 'negative');
+                                input.remove();
+                                return;
+                            }}
+                            window.phBulkScoreFile = file;
+                            const files = window.phBulkImportFiles || [];
+                            if (status) status.textContent = files.length
+                                ? `已选择 ${{files.length}} 个文件和打分表，点击导入开始`
+                                : `已选择打分表 ${{file.name}}，继续选择结构文件夹`;
+                            phNotify('已选择打分表 CSV', 'positive');
                             input.remove();
                         }}, {{once: true}});
                         document.body.appendChild(input);
@@ -1390,30 +1375,52 @@ def install_ui() -> None:
                         async () => {{
                             const status = document.querySelector('.ph-bulk-import-status');
                             const files = window.phBulkImportFiles || [];
+                            const scoreFile = window.phBulkScoreFile || null;
                             const fieldValue = (selector) => {{
                                 const element = document.querySelector(selector);
                                 return element ? element.value : '';
                             }};
                             if (files.length === 0) {{
-                                phNotify('请先选择文件夹', 'negative');
+                                phNotify('请先选择结构文件夹', 'negative');
+                                return;
+                            }}
+                            if (!scoreFile) {{
+                                phNotify('请先选择打分表 CSV', 'negative');
                                 return;
                             }}
                             try {{
-                                if (status) status.textContent = `正在导入 ${{files.length}} 个文件...`;
+                                if (status) status.textContent = `正在导入 ${{files.length}} 个文件并上传打分表...`;
                                 const form = new FormData();
                                 form.append('protein_type', fieldValue('.ph-bulk-protein-type-select input') || 'TCR');
                                 form.append('target', fieldValue('.ph-bulk-protein-target-input input'));
                                 form.append('description', fieldValue('.ph-bulk-protein-description-input textarea'));
+                                form.append('score_file', scoreFile, scoreFile.name);
                                 for (const file of files) {{
                                     form.append('files', file, file.webkitRelativePath || file.name);
                                 }}
-                                const imported = await phApi('/api/projects/{project_id}/proteins/import-structures', {{
+                                const result = await phApi('/api/projects/{project_id}/proteins/import-structures', {{
                                     method: 'POST',
                                     body: form,
                                 }});
+                                const proteins = result && Array.isArray(result.proteins) ? result.proteins : [];
+                                const scoreImport = result && result.score_import ? result.score_import : {{}};
+                                const matched = Number.isFinite(scoreImport.matched_count)
+                                    ? scoreImport.matched_count
+                                    : 0;
+                                const skipped = Array.isArray(scoreImport.skipped_names)
+                                    ? scoreImport.skipped_names
+                                    : [];
                                 window.phBulkImportFiles = [];
-                                if (status) status.textContent = `已导入 ${{imported.length}} 个蛋白`;
-                                phNotify(`已导入 ${{imported.length}} 个蛋白`, 'positive');
+                                window.phBulkScoreFile = null;
+                                if (skipped.length) {{
+                                    const preview = skipped.slice(0, 6).join(', ');
+                                    const suffix = skipped.length > 6 ? `${{preview}} 等 ${{skipped.length}} 行` : preview;
+                                    if (status) status.textContent = `已导入 ${{proteins.length}} 个合成蛋白，打分表匹配 ${{matched}} 个，跳过 ${{skipped.length}} 行`;
+                                    phNotify(`已导入 ${{proteins.length}} 个合成蛋白，打分表跳过：${{suffix}}`, 'warning');
+                                }} else {{
+                                    if (status) status.textContent = `已导入 ${{proteins.length}} 个合成蛋白，打分表匹配 ${{matched}} 个`;
+                                    phNotify(`已导入 ${{proteins.length}} 个合成蛋白，打分表匹配 ${{matched}} 个`, 'positive');
+                                }}
                                 window.location.reload();
                             }} catch (error) {{
                                 if (status) status.textContent = '导入失败';

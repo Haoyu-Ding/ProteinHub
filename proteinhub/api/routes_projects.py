@@ -19,6 +19,7 @@ from proteinhub.api.schemas import (
     ProteinResponse,
     ProteinSequenceCheckRequest,
     ProteinSequenceCheckResponse,
+    ProteinStructureImportResponse,
     PublicProteinCreateRequest,
     PublicProteinResponse,
     PublicProteinUpdateRequest,
@@ -333,7 +334,7 @@ def create_projects_router(
 
     @router.post(
         "/projects/{project_id}/proteins/import-structures",
-        response_model=list[ProteinResponse],
+        response_model=ProteinStructureImportResponse,
     )
     def import_protein_structures_route(
         project_id: int,
@@ -345,10 +346,8 @@ def create_projects_router(
         allow_high_similarity: bool = Form(default=False),
         user: dict = Depends(current_user),
         connection: sqlite3.Connection = Depends(get_connection),
-    ) -> list[dict]:
+    ) -> dict:
         try:
-            if score_file is not None:
-                raise DomainError("Score table must be uploaded after proteins are imported")
             return import_proteins_from_structures(
                 connection,
                 storage_root=context.storage_root,
@@ -366,6 +365,15 @@ def create_projects_router(
                 protein_type=protein_type,
                 target=target,
                 allow_high_similarity=allow_high_similarity,
+                score_file=(
+                    (
+                        score_file.filename or "scores.csv",
+                        score_file.content_type or "text/csv",
+                        score_file.file.read(),
+                    )
+                    if score_file is not None
+                    else None
+                ),
             )
         except DomainError as error:
             raise map_domain_error(error) from error

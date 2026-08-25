@@ -181,12 +181,14 @@ def import_proteins_from_structures(
     protein_type: str = "TCR",
     target: str = "",
     allow_high_similarity: bool = False,
-) -> list[dict]:
+    score_file: tuple[str, str, bytes] | None = None,
+) -> dict:
     require_project_write(connection, project_id=project_id, user_id=user_id)
     if not files:
         raise DomainError("At least one structure file is required")
 
     normalized_type = normalize_protein_type(protein_type)
+    score_details_by_name = _parse_score_details_table(score_file) if score_file else {}
     parsed_proteins = []
     for filename, content_type, content in files:
         sequence = extract_structure_sequence(filename, content)["sequence"]
@@ -207,6 +209,7 @@ def import_proteins_from_structures(
     )
 
     protein_ids = []
+    proteins_by_score_key: dict[str, list[int]] = {}
     proteins = ProteinRepository(connection)
     store = file_store_for(connection, storage_root)
     with transaction(connection):
@@ -241,11 +244,22 @@ def import_proteins_from_structures(
                 ),
             )
             protein_ids.append(protein_id)
+            proteins_by_score_key.setdefault(_score_key(parsed["name"]), []).append(
+                protein_id
+            )
+        score_import = _apply_score_details(
+            proteins,
+            proteins_by_score_key=proteins_by_score_key,
+            score_details_by_name=score_details_by_name,
+        )
 
-    return [
-        get_protein(connection, protein_id=protein_id, user_id=user_id)
-        for protein_id in protein_ids
-    ]
+    return {
+        "proteins": [
+            get_protein(connection, protein_id=protein_id, user_id=user_id)
+            for protein_id in protein_ids
+        ],
+        "score_import": score_import,
+    }
 
 
 def import_project_protein_score_table(
@@ -261,21 +275,39 @@ def import_project_protein_score_table(
     proteins_by_key: dict[str, list[dict]] = {}
     for protein in proteins.list_sequences_for_project(project_id):
         proteins_by_key.setdefault(_score_key(protein["name"]), []).append(protein)
-    matched_keys = [key for key in score_details_by_name if key in proteins_by_key]
-    skipped_names = [
-        key for key in score_details_by_name if key not in proteins_by_key
-    ]
-    matched_count = 0
+    protein_ids_by_key = {
+        key: [int(protein["id"]) for protein in protein_rows]
+        for key, protein_rows in proteins_by_key.items()
+    }
 
     with transaction(connection):
-        for key in matched_keys:
-            for protein in proteins_by_key[key]:
-                proteins.update_score_details(
-                    protein_id=int(protein["id"]),
-                    score_details=score_details_by_name[key],
-                )
-                matched_count += 1
+        return _apply_score_details(
+            proteins,
+            proteins_by_score_key=protein_ids_by_key,
+            score_details_by_name=score_details_by_name,
+        )
 
+
+def _apply_score_details(
+    proteins: ProteinRepository,
+    *,
+    proteins_by_score_key: dict[str, list[int]],
+    score_details_by_name: dict[str, dict[str, str]],
+) -> dict:
+    matched_keys = [
+        key for key in score_details_by_name if key in proteins_by_score_key
+    ]
+    skipped_names = [
+        key for key in score_details_by_name if key not in proteins_by_score_key
+    ]
+    matched_count = 0
+    for key in matched_keys:
+        for protein_id in proteins_by_score_key[key]:
+            proteins.update_score_details(
+                protein_id=protein_id,
+                score_details=score_details_by_name[key],
+            )
+            matched_count += 1
     return {
         "matched_count": matched_count,
         "skipped_count": len(skipped_names),

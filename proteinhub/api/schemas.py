@@ -217,6 +217,11 @@ class ProjectProteinResponse(ProteinResponse):
     artifact_count: int
 
 
+class ProteinStructureImportResponse(BaseModel):
+    proteins: list[ProteinResponse]
+    score_import: ProjectProteinScoreImportResponse
+
+
 class PublicProteinResponse(BaseModel):
     id: int
     project_id: int
