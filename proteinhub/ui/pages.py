@@ -20,6 +20,7 @@ from proteinhub.ui.support import (
     empty_state,
     ensure_logged_in,
     format_bytes,
+    format_datetime_minute,
     humanize,
     notify_error,
     person_label,
@@ -2544,7 +2545,7 @@ def install_ui() -> None:
                         else "whitespace-pre-wrap"
                     )
                 )
-                receipt_updated_at = batch.get("receipt_updated_at") or ""
+                receipt_updated_at = format_datetime_minute(batch.get("receipt_updated_at"))
                 receipt_meta_label.text = (
                     f"最后更新：{person_label(batch.get('receipt_updated_by_name'), batch.get('receipt_updated_by_email'))} · {receipt_updated_at}"
                     if receipt_updated_at

@@ -1280,6 +1280,13 @@ def format_bytes(size: int) -> str:
     return f"{size / (1024 * 1024):.1f} 兆字节"
 
 
+def format_datetime_minute(value: str | None) -> str:
+    text = (value or "").strip().replace("T", " ")
+    if len(text) >= 16 and text[4] == "-" and text[7] == "-" and text[13] == ":":
+        return text[:16]
+    return text
+
+
 def humanize(value: str | None) -> str:
     if not value:
         return "未指定"
