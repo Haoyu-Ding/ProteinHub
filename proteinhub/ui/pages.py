@@ -306,6 +306,64 @@ def _format_days_since(value: int | None) -> str:
     return f"{value} 天前"
 
 
+def _sequence_similarity_scope_label(scope: str | None) -> str:
+    if scope == "existing":
+        return "已有蛋白"
+    if scope == "incoming":
+        return "本次导入"
+    return "未知来源"
+
+
+def _sequence_similarity_type_label(match_type: str | None) -> str:
+    if match_type == "duplicate":
+        return "重复"
+    return "高相似度"
+
+
+def _sequence_similarity_identity_label(match: dict) -> str:
+    try:
+        identity = float(match.get("identity") or 0)
+    except (TypeError, ValueError):
+        identity = 0
+    return f"{identity * 100:.1f}%"
+
+
+def _render_sequence_similarity_badge(protein: dict, open_dialog) -> None:
+    if protein.get("sequence_similarity_status") != "high_similarity":
+        return
+    badge = ui.badge("高相似度").props("outline color=warning").classes("cursor-pointer")
+    badge.on("click", lambda p=protein: open_dialog(p))
+    with badge:
+        ui.tooltip("查看相似蛋白")
+
+
+def _render_sequence_similarity_matches(protein: dict, container) -> None:
+    matches = protein.get("sequence_similarity_matches") or []
+    container.clear()
+    with container:
+        if not matches:
+            ui.label("没有保存的相似蛋白详情。").classes("ph-muted")
+            return
+        for match in matches:
+            with ui.row().classes("ph-file-row"):
+                with ui.column().classes("min-w-0 flex-1 gap-1"):
+                    ui.label(match.get("protein_name") or "未命名蛋白").classes("font-medium")
+                    ui.label(
+                        f"{_sequence_similarity_scope_label(match.get('scope'))} · "
+                        f"{_sequence_similarity_type_label(match.get('match_type'))} · "
+                        f"相似度 {_sequence_similarity_identity_label(match)}"
+                    ).classes("ph-meta")
+                protein_id = match.get("protein_id")
+                if protein_id:
+                    ui.button(
+                        "打开",
+                        icon="open_in_new",
+                        on_click=lambda target_id=protein_id: ui.navigate.to(
+                            f"/proteins/{target_id}"
+                        ),
+                    ).props("flat dense no-wrap")
+
+
 def _cadence_badge_color(status: str) -> str:
     if status == "on_track":
         return "positive"
@@ -799,6 +857,19 @@ def install_ui() -> None:
             protein_rating_target = {"protein_id": None}
             project_access = {"role": ""}
 
+            with ui.dialog() as similarity_dialog, ui.card().classes("ph-dialog-card w-full max-w-md gap-4"):
+                similarity_title = ui.label("相似蛋白").classes("text-lg font-semibold")
+                similarity_subtitle = ui.label().classes("ph-meta")
+                similarity_matches_column = ui.column().classes("w-full gap-2")
+                with ui.row().classes("justify-end w-full"):
+                    ui.button("关闭", on_click=similarity_dialog.close).props("flat")
+
+            def open_similarity_dialog(protein: dict) -> None:
+                similarity_title.text = "高相似度匹配"
+                similarity_subtitle.text = protein.get("name") or "未命名蛋白"
+                _render_sequence_similarity_matches(protein, similarity_matches_column)
+                similarity_dialog.open()
+
             async def load_project() -> None:
                 try:
                     data = await ui.run_javascript(f"return await phApi('/api/projects/{project_id}')", timeout=10)
@@ -887,8 +958,10 @@ def install_ui() -> None:
                                                     )
                                                     if protein["protein_type"]:
                                                         ui.badge(protein["protein_type"]).props("outline")
-                                                    if protein.get("sequence_similarity_status") == "high_similarity":
-                                                        ui.badge("高相似度").props("outline color=warning")
+                                                    _render_sequence_similarity_badge(
+                                                        protein,
+                                                        open_similarity_dialog,
+                                                    )
                                             ui.label(protein["description"] or "暂无描述").classes("ph-card-description")
                                             target_text = f" · 靶标 {protein['target']}" if protein["target"] else ""
                                             effective_date = protein.get("effective_date") or protein["created_at"][:10]
@@ -1499,8 +1572,10 @@ def install_ui() -> None:
                                 ).classes(
                                     protein_manual_rating_class(protein.get("manual_rating"))
                                 )
-                                if protein.get("sequence_similarity_status") == "high_similarity":
-                                    ui.badge("高相似度").props("outline color=warning")
+                                _render_sequence_similarity_badge(
+                                    protein,
+                                    open_similarity_dialog,
+                                )
                     update_selected_batch_label()
 
                 async def create_batch_from_selection() -> None:
@@ -2728,6 +2803,19 @@ def install_ui() -> None:
                     ui.label("这个蛋白关联的文件和生成结果会显示在这里。").classes("ph-muted")
             artifacts_column = ui.column().classes("w-full gap-3")
 
+            with ui.dialog() as similarity_dialog, ui.card().classes("ph-dialog-card w-full max-w-md gap-4"):
+                similarity_title = ui.label("相似蛋白").classes("text-lg font-semibold")
+                similarity_subtitle = ui.label().classes("ph-meta")
+                similarity_matches_column = ui.column().classes("w-full gap-2")
+                with ui.row().classes("justify-end w-full"):
+                    ui.button("关闭", on_click=similarity_dialog.close).props("flat")
+
+            def open_similarity_dialog(protein: dict) -> None:
+                similarity_title.text = "高相似度匹配"
+                similarity_subtitle.text = protein.get("name") or "未命名蛋白"
+                _render_sequence_similarity_matches(protein, similarity_matches_column)
+                similarity_dialog.open()
+
             async def load_protein() -> None:
                 artifacts_column.clear()
                 batch_results_column.clear()
@@ -2758,8 +2846,7 @@ def install_ui() -> None:
                         )
                         if protein["target"]:
                             ui.badge(f"靶标 {protein['target']}").props("outline color=secondary")
-                        if protein.get("sequence_similarity_status") == "high_similarity":
-                            ui.badge("高相似度").props("outline color=warning")
+                        _render_sequence_similarity_badge(protein, open_similarity_dialog)
                     with score_details_section:
                         score_details = protein.get("score_details") or {}
                         if score_details:
