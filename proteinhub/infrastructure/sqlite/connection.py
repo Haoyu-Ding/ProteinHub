@@ -258,6 +258,13 @@ def rebuild_batches_without_retired_columns(connection: sqlite3.Connection) -> N
     if not columns.intersection(RETIRED_BATCH_COLUMNS):
         return
     ordered_at_expression = "ordered_at" if "ordered_at" in columns else "''"
+    receipt_note_expression = "receipt_note" if "receipt_note" in columns else "''"
+    receipt_updated_by_expression = (
+        "receipt_updated_by" if "receipt_updated_by" in columns else "NULL"
+    )
+    receipt_updated_at_expression = (
+        "receipt_updated_at" if "receipt_updated_at" in columns else "''"
+    )
 
     connection.execute(
         """
@@ -269,6 +276,9 @@ def rebuild_batches_without_retired_columns(connection: sqlite3.Connection) -> N
             plate_format TEXT NOT NULL DEFAULT '96' CHECK (plate_format IN ('96')),
             order_status TEXT NOT NULL DEFAULT 'not_ordered' CHECK (order_status IN ('not_ordered', 'ordered', 'partially_received', 'fully_received')),
             ordered_at TEXT NOT NULL DEFAULT '',
+            receipt_note TEXT NOT NULL DEFAULT '',
+            receipt_updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            receipt_updated_at TEXT NOT NULL DEFAULT '',
             translation_padding INTEGER NOT NULL DEFAULT 0,
             translation_additional_w INTEGER NOT NULL DEFAULT 0,
             translation_organism TEXT NOT NULL DEFAULT '',
@@ -290,6 +300,9 @@ def rebuild_batches_without_retired_columns(connection: sqlite3.Connection) -> N
             plate_format,
             order_status,
             ordered_at,
+            receipt_note,
+            receipt_updated_by,
+            receipt_updated_at,
             translation_padding,
             translation_additional_w,
             translation_organism,
@@ -307,6 +320,9 @@ def rebuild_batches_without_retired_columns(connection: sqlite3.Connection) -> N
             plate_format,
             COALESCE(NULLIF(order_status, ''), 'not_ordered'),
             COALESCE(NULLIF({ordered_at_expression}, ''), ''),
+            COALESCE(NULLIF({receipt_note_expression}, ''), ''),
+            {receipt_updated_by_expression},
+            COALESCE(NULLIF({receipt_updated_at_expression}, ''), ''),
             translation_padding,
             translation_additional_w,
             translation_organism,

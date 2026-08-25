@@ -81,6 +81,9 @@ CREATE TABLE IF NOT EXISTS batches (
     plate_format TEXT NOT NULL DEFAULT '96' CHECK (plate_format IN ('96')),
     order_status TEXT NOT NULL DEFAULT 'not_ordered' CHECK (order_status IN ('not_ordered', 'ordered', 'partially_received', 'fully_received')),
     ordered_at TEXT NOT NULL DEFAULT '',
+    receipt_note TEXT NOT NULL DEFAULT '',
+    receipt_updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    receipt_updated_at TEXT NOT NULL DEFAULT '',
     translation_padding INTEGER NOT NULL DEFAULT 0,
     translation_additional_w INTEGER NOT NULL DEFAULT 0,
     translation_organism TEXT NOT NULL DEFAULT '',
@@ -304,6 +307,21 @@ MIGRATIONS = [
         "batches",
         "ordered_at",
         "ALTER TABLE batches ADD COLUMN ordered_at TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "batches",
+        "receipt_note",
+        "ALTER TABLE batches ADD COLUMN receipt_note TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "batches",
+        "receipt_updated_by",
+        "ALTER TABLE batches ADD COLUMN receipt_updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL",
+    ),
+    (
+        "batches",
+        "receipt_updated_at",
+        "ALTER TABLE batches ADD COLUMN receipt_updated_at TEXT NOT NULL DEFAULT ''",
     ),
     (
         "batches",

@@ -79,6 +79,9 @@ CREATE TABLE IF NOT EXISTS batches (
     plate_format TEXT NOT NULL DEFAULT '96' CHECK (plate_format IN ('96')),
     order_status TEXT NOT NULL DEFAULT 'not_ordered' CHECK (order_status IN ('not_ordered', 'ordered', 'partially_received', 'fully_received')),
     ordered_at TEXT NOT NULL DEFAULT '',
+    receipt_note TEXT NOT NULL DEFAULT '',
+    receipt_updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    receipt_updated_at TEXT NOT NULL DEFAULT '',
     translation_padding INTEGER NOT NULL DEFAULT 0,
     translation_additional_w INTEGER NOT NULL DEFAULT 0,
     translation_organism TEXT NOT NULL DEFAULT '',
@@ -201,4 +204,7 @@ POSTGRES_MIGRATIONS = [
     "ALTER TABLE artifacts ADD COLUMN IF NOT EXISTS content BYTEA",
     "ALTER TABLE artifacts ADD COLUMN IF NOT EXISTS content_sha256 TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE experiment_raw_files ADD COLUMN IF NOT EXISTS well_id BIGINT REFERENCES batch_wells(id) ON DELETE SET NULL",
+    "ALTER TABLE batches ADD COLUMN IF NOT EXISTS receipt_note TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE batches ADD COLUMN IF NOT EXISTS receipt_updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL",
+    "ALTER TABLE batches ADD COLUMN IF NOT EXISTS receipt_updated_at TEXT NOT NULL DEFAULT ''",
 ]

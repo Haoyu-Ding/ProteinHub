@@ -127,6 +127,7 @@ class BatchWellPositionUpdateRequest(BaseModel):
 
 class BatchOrderStatusUpdateRequest(BaseModel):
     order_status: str
+    receipt_note: str | None = None
 
 
 class BatchTranslationRequest(BaseModel):
@@ -271,6 +272,11 @@ class BatchResponse(BaseModel):
     plate_format: str
     order_status: str
     ordered_at: str = ""
+    receipt_note: str = ""
+    receipt_updated_by: int | None = None
+    receipt_updated_at: str = ""
+    receipt_updated_by_name: str = ""
+    receipt_updated_by_email: str = ""
     translation_padding: bool = False
     translation_additional_w: bool = False
     translation_organism: str = ""

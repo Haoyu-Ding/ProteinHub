@@ -12,6 +12,7 @@ from typing import Any
 
 from proteinhub.application.permissions import (
     project_for_protein,
+    require_project_owner,
     require_project_read,
     require_project_write,
 )
@@ -225,9 +226,12 @@ def update_batch_order_status(
     batch_id: int,
     user_id: int,
     order_status: str,
+    receipt_note: str | None = None,
 ) -> dict:
     project_id = project_for_batch(connection, batch_id)
     require_project_write(connection, project_id=project_id, user_id=user_id)
+    if receipt_note is not None:
+        require_project_owner(connection, project_id=project_id, user_id=user_id)
     batch_repository = BatchRepository(connection)
     batch = batch_repository.get(batch_id)
     if not batch:
@@ -240,12 +244,20 @@ def update_batch_order_status(
         current_status=current_status,
         next_status=normalized_status,
     )
-    if normalized_status != current_status:
+    normalized_receipt_note = receipt_note.strip() if receipt_note is not None else None
+    if normalized_status != current_status or normalized_receipt_note is not None:
         with transaction(connection):
-            batch_repository.update_order_status(
-                batch_id=batch_id,
-                order_status=normalized_status,
-            )
+            if normalized_status != current_status:
+                batch_repository.update_order_status(
+                    batch_id=batch_id,
+                    order_status=normalized_status,
+                )
+            if normalized_receipt_note is not None:
+                batch_repository.update_receipt_note(
+                    batch_id=batch_id,
+                    receipt_note=normalized_receipt_note,
+                    receipt_updated_by=user_id,
+                )
     return get_batch(connection, batch_id=batch_id, user_id=user_id)
 
 

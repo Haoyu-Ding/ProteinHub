@@ -19,9 +19,12 @@ class BatchRepository:
             SELECT
                 batches.*,
                 users.name AS created_by_name,
-                users.email AS created_by_email
+                users.email AS created_by_email,
+                COALESCE(receipt_users.name, '') AS receipt_updated_by_name,
+                COALESCE(receipt_users.email, '') AS receipt_updated_by_email
             FROM batches
             JOIN users ON users.id = batches.created_by
+            LEFT JOIN users AS receipt_users ON receipt_users.id = batches.receipt_updated_by
             WHERE batches.id = ?
             """,
             (batch_id,),
@@ -34,6 +37,8 @@ class BatchRepository:
                 batches.*,
                 users.name AS created_by_name,
                 users.email AS created_by_email,
+                COALESCE(receipt_users.name, '') AS receipt_updated_by_name,
+                COALESCE(receipt_users.email, '') AS receipt_updated_by_email,
                 (
                     SELECT COUNT(*)
                     FROM batch_wells
@@ -57,6 +62,7 @@ class BatchRepository:
                 ) AS result_count
             FROM batches
             JOIN users ON users.id = batches.created_by
+            LEFT JOIN users AS receipt_users ON receipt_users.id = batches.receipt_updated_by
             WHERE batches.project_id = ?
             ORDER BY batches.created_at DESC, batches.id DESC
             """,
@@ -146,6 +152,22 @@ class BatchRepository:
             WHERE id = ?
             """,
             (order_status, order_status, batch_id),
+        )
+
+    def update_receipt_note(
+        self, *, batch_id: int, receipt_note: str, receipt_updated_by: int
+    ) -> None:
+        self.connection.execute(
+            """
+            UPDATE batches
+            SET
+                receipt_note = ?,
+                receipt_updated_by = ?,
+                receipt_updated_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (receipt_note, receipt_updated_by, batch_id),
         )
 
     def list_order_monitor_batches(self) -> list[dict]:

@@ -1009,6 +1009,8 @@ def install_ui() -> None:
                                                     humanize(batch.get("order_status") or "not_ordered")
                                                 ).props("outline color=secondary")
                                             ui.label(batch["description"] or "暂无描述").classes("ph-card-description")
+                                            if batch.get("receipt_note"):
+                                                ui.label(f"收货：{batch['receipt_note']}").classes("ph-meta")
                                             ui.label(
                                                 f"{batch['well_count']} 个孔 · {batch['experiment_count']} 个实验 · {batch['result_count']} 个结果"
                                             ).classes("ph-meta")
@@ -1628,11 +1630,23 @@ def install_ui() -> None:
                     with ui.row().classes("items-center gap-2"):
                         batch_status_badge = ui.badge("未order").props("outline")
                         batch_status_button = ui.button(
-                            "修改状态",
+                            "修改状态/说明",
                             icon="published_with_changes",
                             on_click=lambda: status_dialog.open(),
                         ).props("flat dense no-wrap")
                     batch_meta = ui.row().classes("gap-2")
+
+            with ui.column().classes("ph-panel w-full gap-3 p-4"):
+                with ui.row().classes("ph-section-bar w-full"):
+                    with ui.column().classes("gap-0"):
+                        ui.label("收货说明").classes("text-xl font-semibold")
+                        receipt_meta_label = ui.label().classes("ph-muted")
+                    receipt_edit_button = ui.button(
+                        "编辑",
+                        icon="edit_note",
+                        on_click=lambda: status_dialog.open(),
+                    ).props("flat no-wrap")
+                receipt_note_label = ui.label("暂无收货说明").classes("ph-muted whitespace-pre-wrap")
 
             with ui.column().classes("ph-panel w-full gap-4 p-4"):
                 with ui.row().classes("ph-section-bar w-full"):
@@ -2189,6 +2203,10 @@ def install_ui() -> None:
                     value="not_ordered",
                     label="状态",
                 ).props("outlined").classes("w-full")
+                batch_receipt_note_value = ui.textarea(
+                    "收货说明",
+                    placeholder="例如：已收到 A1-A6，A7-A12 预计下周补发",
+                ).props("outlined autogrow").classes("w-full")
                 with ui.row().classes("justify-end w-full"):
                     ui.button("取消", on_click=status_dialog.close).props("flat")
                     ui.button(
@@ -2199,7 +2217,11 @@ def install_ui() -> None:
 
             translation_state = {"dna_fasta": ""}
             translation_in_flight = {"value": False}
-            batch_editable_state = {"value": True, "can_write": True}
+            batch_editable_state = {
+                "value": True,
+                "can_write": True,
+                "can_manage_receipt": False,
+            }
 
             def _fasta_from_sequences(sequences: list[dict]) -> str:
                 lines: list[str] = []
@@ -2471,11 +2493,14 @@ def install_ui() -> None:
 
             async def update_batch_status() -> None:
                 try:
+                    payload = {"order_status": batch_status_value.value}
+                    if batch_editable_state["can_manage_receipt"]:
+                        payload["receipt_note"] = batch_receipt_note_value.value or ""
                     result = await ui.run_javascript(
                         f"""
                         return await phApi('/api/batches/{batch_id}/status', {{
                             method: 'PATCH',
-                            body: {{order_status: {batch_status_value.value!r}}},
+                            body: {json.dumps(payload)},
                         }});
                         """,
                         timeout=10,
@@ -2495,15 +2520,35 @@ def install_ui() -> None:
                 score_density_plots = data.get("score_density_plots") or []
                 order_status = batch.get("order_status") or "not_ordered"
                 can_write_batch = data.get("access_role") in {"owner", "member"}
+                can_manage_receipt = data.get("access_role") == "owner"
                 batch_editable = can_write_batch and order_status == "not_ordered"
                 batch_editable_state["value"] = batch_editable
                 batch_editable_state["can_write"] = can_write_batch
+                batch_editable_state["can_manage_receipt"] = can_manage_receipt
                 batch_title.text = batch["name"]
                 batch_description.text = batch["description"] or "暂无描述"
                 batch_status_badge.text = humanize(order_status)
                 batch_status_value.value = order_status
+                batch_receipt_note_value.value = batch.get("receipt_note") or ""
+                batch_receipt_note_value.visible = can_manage_receipt
                 batch_status_button.visible = (
                     can_write_batch and order_status != "fully_received"
+                ) or can_manage_receipt
+                receipt_edit_button.visible = can_manage_receipt
+                receipt_note = batch.get("receipt_note") or ""
+                receipt_note_label.text = receipt_note or "暂无收货说明"
+                receipt_note_label.classes(
+                    replace=(
+                        "ph-muted whitespace-pre-wrap"
+                        if not receipt_note
+                        else "whitespace-pre-wrap"
+                    )
+                )
+                receipt_updated_at = batch.get("receipt_updated_at") or ""
+                receipt_meta_label.text = (
+                    f"最后更新：{person_label(batch.get('receipt_updated_by_name'), batch.get('receipt_updated_by_email'))} · {receipt_updated_at}"
+                    if receipt_updated_at
+                    else "项目负责人可以在这里记录部分收货情况"
                 )
                 batch_meta.clear()
                 with batch_meta:

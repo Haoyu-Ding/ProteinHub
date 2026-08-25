@@ -478,6 +478,9 @@ def test_database_schema_has_no_sequence_or_collaboration_tables(tmp_path: Path)
     assert "experiment_type" not in batch_columns
     assert "order_status" in batch_columns
     assert "ordered_at" in batch_columns
+    assert "receipt_note" in batch_columns
+    assert "receipt_updated_by" in batch_columns
+    assert "receipt_updated_at" in batch_columns
     assert "result_value" not in batch_well_columns
     assert "result_note" not in batch_well_columns
     assert not {
@@ -768,7 +771,18 @@ def test_init_db_removes_retired_collaboration_schema_from_existing_database(
             """
         ).fetchone()
         batch = connection.execute(
-            "SELECT id, name, description, plate_format, order_status FROM batches"
+            """
+            SELECT
+                id,
+                name,
+                description,
+                plate_format,
+                order_status,
+                receipt_note,
+                receipt_updated_by,
+                receipt_updated_at
+            FROM batches
+            """
         ).fetchone()
         well = connection.execute(
             "SELECT id, batch_id, protein_id, position FROM batch_wells"
@@ -787,6 +801,9 @@ def test_init_db_removes_retired_collaboration_schema_from_existing_database(
         "risk_note",
     }.intersection(protein_columns)
     assert "experiment_type" not in batch_columns
+    assert "receipt_note" in batch_columns
+    assert "receipt_updated_by" in batch_columns
+    assert "receipt_updated_at" in batch_columns
     assert "result_value" not in batch_well_columns
     assert "result_note" not in batch_well_columns
     assert "ordered_at" in batch_columns
@@ -817,7 +834,7 @@ def test_init_db_removes_retired_collaboration_schema_from_existing_database(
         "",
         "",
     )
-    assert batch == (9, "legacy batch", "kept batch", "96", "not_ordered")
+    assert batch == (9, "legacy batch", "kept batch", "96", "not_ordered", "", None, "")
     assert well == (11, 9, 7, "A01")
 
 
@@ -2389,6 +2406,7 @@ def test_batch_order_status_moves_forward_and_locks_ordered_batch_edits(
 def test_batch_order_status_can_move_through_partial_receipt(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     owner_token = register(client, "owner@example.com")
+    member_token = register(client, "member@example.com")
 
     project = client.post(
         "/api/projects",
@@ -2400,11 +2418,20 @@ def test_batch_order_status_can_move_through_partial_receipt(tmp_path: Path) -> 
         headers=auth(owner_token),
         json={"name": "binder", "sequence": "ACDEFG"},
     ).json()
+    added_member = client.post(
+        f"/api/projects/{project['id']}/members",
+        headers=auth(owner_token),
+        json={"email": "member@example.com", "role": "member"},
+    )
+    assert added_member.status_code == 200, added_member.text
     batch = client.post(
         f"/api/projects/{project['id']}/batches",
         headers=auth(owner_token),
         json={"name": "Partial receipt batch", "protein_ids": [protein["id"]]},
     ).json()["batch"]
+    assert batch["receipt_note"] == ""
+    assert batch["receipt_updated_by"] is None
+    assert batch["receipt_updated_at"] == ""
 
     ordered = client.patch(
         f"/api/batches/{batch['id']}/status",
@@ -2416,10 +2443,35 @@ def test_batch_order_status_can_move_through_partial_receipt(tmp_path: Path) -> 
     partial = client.patch(
         f"/api/batches/{batch['id']}/status",
         headers=auth(owner_token),
-        json={"order_status": "partially_received"},
+        json={
+            "order_status": "partially_received",
+            "receipt_note": "已收到 A1，剩余样品供应商预计下周补发。",
+        },
     )
     assert partial.status_code == 200, partial.text
-    assert partial.json()["batch"]["order_status"] == "partially_received"
+    partial_batch = partial.json()["batch"]
+    assert partial_batch["order_status"] == "partially_received"
+    assert partial_batch["receipt_note"] == "已收到 A1，剩余样品供应商预计下周补发。"
+    assert partial_batch["receipt_updated_by"] == project["owner_id"]
+    assert partial_batch["receipt_updated_by_name"] == "owner"
+    assert partial_batch["receipt_updated_at"]
+
+    member_detail = client.get(
+        f"/api/batches/{batch['id']}",
+        headers=auth(member_token),
+    )
+    assert member_detail.status_code == 200, member_detail.text
+    assert (
+        member_detail.json()["batch"]["receipt_note"]
+        == "已收到 A1，剩余样品供应商预计下周补发。"
+    )
+
+    member_receipt_update = client.patch(
+        f"/api/batches/{batch['id']}/status",
+        headers=auth(member_token),
+        json={"order_status": "partially_received", "receipt_note": "member edit"},
+    )
+    assert member_receipt_update.status_code == 403
 
     fully_received = client.patch(
         f"/api/batches/{batch['id']}/status",
