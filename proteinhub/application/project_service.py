@@ -17,8 +17,10 @@ from proteinhub.infrastructure.sqlite.repositories import ProjectRepository, Use
 def list_projects(connection: sqlite3.Connection, user_id: int) -> list[dict]:
     projects = ProjectRepository(connection)
     if is_admin(connection, user_id=user_id):
-        return projects.list_all_as_owner()
-    return projects.list_for_user(user_id)
+        rows = projects.list_all_as_owner()
+    else:
+        rows = projects.list_for_user(user_id)
+    return _with_project_member_summary(projects, rows)
 
 
 def create_project(
@@ -61,6 +63,29 @@ def get_project(connection: sqlite3.Connection, *, project_id: int, user_id: int
         raise NotFoundError("Project not found")
     project["role"] = role
     return project
+
+
+def _with_project_member_summary(
+    projects: ProjectRepository, project_rows: list[dict]
+) -> list[dict]:
+    member_rows = projects.list_members_for_projects(
+        [int(project["id"]) for project in project_rows]
+    )
+    members_by_project_id: dict[int, list[dict]] = {}
+    for member in member_rows:
+        project_id = int(member["project_id"])
+        members_by_project_id.setdefault(project_id, []).append(
+            {
+                "id": member["id"],
+                "name": member["name"],
+                "email": member["email"],
+            }
+        )
+    for project in project_rows:
+        members = members_by_project_id.get(int(project["id"]), [])
+        project["members"] = members
+        project["member_count"] = len(members)
+    return project_rows
 
 
 def list_project_members(

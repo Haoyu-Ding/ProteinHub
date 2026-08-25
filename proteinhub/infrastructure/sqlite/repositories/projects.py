@@ -34,11 +34,14 @@ class ProjectRepository:
             """
             SELECT
                 projects.*,
+                owner_users.name AS owner_name,
+                owner_users.email AS owner_email,
                 CASE
                     WHEN projects.owner_id = ? THEN 'owner'
                     ELSE 'member'
                 END AS role
             FROM projects
+            JOIN users AS owner_users ON owner_users.id = projects.owner_id
             LEFT JOIN project_members
                 ON project_members.project_id = projects.id
                AND project_members.user_id = ?
@@ -54,8 +57,11 @@ class ProjectRepository:
             """
             SELECT
                 projects.*,
+                owner_users.name AS owner_name,
+                owner_users.email AS owner_email,
                 'owner' AS role
             FROM projects
+            JOIN users AS owner_users ON owner_users.id = projects.owner_id
             ORDER BY projects.created_at DESC, projects.id DESC
             """
         ).fetchall()
@@ -167,4 +173,25 @@ class ProjectRepository:
             ORDER BY role DESC, name, email
             """,
             (project_id, project_id),
+        ).fetchall()
+
+    def list_members_for_projects(self, project_ids: list[int]) -> list[dict]:
+        if not project_ids:
+            return []
+        placeholders = ",".join("?" for _ in project_ids)
+        return self.connection.execute(
+            f"""
+            SELECT
+                project_members.project_id,
+                users.id,
+                users.name,
+                users.email
+            FROM project_members
+            JOIN users ON users.id = project_members.user_id
+            JOIN projects ON projects.id = project_members.project_id
+            WHERE project_members.project_id IN ({placeholders})
+              AND users.id != projects.owner_id
+            ORDER BY project_members.project_id, users.name, users.email
+            """,
+            tuple(project_ids),
         ).fetchall()

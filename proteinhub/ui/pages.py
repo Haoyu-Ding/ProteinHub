@@ -328,6 +328,27 @@ def _sequence_similarity_identity_label(match: dict) -> str:
     return f"{identity * 100:.1f}%"
 
 
+def _project_member_badge_text(project: dict) -> str:
+    members = project.get("members") or []
+    member_count = int(project.get("member_count") or len(members))
+    if member_count <= 0:
+        return ""
+    names = [person_label(member.get("name"), member.get("email")) for member in members]
+    if not names:
+        return f"成员 {member_count} 人"
+    display_names = names[:3]
+    suffix = f"等 {member_count} 人" if member_count > len(display_names) else ""
+    return f"成员 {'、'.join(display_names)}{suffix}"
+
+
+def _project_member_tooltip(project: dict) -> str:
+    members = project.get("members") or []
+    return "\n".join(
+        f"{person_label(member.get('name'), member.get('email'))} <{member.get('email')}>"
+        for member in members
+    )
+
+
 def _render_sequence_similarity_badge(protein: dict, open_dialog) -> None:
     if protein.get("sequence_similarity_status") != "high_similarity":
         return
@@ -526,6 +547,22 @@ def install_ui() -> None:
                                     with ui.column().classes("ph-project-card-text"):
                                         ui.label(project["name"]).classes("ph-card-title")
                                         ui.label(project["description"] or "暂无描述").classes("ph-card-description")
+                                        with ui.row().classes("items-center gap-2 flex-wrap"):
+                                            owner_badge = ui.badge(
+                                                f"负责人 {person_label(project.get('owner_name'), project.get('owner_email'))}"
+                                            ).props("outline color=primary").classes("max-w-full")
+                                            if project.get("owner_email"):
+                                                with owner_badge:
+                                                    ui.tooltip(project["owner_email"])
+                                            member_badge_text = _project_member_badge_text(project)
+                                            if member_badge_text:
+                                                member_badge = ui.badge(member_badge_text).props(
+                                                    "outline color=secondary"
+                                                ).classes("max-w-full whitespace-normal")
+                                                member_tooltip = _project_member_tooltip(project)
+                                                if member_tooltip:
+                                                    with member_badge:
+                                                        ui.tooltip(member_tooltip)
                                 with ui.row().classes("ph-project-card-footer"):
                                     ui.badge(humanize(project["role"])).props("outline")
                                     if can_delete_projects:

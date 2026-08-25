@@ -1068,6 +1068,44 @@ def test_project_public_proteins_are_project_bound_crud_records(
     assert empty.json() == []
 
 
+def test_project_list_includes_owner_and_member_summary(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com", "张三")
+    member_token = register(client, "member@example.com", "李四")
+    register(client, "assay@example.com", "王五")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Member summary"},
+    ).json()
+    for email in ("member@example.com", "assay@example.com"):
+        added = client.post(
+            f"/api/projects/{project['id']}/members",
+            headers=auth(owner_token),
+            json={"email": email, "role": "member"},
+        )
+        assert added.status_code == 200, added.text
+
+    listed = client.get("/api/projects", headers=auth(owner_token))
+    assert listed.status_code == 200, listed.text
+    listed_project = next(item for item in listed.json() if item["id"] == project["id"])
+    assert listed_project["owner_name"] == "张三"
+    assert listed_project["owner_email"] == "owner@example.com"
+    assert listed_project["member_count"] == 2
+    assert {
+        (member["name"], member["email"])
+        for member in listed_project["members"]
+    } == {
+        ("王五", "assay@example.com"),
+        ("李四", "member@example.com"),
+    }
+
+    member_listed = client.get("/api/projects", headers=auth(member_token))
+    assert member_listed.status_code == 200, member_listed.text
+    assert member_listed.json()[0]["member_count"] == 2
+
+
 def test_create_protein_with_structure_file_can_download_structure(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     owner_token = register(client, "owner@example.com")
