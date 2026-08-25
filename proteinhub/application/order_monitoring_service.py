@@ -111,6 +111,9 @@ def _weekly_orders(
             "week_start": week_start.isoformat(),
             "week_label": _week_key(week_start),
             "order_count": 0,
+            "ordered_count": 0,
+            "partially_received_count": 0,
+            "fully_received_count": 0,
             "protein_count": 0,
             "batch_ids": [],
         }
@@ -121,6 +124,9 @@ def _weekly_orders(
         if week is None:
             continue
         week["order_count"] += 1
+        status_count_key = f"{batch['order_status']}_count"
+        if status_count_key in week:
+            week[status_count_key] += 1
         week["protein_count"] += batch["well_count"]
         week["batch_ids"].append(batch["id"])
     return list(counts.values())

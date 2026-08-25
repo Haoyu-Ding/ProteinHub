@@ -38,6 +38,11 @@ PROTEIN_LIST_SORT_OPTIONS = {
     "rating_desc": "评级高到低",
     "rating_asc": "评级低到高",
 }
+ORDER_MONITOR_STATUS_SEGMENTS = (
+    ("ordered_count", "已 order", "#2563eb"),
+    ("partially_received_count", "部分收货", "#f97316"),
+    ("fully_received_count", "全部收货", "#94a3b8"),
+)
 HELP_SECTIONS = (
     {
         "id": "quick-start",
@@ -564,7 +569,6 @@ def install_ui() -> None:
                                                     with member_badge:
                                                         ui.tooltip(member_tooltip)
                                 with ui.row().classes("ph-project-card-footer"):
-                                    ui.badge(humanize(project["role"])).props("outline")
                                     if can_delete_projects:
                                         delete_button = ui.button(
                                             icon="delete",
@@ -676,14 +680,14 @@ def install_ui() -> None:
                             icon="restart_alt",
                             on_click=lambda: reset_monitor_range(),
                         ).props("flat no-wrap")
+                with ui.row().classes("ph-monitor-legend"):
+                    for _count_key, label, color in ORDER_MONITOR_STATUS_SEGMENTS:
+                        with ui.row().classes("items-center gap-1"):
+                            ui.element("span").classes("ph-monitor-legend-dot").style(
+                                f"background: {color};"
+                            )
+                            ui.label(label).classes("ph-meta")
                 week_chart = ui.element("div").classes("ph-monitor-bar-chart")
-
-            with ui.column().classes("ph-panel w-full gap-4 p-4"):
-                with ui.row().classes("ph-section-bar w-full"):
-                    with ui.column().classes("gap-0"):
-                        ui.label("已 order 批次").classes("text-xl font-semibold")
-                        ui.label("按 order 时间从新到旧排列。").classes("ph-muted")
-                batch_list = ui.column().classes("w-full gap-2")
 
             def render_stat(title_text: str, value_text: str, detail_text: str) -> None:
                 with ui.column().classes("ph-monitor-stat gap-2"):
@@ -718,33 +722,26 @@ def install_ui() -> None:
                     for week in weeks:
                         order_count = week["order_count"]
                         height = (order_count / max_count) * 100 if max_count else 0
-                        opacity = "1" if order_count else "0.18"
                         with ui.column().classes("ph-monitor-chart-column gap-2"):
                             ui.label(str(order_count)).classes("font-semibold text-slate-900")
                             with ui.element("div").classes("ph-monitor-chart-track"):
-                                ui.element("div").classes("ph-monitor-chart-bar").style(
-                                    f"height: {height}%; opacity: {opacity};"
-                                )
+                                if order_count:
+                                    with ui.element("div").classes("ph-monitor-chart-stack").style(
+                                        f"height: {height:.1f}%;"
+                                    ):
+                                        for count_key, label, color in ORDER_MONITOR_STATUS_SEGMENTS:
+                                            count = int(week.get(count_key) or 0)
+                                            if not count:
+                                                continue
+                                            segment_height = (count / order_count) * 100
+                                            ui.element("div").classes("ph-monitor-chart-segment").style(
+                                                f"height: {segment_height:.1f}%; background: {color};"
+                                            ).props(f'title="{label}: {count}"')
+                                else:
+                                    ui.element("div").classes(
+                                        "ph-monitor-chart-stack ph-monitor-chart-empty"
+                                    )
                             ui.label(week["week_label"]).classes("ph-meta")
-
-            def render_batches(batches: list[dict]) -> None:
-                batch_list.clear()
-                with batch_list:
-                    if not batches:
-                        empty_state("inventory_2", "还没有已 order 批次", "批次状态改为已 order 后会显示在这里。")
-                    for batch in batches:
-                        with ui.element("div").classes("ph-monitor-batch-row"):
-                            with ui.column().classes("min-w-0 gap-1"):
-                                ui.label(batch["name"]).classes("font-semibold text-slate-900")
-                                ui.label(batch["project_name"]).classes("ph-meta")
-                            ui.label(_format_order_date(batch["ordered_at"])).classes("text-sm text-slate-800")
-                            ui.badge(humanize(batch["order_status"])).props("outline color=secondary")
-                            ui.label(f"{batch['well_count']} 个蛋白").classes("ph-meta")
-                            ui.button(
-                                "打开",
-                                icon="open_in_new",
-                                on_click=lambda b=batch: ui.navigate.to(f"/batches/{b['id']}"),
-                            ).props("flat no-wrap")
 
             async def load_monitor() -> None:
                 try:
@@ -771,7 +768,6 @@ def install_ui() -> None:
                     )
                     render_summary(payload["summary"])
                     render_weeks(payload["weekly_orders"])
-                    render_batches(payload["batches"])
                 except Exception as error:
                     notify_error(error)
                 finally:

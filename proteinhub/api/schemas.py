@@ -319,6 +319,9 @@ class WeeklyOrderResponse(BaseModel):
     week_start: str
     week_label: str
     order_count: int
+    ordered_count: int
+    partially_received_count: int
+    fully_received_count: int
     protein_count: int
     batch_ids: list[int]
 

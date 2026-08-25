@@ -2554,6 +2554,22 @@ def test_order_monitor_lists_accessible_ordered_batches_by_week(tmp_path: Path) 
         headers=auth(owner_token),
         json={"name": "Draft batch", "protein_ids": [protein_a["id"]]},
     ).json()["batch"]
+    partially_received_batch = client.post(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+        json={
+            "name": "Partially received batch",
+            "protein_ids": [protein_a["id"], protein_b["id"]],
+        },
+    ).json()["batch"]
+    fully_received_batch = client.post(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+        json={
+            "name": "Fully received batch",
+            "protein_ids": [protein_a["id"], protein_b["id"]],
+        },
+    ).json()["batch"]
 
     ordered = client.patch(
         f"/api/batches/{ordered_batch['id']}/status",
@@ -2561,7 +2577,32 @@ def test_order_monitor_lists_accessible_ordered_batches_by_week(tmp_path: Path) 
         json={"order_status": "ordered"},
     )
     assert ordered.status_code == 200, ordered.text
-    ordered_at = ordered.json()["batch"]["ordered_at"]
+
+    partial_ordered = client.patch(
+        f"/api/batches/{partially_received_batch['id']}/status",
+        headers=auth(owner_token),
+        json={"order_status": "ordered"},
+    )
+    assert partial_ordered.status_code == 200, partial_ordered.text
+    partial_received = client.patch(
+        f"/api/batches/{partially_received_batch['id']}/status",
+        headers=auth(owner_token),
+        json={"order_status": "partially_received"},
+    )
+    assert partial_received.status_code == 200, partial_received.text
+
+    full_ordered = client.patch(
+        f"/api/batches/{fully_received_batch['id']}/status",
+        headers=auth(owner_token),
+        json={"order_status": "ordered"},
+    )
+    assert full_ordered.status_code == 200, full_ordered.text
+    full_received = client.patch(
+        f"/api/batches/{fully_received_batch['id']}/status",
+        headers=auth(owner_token),
+        json={"order_status": "fully_received"},
+    )
+    assert full_received.status_code == 200, full_received.text
 
     artifact = client.post(
         f"/api/proteins/{protein_a['id']}/artifacts",
@@ -2577,22 +2618,37 @@ def test_order_monitor_lists_accessible_ordered_batches_by_week(tmp_path: Path) 
     assert monitor.status_code == 200, monitor.text
     payload = monitor.json()
     assert len(payload["weekly_orders"]) == 8
-    assert payload["summary"]["total_ordered_batches"] == 1
-    assert payload["summary"]["total_ordered_proteins"] == 2
-    assert payload["summary"]["last_ordered_at"] == ordered_at
+    assert payload["summary"]["total_ordered_batches"] == 3
+    assert payload["summary"]["total_ordered_proteins"] == 6
+    assert payload["summary"]["last_ordered_at"] == payload["batches"][0]["ordered_at"]
     assert payload["summary"]["cadence_target_days"] == 14
-    assert [batch["id"] for batch in payload["batches"]] == [ordered_batch["id"]]
-    assert payload["batches"][0]["project_name"] == "Order monitor project"
-    assert payload["batches"][0]["well_count"] == 2
+    assert {batch["id"] for batch in payload["batches"]} == {
+        ordered_batch["id"],
+        partially_received_batch["id"],
+        fully_received_batch["id"],
+    }
+    assert all(
+        batch["project_name"] == "Order monitor project" for batch in payload["batches"]
+    )
+    assert all(batch["well_count"] == 2 for batch in payload["batches"])
     assert not_ordered_batch["id"] not in [
         batch["id"] for batch in payload["batches"]
     ]
-    assert any(
-        ordered_batch["id"] in week["batch_ids"]
-        and week["order_count"] == 1
-        and week["protein_count"] == 2
+    ordered_week = next(
+        week
         for week in payload["weekly_orders"]
+        if ordered_batch["id"] in week["batch_ids"]
     )
+    assert set(ordered_week["batch_ids"]) == {
+        ordered_batch["id"],
+        partially_received_batch["id"],
+        fully_received_batch["id"],
+    }
+    assert ordered_week["order_count"] == 3
+    assert ordered_week["ordered_count"] == 1
+    assert ordered_week["partially_received_count"] == 1
+    assert ordered_week["fully_received_count"] == 1
+    assert ordered_week["protein_count"] == 6
 
     historical_monitor = client.get(
         "/api/order-monitor?start_date=2000-01-01&end_date=2000-01-31",
@@ -2603,6 +2659,12 @@ def test_order_monitor_lists_accessible_ordered_batches_by_week(tmp_path: Path) 
     assert historical_payload["range_start"] == "1999-12-27"
     assert historical_payload["range_end"] == "2000-01-31"
     assert all(week["order_count"] == 0 for week in historical_payload["weekly_orders"])
+    assert all(
+        week["ordered_count"] == 0
+        and week["partially_received_count"] == 0
+        and week["fully_received_count"] == 0
+        for week in historical_payload["weekly_orders"]
+    )
     assert all(not week["batch_ids"] for week in historical_payload["weekly_orders"])
 
     invalid_range = client.get(
@@ -2636,6 +2698,8 @@ def test_order_monitor_lists_accessible_ordered_batches_by_week(tmp_path: Path) 
     assert admin_batches.status_code == 200, admin_batches.text
     assert {batch["id"] for batch in admin_batches.json()} == {
         ordered_batch["id"],
+        partially_received_batch["id"],
+        fully_received_batch["id"],
         not_ordered_batch["id"],
     }
 

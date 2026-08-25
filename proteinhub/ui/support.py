@@ -444,6 +444,20 @@ def design_system() -> None:
             width: 150px;
         }
 
+        .ph-monitor-legend {
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+            width: 100%;
+        }
+
+        .ph-monitor-legend-dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+        }
+
         .ph-monitor-chart-column {
             min-width: 72px;
             min-height: 232px;
@@ -465,23 +479,23 @@ def design_system() -> None:
             );
         }
 
-        .ph-monitor-chart-bar {
+        .ph-monitor-chart-stack {
             width: 100%;
             min-height: 3px;
             border-radius: 5px 5px 0 0;
-            background: var(--ph-teal);
+            display: flex;
+            flex-direction: column-reverse;
+            overflow: hidden;
         }
 
-        .ph-monitor-batch-row {
-            display: grid;
-            grid-template-columns: minmax(220px, 1.4fr) minmax(160px, 1fr) 120px 120px 112px;
-            gap: 12px;
-            align-items: center;
+        .ph-monitor-chart-segment {
             width: 100%;
-            padding: 14px;
-            border: 1px solid var(--ph-border);
-            border-radius: 8px;
-            background: var(--ph-surface);
+            flex-shrink: 0;
+        }
+
+        .ph-monitor-chart-empty {
+            background: var(--ph-border-strong);
+            opacity: 0.18;
         }
 
         .ph-workspace-layout {
@@ -1123,10 +1137,6 @@ def design_system() -> None:
 
             .ph-protein-filter-row {
                 grid-template-columns: minmax(180px, 1fr) 128px 128px 148px auto auto;
-            }
-
-            .ph-monitor-batch-row {
-                grid-template-columns: 1fr;
             }
 
             .ph-translation-actions {
