@@ -14,6 +14,7 @@ from proteinhub.api.schemas import (
     ProjectMemberResponse,
     ProjectProteinResponse,
     ProjectResponse,
+    ProjectStatusUpdateRequest,
     ProteinCreateRequest,
     ProteinResponse,
     ProteinSequenceCheckRequest,
@@ -33,6 +34,7 @@ from proteinhub.application.project_service import (
     list_project_members,
     list_projects,
     search_project_member_candidates,
+    update_project_status,
     update_project_member,
 )
 from proteinhub.application.protein_service import (
@@ -62,10 +64,14 @@ def create_projects_router(
 
     @router.get("/projects", response_model=list[ProjectResponse])
     def projects(
+        status: str = Query(default="active"),
         user: dict = Depends(current_user),
         connection: sqlite3.Connection = Depends(get_connection),
     ) -> list[dict]:
-        return list_projects(connection, user["id"])
+        try:
+            return list_projects(connection, user["id"], status=status)
+        except DomainError as error:
+            raise map_domain_error(error) from error
 
     @router.post("/projects", response_model=ProjectResponse)
     def create_project_route(
@@ -91,6 +97,23 @@ def create_projects_router(
     ) -> None:
         try:
             delete_project(connection, project_id=project_id, user_id=user["id"])
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.patch("/projects/{project_id}/status", response_model=ProjectResponse)
+    def update_project_status_route(
+        project_id: int,
+        payload: ProjectStatusUpdateRequest,
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> dict:
+        try:
+            return update_project_status(
+                connection,
+                project_id=project_id,
+                user_id=user["id"],
+                status=payload.status,
+            )
         except DomainError as error:
             raise map_domain_error(error) from error
 

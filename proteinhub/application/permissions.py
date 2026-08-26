@@ -38,6 +38,7 @@ def require_project_read(
     role = get_project_role(connection, project_id=project_id, user_id=user_id)
     if role is None:
         raise PermissionDeniedError("You are not a member of this project")
+    _require_project_visible_to_user(connection, project_id=project_id)
     return role
 
 
@@ -52,6 +53,7 @@ def require_project_write(
     role = get_project_role(connection, project_id=project_id, user_id=user_id)
     if role is None:
         raise PermissionDeniedError("You are not a member of this project")
+    _require_project_visible_to_user(connection, project_id=project_id)
     return role
 
 
@@ -66,7 +68,16 @@ def require_project_owner(
     role = get_project_role(connection, project_id=project_id, user_id=user_id)
     if role != "owner":
         raise PermissionDeniedError("Only project owners can perform this action")
+    _require_project_visible_to_user(connection, project_id=project_id)
     return role
+
+
+def _require_project_visible_to_user(
+    connection: sqlite3.Connection, *, project_id: int
+) -> None:
+    project = ProjectRepository(connection).get(project_id)
+    if project and project.get("status", "active") == "trash":
+        raise PermissionDeniedError("You cannot access projects in the trash")
 
 
 def require_project_role(

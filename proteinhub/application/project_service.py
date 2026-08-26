@@ -9,17 +9,30 @@ from proteinhub.application.permissions import (
     require_project_read,
 )
 from proteinhub.application.validation import required
-from proteinhub.domain.errors import ConflictError, DomainError, NotFoundError
+from proteinhub.domain.errors import (
+    ConflictError,
+    DomainError,
+    NotFoundError,
+    PermissionDeniedError,
+)
 from proteinhub.infrastructure.database.connection import transaction
 from proteinhub.infrastructure.sqlite.repositories import ProjectRepository, UserRepository
 
 
-def list_projects(connection: sqlite3.Connection, user_id: int) -> list[dict]:
+PROJECT_STATUSES = {"active", "archived", "trash"}
+
+
+def list_projects(
+    connection: sqlite3.Connection, user_id: int, status: str = "active"
+) -> list[dict]:
+    project_status = _normalize_project_status(status)
     projects = ProjectRepository(connection)
     if is_admin(connection, user_id=user_id):
-        rows = projects.list_all_as_owner()
+        rows = projects.list_all_as_owner(project_status)
     else:
-        rows = projects.list_for_user(user_id)
+        if project_status == "trash":
+            raise PermissionDeniedError("Only administrators can view trash projects")
+        rows = projects.list_for_user(user_id, project_status)
     return _with_project_member_summary(projects, rows)
 
 
@@ -56,6 +69,25 @@ def delete_project(
         projects.delete(project_id)
 
 
+def update_project_status(
+    connection: sqlite3.Connection,
+    *,
+    project_id: int,
+    user_id: int,
+    status: str,
+) -> dict:
+    require_admin(connection, user_id=user_id)
+    project_status = _normalize_project_status(status)
+    projects = ProjectRepository(connection)
+    if not projects.get(project_id):
+        raise NotFoundError("Project not found")
+
+    with transaction(connection):
+        projects.update_status(project_id=project_id, status=project_status)
+
+    return get_project(connection, project_id=project_id, user_id=user_id)
+
+
 def get_project(connection: sqlite3.Connection, *, project_id: int, user_id: int) -> dict:
     role = require_project_read(connection, project_id=project_id, user_id=user_id)
     project = ProjectRepository(connection).get(project_id)
@@ -86,6 +118,13 @@ def _with_project_member_summary(
         project["members"] = members
         project["member_count"] = len(members)
     return project_rows
+
+
+def _normalize_project_status(status: str) -> str:
+    normalized = required(status, "Project status").strip().lower()
+    if normalized not in PROJECT_STATUSES:
+        raise DomainError("Project status must be active, archived, or trash")
+    return normalized
 
 
 def list_project_members(

@@ -37,6 +37,10 @@ class ProjectCreateRequest(BaseModel):
     description: str = ""
 
 
+class ProjectStatusUpdateRequest(BaseModel):
+    status: str
+
+
 class MemberCreateRequest(BaseModel):
     email: str
     role: str = "member"
@@ -178,6 +182,7 @@ class ProjectResponse(BaseModel):
     id: int
     name: str
     description: str
+    status: str
     owner_id: int
     owner_name: str = ""
     owner_email: str = ""

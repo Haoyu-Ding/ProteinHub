@@ -1106,6 +1106,139 @@ def test_project_list_includes_owner_and_member_summary(tmp_path: Path) -> None:
     assert member_listed.json()[0]["member_count"] == 2
 
 
+def test_project_status_filters_and_admin_updates(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+    member_token = register(client, "member@example.com")
+    admin_token = register(client, "ruolan.chen@northstar-bio.local", "陈若澜")
+
+    active_project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Active project"},
+    ).json()
+    archived_project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Archived project"},
+    ).json()
+    trash_project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Trash project"},
+    ).json()
+
+    assert active_project["status"] == "active"
+
+    for project in (active_project, archived_project, trash_project):
+        added = client.post(
+            f"/api/projects/{project['id']}/members",
+            headers=auth(owner_token),
+            json={"email": "member@example.com", "role": "member"},
+        )
+        assert added.status_code == 200, added.text
+
+    trash_protein = client.post(
+        f"/api/projects/{trash_project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "Hidden protein", "sequence": "ACDEFG"},
+    ).json()
+
+    owner_update = client.patch(
+        f"/api/projects/{archived_project['id']}/status",
+        headers=auth(owner_token),
+        json={"status": "archived"},
+    )
+    assert owner_update.status_code == 403
+
+    invalid_update = client.patch(
+        f"/api/projects/{archived_project['id']}/status",
+        headers=auth(admin_token),
+        json={"status": "paused"},
+    )
+    assert invalid_update.status_code == 400
+    assert invalid_update.json()["detail"] == (
+        "Project status must be active, archived, or trash"
+    )
+
+    missing_update = client.patch(
+        "/api/projects/999999/status",
+        headers=auth(admin_token),
+        json={"status": "trash"},
+    )
+    assert missing_update.status_code == 404
+
+    archived_update = client.patch(
+        f"/api/projects/{archived_project['id']}/status",
+        headers=auth(admin_token),
+        json={"status": "archived"},
+    )
+    assert archived_update.status_code == 200, archived_update.text
+    assert archived_update.json()["status"] == "archived"
+
+    trash_update = client.patch(
+        f"/api/projects/{trash_project['id']}/status",
+        headers=auth(admin_token),
+        json={"status": "trash"},
+    )
+    assert trash_update.status_code == 200, trash_update.text
+    assert trash_update.json()["status"] == "trash"
+
+    owner_active = client.get("/api/projects?status=active", headers=auth(owner_token))
+    assert owner_active.status_code == 200, owner_active.text
+    assert {project["id"] for project in owner_active.json()} == {active_project["id"]}
+
+    owner_archived = client.get(
+        "/api/projects?status=archived",
+        headers=auth(owner_token),
+    )
+    assert owner_archived.status_code == 200, owner_archived.text
+    assert {project["id"] for project in owner_archived.json()} == {
+        archived_project["id"]
+    }
+
+    member_archived = client.get(
+        "/api/projects?status=archived",
+        headers=auth(member_token),
+    )
+    assert member_archived.status_code == 200, member_archived.text
+    assert {project["id"] for project in member_archived.json()} == {
+        archived_project["id"]
+    }
+
+    owner_trash = client.get("/api/projects?status=trash", headers=auth(owner_token))
+    assert owner_trash.status_code == 403
+
+    admin_trash = client.get("/api/projects?status=trash", headers=auth(admin_token))
+    assert admin_trash.status_code == 200, admin_trash.text
+    assert {project["id"] for project in admin_trash.json()} == {trash_project["id"]}
+
+    archived_detail = client.get(
+        f"/api/projects/{archived_project['id']}",
+        headers=auth(member_token),
+    )
+    assert archived_detail.status_code == 200, archived_detail.text
+    assert archived_detail.json()["project"]["status"] == "archived"
+
+    trash_detail = client.get(
+        f"/api/projects/{trash_project['id']}",
+        headers=auth(owner_token),
+    )
+    assert trash_detail.status_code == 403
+
+    trash_proteins = client.get(
+        f"/api/projects/{trash_project['id']}/proteins",
+        headers=auth(owner_token),
+    )
+    assert trash_proteins.status_code == 403
+
+    admin_trash_protein = client.get(
+        f"/api/proteins/{trash_protein['id']}",
+        headers=auth(admin_token),
+    )
+    assert admin_trash_protein.status_code == 200, admin_trash_protein.text
+
+
 def test_create_protein_with_structure_file_can_download_structure(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     owner_token = register(client, "owner@example.com")

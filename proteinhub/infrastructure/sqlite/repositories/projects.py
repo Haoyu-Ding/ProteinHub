@@ -29,7 +29,7 @@ class ProjectRepository:
             return "member"
         return None
 
-    def list_for_user(self, user_id: int) -> list[dict]:
+    def list_for_user(self, user_id: int, status: str) -> list[dict]:
         return self.connection.execute(
             """
             SELECT
@@ -45,14 +45,15 @@ class ProjectRepository:
             LEFT JOIN project_members
                 ON project_members.project_id = projects.id
                AND project_members.user_id = ?
-            WHERE projects.owner_id = ?
-               OR project_members.user_id = ?
+            WHERE (projects.owner_id = ?
+               OR project_members.user_id = ?)
+              AND projects.status = ?
             ORDER BY projects.created_at DESC, projects.id DESC
             """,
-            (user_id, user_id, user_id, user_id),
+            (user_id, user_id, user_id, user_id, status),
         ).fetchall()
 
-    def list_all_as_owner(self) -> list[dict]:
+    def list_all_as_owner(self, status: str) -> list[dict]:
         return self.connection.execute(
             """
             SELECT
@@ -62,8 +63,10 @@ class ProjectRepository:
                 'owner' AS role
             FROM projects
             JOIN users AS owner_users ON owner_users.id = projects.owner_id
+            WHERE projects.status = ?
             ORDER BY projects.created_at DESC, projects.id DESC
-            """
+            """,
+            (status,),
         ).fetchall()
 
     def insert(self, *, name: str, description: str, owner_id: int) -> int:
@@ -83,6 +86,16 @@ class ProjectRepository:
 
     def delete(self, project_id: int) -> None:
         self.connection.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+
+    def update_status(self, *, project_id: int, status: str) -> None:
+        self.connection.execute(
+            """
+            UPDATE projects
+            SET status = ?
+            WHERE id = ?
+            """,
+            (status, project_id),
+        )
 
     def insert_member(self, *, project_id: int, user_id: int, role: str) -> None:
         self.connection.execute(

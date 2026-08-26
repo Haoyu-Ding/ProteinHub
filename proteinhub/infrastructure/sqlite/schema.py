@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived', 'trash')),
     owner_id INTEGER NOT NULL REFERENCES users(id),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -207,6 +208,11 @@ MIGRATIONS = [
         "users",
         "global_role",
         "ALTER TABLE users ADD COLUMN global_role TEXT NOT NULL DEFAULT 'user' CHECK (global_role IN ('admin', 'user'))",
+    ),
+    (
+        "projects",
+        "status",
+        "ALTER TABLE projects ADD COLUMN status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived', 'trash'))",
     ),
     (
         "project_members",

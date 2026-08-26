@@ -185,6 +185,25 @@ def design_system() -> None:
             gap: 10px;
         }
 
+        .ph-project-status-tabs {
+            align-self: flex-start;
+            padding: 4px;
+            border: 1px solid var(--ph-border);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.78);
+        }
+
+        .ph-project-status-tabs .q-tab {
+            min-height: 34px;
+            border-radius: 6px;
+            color: var(--ph-muted);
+        }
+
+        .ph-project-status-tabs .q-tab--active {
+            background: #eaf1ff;
+            color: var(--ph-blue);
+        }
+
         .ph-project-card {
             min-height: 96px;
             display: grid;

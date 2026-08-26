@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS projects (
     id BIGSERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived', 'trash')),
     owner_id BIGINT NOT NULL REFERENCES users(id),
     created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text)
 );
@@ -197,6 +198,7 @@ BASELINE_MIGRATION = "0001_postgres_schema"
 
 
 POSTGRES_MIGRATIONS = [
+    "ALTER TABLE projects ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived', 'trash'))",
     "ALTER TABLE proteins ADD COLUMN IF NOT EXISTS structure_storage_backend TEXT NOT NULL DEFAULT 'database' CHECK (structure_storage_backend IN ('filesystem', 'database'))",
     "ALTER TABLE proteins ADD COLUMN IF NOT EXISTS structure_content BYTEA",
     "ALTER TABLE proteins ADD COLUMN IF NOT EXISTS structure_content_sha256 TEXT NOT NULL DEFAULT ''",

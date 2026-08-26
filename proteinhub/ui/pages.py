@@ -43,6 +43,26 @@ ORDER_MONITOR_STATUS_SEGMENTS = (
     ("partially_received_count", "部分收货", "#f97316"),
     ("fully_received_count", "全部收货", "#94a3b8"),
 )
+PROJECT_STATUS_LABELS = {
+    "active": "活跃",
+    "archived": "归档",
+    "trash": "回收站",
+}
+PROJECT_STATUS_ICONS = {
+    "active": "folder_open",
+    "archived": "inventory_2",
+    "trash": "delete",
+}
+PROJECT_STATUS_BADGE_COLORS = {
+    "active": "positive",
+    "archived": "secondary",
+    "trash": "negative",
+}
+PROJECT_STATUS_EMPTY_STATES = {
+    "active": ("folder_open", "还没有活跃项目", "新建一个项目后，就可以开始收集蛋白。"),
+    "archived": ("inventory_2", "还没有归档项目", "归档后的项目会显示在这里。"),
+    "trash": ("delete", "回收站为空", "移入回收站的项目会显示在这里。"),
+}
 HELP_SECTIONS = (
     {
         "id": "quick-start",
@@ -354,6 +374,14 @@ def _project_member_tooltip(project: dict) -> str:
     )
 
 
+def _project_status_label(status: str | None) -> str:
+    return PROJECT_STATUS_LABELS.get(status or "active", "活跃")
+
+
+def _project_status_badge_color(status: str | None) -> str:
+    return PROJECT_STATUS_BADGE_COLORS.get(status or "active", "positive")
+
+
 def _render_sequence_similarity_badge(protein: dict, open_dialog) -> None:
     if protein.get("sequence_similarity_status") != "high_similarity":
         return
@@ -524,6 +552,15 @@ def install_ui() -> None:
         shell()
         if not await ensure_logged_in():
             return
+        try:
+            current_user = await ui.run_javascript("return await phApi('/api/me')", timeout=10)
+        except Exception as error:
+            notify_error(error)
+            return
+        is_admin_user = current_user.get("global_role") == "admin"
+        visible_project_statuses = ["active", "archived"]
+        if is_admin_user:
+            visible_project_statuses.append("trash")
         with ui.column().classes("ph-page"):
             with ui.row().classes("ph-page-header w-full"):
                 with ui.column().classes("gap-1"):
@@ -532,27 +569,49 @@ def install_ui() -> None:
                     ui.label("项目权限会保护每个蛋白记录和实验资料。").classes("ph-subtitle")
                 ui.button("新建项目", icon="add", on_click=lambda: project_dialog.open()).props("unelevated")
 
+            with ui.tabs(
+                value="active",
+                on_change=lambda event: load_projects(),
+            ).classes("ph-project-status-tabs") as status_tabs:
+                for status in visible_project_statuses:
+                    ui.tab(
+                        status,
+                        label=PROJECT_STATUS_LABELS[status],
+                        icon=PROJECT_STATUS_ICONS[status],
+                    )
+
             project_list = ui.column().classes("ph-project-list w-full")
             project_delete_target = {"project": None}
+
+            def selected_project_status() -> str:
+                return str(status_tabs.value or "active")
 
             async def load_projects() -> None:
                 project_list.clear()
                 try:
-                    current_user = await ui.run_javascript("return await phApi('/api/me')", timeout=10)
-                    can_delete_projects = current_user.get("global_role") == "admin"
-                    projects = await ui.run_javascript("return await phApi('/api/projects')", timeout=10)
+                    status = selected_project_status()
+                    endpoint = f"/api/projects?{urlencode({'status': status})}"
+                    projects = await ui.run_javascript(
+                        f"return await phApi({json.dumps(endpoint)})",
+                        timeout=10,
+                    )
                     with project_list:
                         if not projects:
-                            empty_state("folder_open", "还没有项目", "新建一个项目后，就可以开始收集蛋白。")
+                            empty_state(*PROJECT_STATUS_EMPTY_STATES[status])
                         for project in projects:
                             with ui.card().classes("ph-resource-card ph-project-card w-full p-4"):
                                 with ui.row().classes("ph-project-card-main w-full"):
                                     with ui.element("div").classes("ph-icon-box ph-icon-project"):
-                                        ui.icon("folder_open")
+                                        ui.icon(PROJECT_STATUS_ICONS.get(project.get("status"), "folder_open"))
                                     with ui.column().classes("ph-project-card-text"):
                                         ui.label(project["name"]).classes("ph-card-title")
                                         ui.label(project["description"] or "暂无描述").classes("ph-card-description")
                                         with ui.row().classes("items-center gap-2 flex-wrap"):
+                                            ui.badge(
+                                                _project_status_label(project.get("status"))
+                                            ).props(
+                                                f"outline color={_project_status_badge_color(project.get('status'))}"
+                                            )
                                             owner_badge = ui.badge(
                                                 f"负责人 {person_label(project.get('owner_name'), project.get('owner_email'))}"
                                             ).props("outline color=primary").classes("max-w-full")
@@ -569,7 +628,20 @@ def install_ui() -> None:
                                                     with member_badge:
                                                         ui.tooltip(member_tooltip)
                                 with ui.row().classes("ph-project-card-footer"):
-                                    if can_delete_projects:
+                                    if is_admin_user:
+                                        status_button = ui.button(
+                                            icon="published_with_changes",
+                                        ).props("flat round dense color=primary")
+                                        with status_button:
+                                            ui.tooltip("调整状态")
+                                            with ui.menu():
+                                                for next_status in PROJECT_STATUS_LABELS:
+                                                    item = ui.menu_item(
+                                                        PROJECT_STATUS_LABELS[next_status],
+                                                        on_click=lambda s=next_status, p=project: update_selected_project_status(p, s),
+                                                    )
+                                                    if next_status == project.get("status", "active"):
+                                                        item.disable()
                                         delete_button = ui.button(
                                             icon="delete",
                                             on_click=lambda p=project: open_delete_project(p),
@@ -594,6 +666,7 @@ def install_ui() -> None:
                         project_dialog.close()
                         name.value = ""
                         description.value = ""
+                        status_tabs.value = "active"
                         await load_projects()
                     except Exception as error:
                         notify_error(error)
@@ -618,6 +691,17 @@ def install_ui() -> None:
                         delete_project_dialog.close()
                         project_delete_target["project"] = None
                         ui.notify("项目已删除", type="positive")
+                        await load_projects()
+                    except Exception as error:
+                        notify_error(error)
+
+                async def update_selected_project_status(project: dict, status: str) -> None:
+                    try:
+                        await ui.run_javascript(
+                            f"return await phApi('/api/projects/{project['id']}/status', {{method: 'PATCH', body: {{status: {status!r}}}}})",
+                            timeout=10,
+                        )
+                        ui.notify("项目状态已更新", type="positive")
                         await load_projects()
                     except Exception as error:
                         notify_error(error)
@@ -791,7 +875,9 @@ def install_ui() -> None:
                     ui.label("项目").classes("ph-eyebrow")
                     title = ui.label("项目").classes("ph-title")
                     description = ui.label().classes("ph-subtitle")
-                role_badge = ui.badge().props("outline")
+                with ui.row().classes("items-center gap-2"):
+                    status_badge = ui.badge().props("outline")
+                    role_badge = ui.badge().props("outline")
 
             with ui.row().classes("ph-workspace-layout w-full"):
                 with ui.column().classes("ph-project-sidebar"):
@@ -909,6 +995,10 @@ def install_ui() -> None:
                     project = data["project"]
                     title.text = project["name"]
                     description.text = project["description"] or "暂无描述"
+                    status_badge.text = _project_status_label(project.get("status"))
+                    status_badge.props(
+                        f"outline color={_project_status_badge_color(project.get('status'))}"
+                    )
                     role_badge.text = humanize(project["role"])
                     project_access["role"] = project["role"]
                     can_write_project = project["role"] in {"owner", "member"}
