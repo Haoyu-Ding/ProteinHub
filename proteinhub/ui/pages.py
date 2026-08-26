@@ -586,10 +586,10 @@ def install_ui() -> None:
             def selected_project_status() -> str:
                 return str(status_tabs.value or "active")
 
-            async def load_projects() -> None:
+            async def load_projects(status: str | None = None) -> None:
                 project_list.clear()
                 try:
-                    status = selected_project_status()
+                    status = status or selected_project_status()
                     endpoint = f"/api/projects?{urlencode({'status': status})}"
                     projects = await ui.run_javascript(
                         f"return await phApi({json.dumps(endpoint)})",
@@ -667,7 +667,7 @@ def install_ui() -> None:
                         name.value = ""
                         description.value = ""
                         status_tabs.value = "active"
-                        await load_projects()
+                        await load_projects("active")
                     except Exception as error:
                         notify_error(error)
 
@@ -701,8 +701,9 @@ def install_ui() -> None:
                             f"return await phApi('/api/projects/{project['id']}/status', {{method: 'PATCH', body: {{status: {status!r}}}}})",
                             timeout=10,
                         )
+                        status_tabs.value = status
                         ui.notify("项目状态已更新", type="positive")
-                        await load_projects()
+                        await load_projects(status)
                     except Exception as error:
                         notify_error(error)
 
