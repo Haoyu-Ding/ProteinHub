@@ -1,7 +1,7 @@
 [Unit]
 Description=Backup ProteinHub PostgreSQL database
-After=postgresql.service
-Wants=postgresql.service
+After=network-online.target postgresql.service
+Wants=network-online.target postgresql.service
 
 [Service]
 Type=oneshot
@@ -10,7 +10,7 @@ Group=proteinhub
 WorkingDirectory=/opt/proteinhub
 EnvironmentFile=/etc/proteinhub.env
 Environment=PROTEINHUB_ENV_FILE=/etc/proteinhub.env
-ExecStart=/opt/proteinhub/scripts/backup-postgres.sh
+ExecStart=/opt/proteinhub/scripts/backup-postgres-and-sync.sh
 
 NoNewPrivileges=true
 PrivateTmp=true

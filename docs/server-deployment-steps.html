@@ -634,7 +634,7 @@ sudo ufw status</code></pre>
       <h2>8. 备份和恢复</h2>
       <p>先跑一次手动备份，确认备份脚本可用：</p>
       <pre><code>sudo -u proteinhub PROTEINHUB_ENV_FILE=/etc/proteinhub.env /opt/proteinhub/scripts/backup-postgres.sh</code></pre>
-      <p>安装本机每天自动备份：</p>
+      <p>安装每天自动备份：</p>
       <pre><code>sudo cp /opt/proteinhub/deploy/proteinhub-backup.service /etc/systemd/system/proteinhub-backup.service
 sudo cp /opt/proteinhub/deploy/proteinhub-backup.timer /etc/systemd/system/proteinhub-backup.timer
 sudo systemctl daemon-reload
@@ -642,7 +642,9 @@ sudo systemctl enable --now proteinhub-backup.timer
 sudo systemctl list-timers proteinhub-backup.timer</code></pre>
       <p>
         这个 timer 会每天凌晨 <code>02:15</code> 备份一次。如果服务器当时关机，
-        开机后会补跑一次。立即测试一次自动备份：
+        开机后会补跑一次。默认只做本机备份；如果
+        <code>/etc/proteinhub.env</code> 里配置了远程备份目标，
+        本机备份成功后会把这一次新生成的 dump 同步过去。立即测试一次自动备份：
       </p>
       <pre><code>sudo systemctl start proteinhub-backup.service
 sudo journalctl -u proteinhub-backup.service -n 50 --no-pager
@@ -652,6 +654,13 @@ ls -lh /var/backups/proteinhub</code></pre>
         <code>/etc/proteinhub.env</code> 里用
         <code>PROTEINHUB_BACKUP_RETENTION_DAYS=30</code> 之类的值调整。
       </p>
+      <p>远程备份同步配置示例：</p>
+      <pre><code>PROTEINHUB_REMOTE_BACKUP_TARGET=dinghy@10.6.108.61:/mnt/data/proteinhub-backups/dumps/
+PROTEINHUB_REMOTE_BACKUP_SSH_KEY=/var/lib/proteinhub/.ssh/proteinhub_backup</code></pre>
+      <p>配置远程同步前，先确认 <code>proteinhub</code> 用户能免密连接备份服务器：</p>
+      <pre><code>sudo -u proteinhub ssh -i /var/lib/proteinhub/.ssh/proteinhub_backup \
+  -o IdentitiesOnly=yes \
+  dinghy@10.6.108.61 'echo ok'</code></pre>
       <p>恢复流程要先停服务，恢复后再启动：</p>
       <pre><code>sudo systemctl stop proteinhub
 sudo -u proteinhub PROTEINHUB_ENV_FILE=/etc/proteinhub.env /opt/proteinhub/scripts/restore-postgres.sh /var/backups/proteinhub/proteinhub_YYYYmmdd_HHMMSS.dump

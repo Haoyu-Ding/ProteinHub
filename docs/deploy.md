@@ -392,7 +392,7 @@ curl https://your-domain.example.com/api/health
 sudo -u proteinhub PROTEINHUB_ENV_FILE=/etc/proteinhub.env /opt/proteinhub/scripts/backup-postgres.sh
 ```
 
-安装本机每天自动备份：
+安装每天自动备份：
 
 ```bash
 sudo cp /opt/proteinhub/deploy/proteinhub-backup.service /etc/systemd/system/proteinhub-backup.service
@@ -403,6 +403,8 @@ sudo systemctl list-timers proteinhub-backup.timer
 ```
 
 这个 timer 会每天凌晨 `02:15` 备份一次。如果服务器当时关机，开机后会补跑一次。
+默认只做本机备份；如果 `/etc/proteinhub.env` 里配置了远程备份目标，
+本机备份成功后会把这一次新生成的 dump 同步过去。
 立即测试一次自动备份：
 
 ```bash
@@ -413,6 +415,21 @@ ls -lh /var/backups/proteinhub
 
 默认本地备份保留 `14` 天；可以在 `/etc/proteinhub.env` 里用
 `PROTEINHUB_BACKUP_RETENTION_DAYS=30` 之类的值调整。
+
+远程备份同步配置示例：
+
+```bash
+PROTEINHUB_REMOTE_BACKUP_TARGET=dinghy@10.6.108.61:/mnt/data/proteinhub-backups/dumps/
+PROTEINHUB_REMOTE_BACKUP_SSH_KEY=/var/lib/proteinhub/.ssh/proteinhub_backup
+```
+
+配置远程同步前，先确认 `proteinhub` 用户能免密连接备份服务器：
+
+```bash
+sudo -u proteinhub ssh -i /var/lib/proteinhub/.ssh/proteinhub_backup \
+  -o IdentitiesOnly=yes \
+  dinghy@10.6.108.61 'echo ok'
+```
 
 恢复前先停服务：
 
