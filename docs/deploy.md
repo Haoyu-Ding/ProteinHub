@@ -64,6 +64,7 @@ caddy version
 sudo useradd --system --home-dir /var/lib/proteinhub --shell /usr/sbin/nologin proteinhub
 sudo mkdir -p /opt/proteinhub /var/lib/proteinhub/storage /var/backups/proteinhub /opt/proteinhub-tools
 sudo chown -R proteinhub:proteinhub /var/lib/proteinhub /var/backups/proteinhub /opt/proteinhub
+sudo chmod 700 /var/backups/proteinhub
 ```
 
 ## 2. PostgreSQL
@@ -391,17 +392,27 @@ curl https://your-domain.example.com/api/health
 sudo -u proteinhub PROTEINHUB_ENV_FILE=/etc/proteinhub.env /opt/proteinhub/scripts/backup-postgres.sh
 ```
 
-建议加 cron：
+安装本机每天自动备份：
 
 ```bash
-sudo crontab -u proteinhub -e
+sudo cp /opt/proteinhub/deploy/proteinhub-backup.service /etc/systemd/system/proteinhub-backup.service
+sudo cp /opt/proteinhub/deploy/proteinhub-backup.timer /etc/systemd/system/proteinhub-backup.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now proteinhub-backup.timer
+sudo systemctl list-timers proteinhub-backup.timer
 ```
 
-每天凌晨备份：
+这个 timer 会每天凌晨 `02:15` 备份一次。如果服务器当时关机，开机后会补跑一次。
+立即测试一次自动备份：
 
-```cron
-15 2 * * * PROTEINHUB_ENV_FILE=/etc/proteinhub.env /opt/proteinhub/scripts/backup-postgres.sh >> /var/backups/proteinhub/backup.log 2>&1
+```bash
+sudo systemctl start proteinhub-backup.service
+sudo journalctl -u proteinhub-backup.service -n 50 --no-pager
+ls -lh /var/backups/proteinhub
 ```
+
+默认本地备份保留 `14` 天；可以在 `/etc/proteinhub.env` 里用
+`PROTEINHUB_BACKUP_RETENTION_DAYS=30` 之类的值调整。
 
 恢复前先停服务：
 

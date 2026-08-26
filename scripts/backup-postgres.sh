@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 ENV_FILE="${PROTEINHUB_ENV_FILE:-/etc/proteinhub.env}"
 if [[ -f "$ENV_FILE" ]]; then
