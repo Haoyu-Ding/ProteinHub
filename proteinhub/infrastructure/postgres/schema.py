@@ -101,6 +101,8 @@ CREATE TABLE IF NOT EXISTS batch_wells (
     source_aa_sequence TEXT NOT NULL DEFAULT '',
     translated_aa_sequence TEXT NOT NULL DEFAULT '',
     dna_sequence TEXT NOT NULL DEFAULT '',
+    received_at TEXT NOT NULL DEFAULT '',
+    received_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text),
     updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text),
     UNIQUE (batch_id, position)
@@ -209,4 +211,21 @@ POSTGRES_MIGRATIONS = [
     "ALTER TABLE batches ADD COLUMN IF NOT EXISTS receipt_note TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE batches ADD COLUMN IF NOT EXISTS receipt_updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL",
     "ALTER TABLE batches ADD COLUMN IF NOT EXISTS receipt_updated_at TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE batch_wells ADD COLUMN IF NOT EXISTS received_at TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE batch_wells ADD COLUMN IF NOT EXISTS received_by BIGINT REFERENCES users(id) ON DELETE SET NULL",
+    """
+    UPDATE batch_wells
+    SET
+        received_at = COALESCE(
+            NULLIF(batches.receipt_updated_at, ''),
+            NULLIF(batches.ordered_at, ''),
+            (CURRENT_TIMESTAMP::text)
+        ),
+        received_by = batches.receipt_updated_by,
+        updated_at = (CURRENT_TIMESTAMP::text)
+    FROM batches
+    WHERE batch_wells.batch_id = batches.id
+      AND batches.order_status = 'fully_received'
+      AND batch_wells.received_at = ''
+    """,
 ]

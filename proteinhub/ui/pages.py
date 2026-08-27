@@ -1492,6 +1492,11 @@ def install_ui() -> None:
                                             ui.label(batch["description"] or "暂无描述").classes("ph-card-description")
                                             if batch.get("receipt_note"):
                                                 ui.label(f"收货：{batch['receipt_note']}").classes("ph-meta")
+                                            received_count = int(batch.get("received_well_count") or 0)
+                                            if received_count:
+                                                ui.label(
+                                                    f"已收货：{received_count}/{batch['well_count']} 个孔"
+                                                ).classes("ph-meta")
                                             ui.label(
                                                 f"{batch['well_count']} 个孔 · {batch['experiment_count']} 个实验 · {batch['result_count']} 个结果"
                                             ).classes("ph-meta")
@@ -2129,6 +2134,8 @@ def install_ui() -> None:
                         icon="edit_note",
                         on_click=lambda: status_dialog.open(),
                     ).props("flat no-wrap")
+                receipt_detail_summary = ui.label("收货明细：暂无").classes("ph-meta")
+                receipt_positions_label = ui.label("暂无已收孔位").classes("ph-muted")
                 receipt_note_label = ui.label("暂无收货说明").classes("ph-muted whitespace-pre-wrap")
 
             with ui.column().classes("ph-panel w-full gap-4 p-4"):
@@ -2679,17 +2686,35 @@ def install_ui() -> None:
                         js_handler=akta_upload_js(multiple=True),
                     )
 
-            with ui.dialog() as status_dialog, ui.card().classes("ph-dialog-card w-full max-w-md gap-4"):
+            with ui.dialog() as status_dialog, ui.card().classes("ph-dialog-card w-full max-w-2xl gap-4"):
                 ui.label("修改批次状态").classes("text-lg font-semibold")
                 batch_status_value = ui.select(
                     BATCH_ORDER_STATUS_OPTIONS,
                     value="not_ordered",
                     label="状态",
+                    on_change=lambda event: handle_receipt_status_change(),
                 ).props("outlined").classes("w-full")
                 batch_receipt_note_value = ui.textarea(
                     "收货说明",
                     placeholder="例如：已收到 A1-A6，A7-A12 预计下周补发",
                 ).props("outlined autogrow").classes("w-full")
+                with ui.column().classes("w-full gap-2") as receipt_detail_section:
+                    with ui.row().classes("w-full items-center justify-between gap-3"):
+                        with ui.column().classes("gap-0"):
+                            ui.label("收货明细").classes("font-semibold text-slate-800")
+                            receipt_selection_label = ui.label("已选择 0/0 个孔位").classes("ph-meta")
+                        with ui.row().classes("items-center gap-2"):
+                            ui.button(
+                                "全选",
+                                icon="select_all",
+                                on_click=lambda: set_receipt_selection(True),
+                            ).props("flat dense no-wrap")
+                            ui.button(
+                                "清空",
+                                icon="clear_all",
+                                on_click=lambda: set_receipt_selection(False),
+                            ).props("flat dense no-wrap")
+                    receipt_wells_column = ui.column().classes("ph-receipt-well-list")
                 with ui.row().classes("justify-end w-full"):
                     ui.button("取消", on_click=status_dialog.close).props("flat")
                     ui.button(
@@ -2705,6 +2730,9 @@ def install_ui() -> None:
                 "can_write": True,
                 "can_manage_receipt": False,
             }
+            receipt_detail_state = {"wells": []}
+            receipt_sync_state = {"updating": False}
+            receipt_checkboxes: dict[int, object] = {}
 
             def _fasta_from_sequences(sequences: list[dict]) -> str:
                 lines: list[str] = []
@@ -2746,6 +2774,106 @@ def install_ui() -> None:
                     "sequences": sequences,
                     "dna_fasta": _fasta_from_sequences(sequences),
                 }
+
+            def selected_receipt_well_ids() -> list[int]:
+                if batch_status_value.value == "fully_received":
+                    return [int(well["id"]) for well in receipt_detail_state["wells"]]
+                if batch_status_value.value in {"not_ordered", "ordered"}:
+                    return []
+                return [
+                    well_id
+                    for well_id, checkbox in receipt_checkboxes.items()
+                    if bool(checkbox.value)
+                ]
+
+            def sync_receipt_selection_label() -> None:
+                total = len(receipt_detail_state["wells"])
+                selected_count = len(selected_receipt_well_ids())
+                receipt_selection_label.text = f"已选择 {selected_count}/{total} 个孔位"
+
+            def handle_receipt_status_change() -> None:
+                if receipt_sync_state["updating"]:
+                    return
+                receipt_sync_state["updating"] = True
+                try:
+                    if batch_status_value.value == "fully_received":
+                        for checkbox in receipt_checkboxes.values():
+                            checkbox.value = True
+                    elif batch_status_value.value in {"not_ordered", "ordered"}:
+                        for checkbox in receipt_checkboxes.values():
+                            checkbox.value = False
+                finally:
+                    receipt_sync_state["updating"] = False
+                sync_receipt_selection_label()
+
+            def sync_receipt_status_from_selection() -> None:
+                if receipt_sync_state["updating"]:
+                    return
+                total = len(receipt_detail_state["wells"])
+                if not total:
+                    sync_receipt_selection_label()
+                    return
+                selected_count = sum(
+                    1 for checkbox in receipt_checkboxes.values() if bool(checkbox.value)
+                )
+                if selected_count == total:
+                    batch_status_value.value = "fully_received"
+                elif selected_count > 0:
+                    batch_status_value.value = "partially_received"
+                elif batch_status_value.value in {"partially_received", "fully_received"}:
+                    batch_status_value.value = "ordered"
+                sync_receipt_selection_label()
+
+            def set_receipt_selection(received: bool) -> None:
+                for checkbox in receipt_checkboxes.values():
+                    checkbox.value = received
+                sync_receipt_status_from_selection()
+
+            def render_receipt_summary(wells: list[dict]) -> None:
+                received_wells = [well for well in wells if well.get("received_at")]
+                total = len(wells)
+                receipt_detail_summary.text = (
+                    f"收货明细：已收 {len(received_wells)}/{total} 个孔位"
+                )
+                if not received_wells:
+                    receipt_positions_label.text = "暂无已收孔位"
+                    receipt_positions_label.classes(replace="ph-muted")
+                    return
+                positions = [well["position"] for well in received_wells]
+                preview = ", ".join(positions[:24])
+                if len(positions) > 24:
+                    preview = f"{preview} 等 {len(positions)} 个"
+                receipt_positions_label.text = f"已收孔位：{preview}"
+                receipt_positions_label.classes(replace="ph-meta")
+
+            def render_receipt_well_options(wells: list[dict]) -> None:
+                receipt_detail_state["wells"] = wells
+                receipt_checkboxes.clear()
+                receipt_wells_column.clear()
+                with receipt_wells_column:
+                    if not wells:
+                        ui.label("暂无孔位").classes("ph-muted")
+                    for well in wells:
+                        received_at = format_datetime_minute(well.get("received_at"))
+                        received_by = person_label(
+                            well.get("received_by_name"),
+                            well.get("received_by_email"),
+                        )
+                        with ui.element("div").classes("ph-receipt-well-row"):
+                            checkbox = ui.checkbox(
+                                value=bool(well.get("received_at")),
+                                on_change=lambda event: sync_receipt_status_from_selection(),
+                            ).props("dense")
+                            receipt_checkboxes[int(well["id"])] = checkbox
+                            ui.label(well["position"]).classes("ph-mapping-position")
+                            with ui.column().classes("min-w-0 gap-0"):
+                                ui.label(well["protein_name"]).classes("font-medium")
+                                ui.label(f"{len(well.get('protein_sequence') or '')} aa").classes("ph-meta")
+                            ui.badge(well.get("protein_type") or "无").props("outline")
+                            ui.label(
+                                f"{received_by} · {received_at}" if received_at else "未收货"
+                            ).classes("ph-meta")
+                sync_receipt_selection_label()
 
             async def download_plate_workbook() -> None:
                 try:
@@ -2979,6 +3107,7 @@ def install_ui() -> None:
                     payload = {"order_status": batch_status_value.value}
                     if batch_editable_state["can_manage_receipt"]:
                         payload["receipt_note"] = batch_receipt_note_value.value or ""
+                        payload["received_well_ids"] = selected_receipt_well_ids()
                     result = await ui.run_javascript(
                         f"""
                         return await phApi('/api/batches/{batch_id}/status', {{
@@ -3014,6 +3143,7 @@ def install_ui() -> None:
                 batch_status_value.value = order_status
                 batch_receipt_note_value.value = batch.get("receipt_note") or ""
                 batch_receipt_note_value.visible = can_manage_receipt
+                receipt_detail_section.visible = can_manage_receipt
                 batch_status_button.visible = (
                     can_write_batch and order_status != "fully_received"
                 ) or can_manage_receipt
@@ -3033,6 +3163,8 @@ def install_ui() -> None:
                     if receipt_updated_at
                     else "项目负责人可以在这里记录部分收货情况"
                 )
+                render_receipt_summary(wells)
+                render_receipt_well_options(wells)
                 batch_meta.clear()
                 with batch_meta:
                     ui.badge(f"{batch['plate_format']} 孔").props("outline")
@@ -3119,6 +3251,7 @@ def install_ui() -> None:
                         ui.label("孔位").classes("ph-mapping-cell")
                         ui.label("蛋白").classes("ph-mapping-cell")
                         ui.label("类型").classes("ph-mapping-cell")
+                        ui.label("收货").classes("ph-mapping-cell")
                         ui.label("AA 序列").classes("ph-mapping-cell")
                         ui.label("长度").classes("ph-mapping-cell")
                         ui.label("操作").classes("ph-mapping-cell")
@@ -3126,6 +3259,7 @@ def install_ui() -> None:
                         with ui.element("div").classes("ph-mapping-row"):
                             ui.label("暂无").classes("ph-mapping-cell ph-mapping-position")
                             ui.label("暂无蛋白映射").classes("ph-mapping-cell")
+                            ui.label("").classes("ph-mapping-cell")
                             ui.label("").classes("ph-mapping-cell")
                             ui.label("").classes("ph-mapping-cell")
                             ui.label("").classes("ph-mapping-cell")
@@ -3147,6 +3281,9 @@ def install_ui() -> None:
                                     position_select.disable()
                             ui.label(well["protein_name"]).classes("ph-mapping-cell")
                             ui.label(well.get("protein_type") or "无").classes("ph-mapping-cell")
+                            ui.label(
+                                "已收" if well.get("received_at") else "未收"
+                            ).classes("ph-mapping-cell")
                             ui.label(sequence_preview).classes("ph-mapping-cell ph-mapping-sequence")
                             ui.label(f"{len(sequence)} aa").classes("ph-mapping-cell")
                             with ui.element("div").classes("ph-mapping-cell"):

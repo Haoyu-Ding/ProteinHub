@@ -103,6 +103,8 @@ CREATE TABLE IF NOT EXISTS batch_wells (
     source_aa_sequence TEXT NOT NULL DEFAULT '',
     translated_aa_sequence TEXT NOT NULL DEFAULT '',
     dna_sequence TEXT NOT NULL DEFAULT '',
+    received_at TEXT NOT NULL DEFAULT '',
+    received_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (batch_id, position)
@@ -368,6 +370,16 @@ MIGRATIONS = [
         "batch_wells",
         "dna_sequence",
         "ALTER TABLE batch_wells ADD COLUMN dna_sequence TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "batch_wells",
+        "received_at",
+        "ALTER TABLE batch_wells ADD COLUMN received_at TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "batch_wells",
+        "received_by",
+        "ALTER TABLE batch_wells ADD COLUMN received_by INTEGER REFERENCES users(id) ON DELETE SET NULL",
     ),
     (
         "artifacts",

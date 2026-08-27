@@ -883,8 +883,8 @@ def design_system() -> None:
 
         .ph-mapping-row {
             display: grid;
-            grid-template-columns: 128px minmax(160px, 1fr) minmax(120px, 0.6fr) minmax(280px, 1.5fr) minmax(100px, 0.5fr) 96px;
-            min-width: 960px;
+            grid-template-columns: 128px minmax(160px, 1fr) minmax(120px, 0.6fr) minmax(96px, 0.5fr) minmax(280px, 1.5fr) minmax(100px, 0.5fr) 96px;
+            min-width: 1080px;
             border-bottom: 1px solid var(--ph-border);
         }
 
@@ -928,6 +928,29 @@ def design_system() -> None:
             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
             font-size: 12px;
             color: #334155;
+        }
+
+        .ph-receipt-well-list {
+            width: 100%;
+            max-height: 360px;
+            overflow-y: auto;
+            gap: 8px;
+            padding: 12px;
+            border: 1px solid var(--ph-border);
+            border-radius: 8px;
+            background: #fbfcfd;
+        }
+
+        .ph-receipt-well-row {
+            display: grid;
+            grid-template-columns: 40px 64px minmax(160px, 1fr) minmax(92px, 0.45fr) minmax(150px, 0.85fr);
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--ph-border);
+            border-radius: 8px;
+            background: var(--ph-surface);
         }
 
         .ph-member-results {

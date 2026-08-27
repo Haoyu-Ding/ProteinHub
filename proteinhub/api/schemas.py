@@ -132,6 +132,7 @@ class BatchWellPositionUpdateRequest(BaseModel):
 class BatchOrderStatusUpdateRequest(BaseModel):
     order_status: str
     receipt_note: str | None = None
+    received_well_ids: list[int] | None = None
 
 
 class BatchTranslationRequest(BaseModel):
@@ -330,6 +331,7 @@ class BatchResponse(BaseModel):
 
 class BatchSummaryResponse(BatchResponse):
     well_count: int
+    received_well_count: int = 0
     experiment_count: int
     result_count: int
 
@@ -396,8 +398,12 @@ class BatchWellResponse(BaseModel):
     source_aa_sequence: str
     translated_aa_sequence: str
     dna_sequence: str
+    received_at: str = ""
+    received_by: int | None = None
     created_at: str
     updated_at: str
+    received_by_name: str = ""
+    received_by_email: str = ""
     protein_name: str
     protein_sequence: str
     protein_type: str

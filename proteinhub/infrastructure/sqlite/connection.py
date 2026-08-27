@@ -54,6 +54,7 @@ def apply_migrations(connection: sqlite3.Connection) -> None:
         if column_name not in columns:
             connection.execute(statement)
     drop_retired_schema(connection)
+    backfill_fully_received_wells(connection)
     mark_migration_applied(connection, BASELINE_MIGRATION)
 
 
@@ -103,6 +104,51 @@ def drop_retired_schema(connection: sqlite3.Connection) -> None:
         raise
     finally:
         connection.execute("PRAGMA foreign_keys = ON")
+
+
+def backfill_fully_received_wells(connection: sqlite3.Connection) -> None:
+    if not table_exists(connection, "batches") or not table_exists(connection, "batch_wells"):
+        return
+    columns = table_columns(connection, "batch_wells")
+    if not {"received_at", "received_by"}.issubset(columns):
+        return
+    connection.execute(
+        """
+        UPDATE batch_wells
+        SET
+            received_at = COALESCE(
+                NULLIF(
+                    (
+                        SELECT batches.receipt_updated_at
+                        FROM batches
+                        WHERE batches.id = batch_wells.batch_id
+                    ),
+                    ''
+                ),
+                NULLIF(
+                    (
+                        SELECT batches.ordered_at
+                        FROM batches
+                        WHERE batches.id = batch_wells.batch_id
+                    ),
+                    ''
+                ),
+                CURRENT_TIMESTAMP
+            ),
+            received_by = (
+                SELECT batches.receipt_updated_by
+                FROM batches
+                WHERE batches.id = batch_wells.batch_id
+            ),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE received_at = ''
+          AND batch_id IN (
+              SELECT id
+              FROM batches
+              WHERE order_status = 'fully_received'
+          )
+        """
+    )
 
 
 def rebuild_proteins_without_retired_columns(connection: sqlite3.Connection) -> None:
@@ -344,6 +390,8 @@ def rebuild_batch_wells_without_retired_columns(connection: sqlite3.Connection) 
     columns = table_columns(connection, "batch_wells")
     if not columns.intersection(RETIRED_BATCH_WELL_COLUMNS):
         return
+    received_at_expression = "received_at" if "received_at" in columns else "''"
+    received_by_expression = "received_by" if "received_by" in columns else "NULL"
 
     connection.execute(
         """
@@ -355,6 +403,8 @@ def rebuild_batch_wells_without_retired_columns(connection: sqlite3.Connection) 
             source_aa_sequence TEXT NOT NULL DEFAULT '',
             translated_aa_sequence TEXT NOT NULL DEFAULT '',
             dna_sequence TEXT NOT NULL DEFAULT '',
+            received_at TEXT NOT NULL DEFAULT '',
+            received_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (batch_id, position)
@@ -362,7 +412,7 @@ def rebuild_batch_wells_without_retired_columns(connection: sqlite3.Connection) 
         """
     )
     connection.execute(
-        """
+        f"""
         INSERT INTO batch_wells_new (
             id,
             batch_id,
@@ -371,6 +421,8 @@ def rebuild_batch_wells_without_retired_columns(connection: sqlite3.Connection) 
             source_aa_sequence,
             translated_aa_sequence,
             dna_sequence,
+            received_at,
+            received_by,
             created_at,
             updated_at
         )
@@ -382,6 +434,8 @@ def rebuild_batch_wells_without_retired_columns(connection: sqlite3.Connection) 
             source_aa_sequence,
             translated_aa_sequence,
             dna_sequence,
+            COALESCE(NULLIF({received_at_expression}, ''), ''),
+            {received_by_expression},
             created_at,
             COALESCE(NULLIF(updated_at, ''), created_at, CURRENT_TIMESTAMP)
         FROM batch_wells

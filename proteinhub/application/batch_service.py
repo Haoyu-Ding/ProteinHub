@@ -227,10 +227,11 @@ def update_batch_order_status(
     user_id: int,
     order_status: str,
     receipt_note: str | None = None,
+    received_well_ids: list[int] | None = None,
 ) -> dict:
     project_id = project_for_batch(connection, batch_id)
     require_project_write(connection, project_id=project_id, user_id=user_id)
-    if receipt_note is not None:
+    if receipt_note is not None or received_well_ids is not None:
         require_project_owner(connection, project_id=project_id, user_id=user_id)
     batch_repository = BatchRepository(connection)
     batch = batch_repository.get(batch_id)
@@ -240,22 +241,55 @@ def update_batch_order_status(
     current_status = _normalize_batch_order_status(
         batch.get("order_status") or "not_ordered"
     )
+    normalized_received_well_ids = None
+    explicit_receipt_details = received_well_ids is not None
+    if received_well_ids is not None:
+        wells = batch_repository.list_wells(batch_id)
+        normalized_received_well_ids = _normalize_received_well_ids(
+            received_well_ids,
+            wells,
+        )
+        normalized_status = _batch_status_from_received_wells(
+            current_status=current_status,
+            requested_status=normalized_status,
+            received_count=len(normalized_received_well_ids),
+            total_wells=len(wells),
+        )
+    elif normalized_status == "fully_received":
+        wells = batch_repository.list_wells(batch_id)
+        normalized_received_well_ids = {int(well["id"]) for well in wells}
     _validate_batch_order_status_transition(
         current_status=current_status,
         next_status=normalized_status,
     )
     normalized_receipt_note = receipt_note.strip() if receipt_note is not None else None
-    if normalized_status != current_status or normalized_receipt_note is not None:
+    if (
+        normalized_status != current_status
+        or normalized_receipt_note is not None
+        or normalized_received_well_ids is not None
+    ):
         with transaction(connection):
             if normalized_status != current_status:
                 batch_repository.update_order_status(
                     batch_id=batch_id,
                     order_status=normalized_status,
                 )
+            if normalized_received_well_ids is not None:
+                batch_repository.update_received_wells(
+                    batch_id=batch_id,
+                    received_well_ids=normalized_received_well_ids,
+                    received_by=user_id,
+                )
             if normalized_receipt_note is not None:
                 batch_repository.update_receipt_note(
                     batch_id=batch_id,
                     receipt_note=normalized_receipt_note,
+                    receipt_updated_by=user_id,
+                )
+            elif normalized_received_well_ids is not None and explicit_receipt_details:
+                batch_repository.update_receipt_note(
+                    batch_id=batch_id,
+                    receipt_note=batch.get("receipt_note") or "",
                     receipt_updated_by=user_id,
                 )
     return get_batch(connection, batch_id=batch_id, user_id=user_id)
@@ -1480,6 +1514,47 @@ def _normalize_batch_order_status(order_status: str) -> str:
             "Batch order status must be not_ordered, ordered, partially_received, or fully_received"
         )
     return normalized
+
+
+def _normalize_received_well_ids(
+    received_well_ids: list[int],
+    wells: list[dict],
+) -> set[int]:
+    if not wells:
+        raise DomainError("Batch must include at least one well")
+    valid_well_ids = {int(well["id"]) for well in wells}
+    normalized: set[int] = set()
+    for well_id in received_well_ids:
+        normalized_well_id = int(well_id)
+        if normalized_well_id <= 0:
+            raise DomainError("Received well ids must be positive")
+        normalized.add(normalized_well_id)
+    if not normalized.issubset(valid_well_ids):
+        raise DomainError("Received wells must belong to this batch")
+    return normalized
+
+
+def _batch_status_from_received_wells(
+    *,
+    current_status: str,
+    requested_status: str,
+    received_count: int,
+    total_wells: int,
+) -> str:
+    if total_wells <= 0:
+        raise DomainError("Batch must include at least one well")
+    if received_count == 0:
+        if (
+            requested_status == "partially_received"
+            and current_status == "partially_received"
+        ):
+            return "partially_received"
+        if requested_status in {"partially_received", "fully_received"}:
+            return "ordered"
+        return requested_status
+    if received_count >= total_wells:
+        return "fully_received"
+    return "partially_received"
 
 
 def _validate_batch_order_status_transition(

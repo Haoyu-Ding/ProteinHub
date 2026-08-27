@@ -118,6 +118,7 @@ def create_batches_router(
                 user_id=user["id"],
                 order_status=payload.order_status,
                 receipt_note=payload.receipt_note,
+                received_well_ids=payload.received_well_ids,
             )
         except DomainError as error:
             raise map_domain_error(error) from error

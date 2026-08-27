@@ -46,6 +46,12 @@ class BatchRepository:
                 ) AS well_count,
                 (
                     SELECT COUNT(*)
+                    FROM batch_wells
+                    WHERE batch_wells.batch_id = batches.id
+                      AND batch_wells.received_at != ''
+                ) AS received_well_count,
+                (
+                    SELECT COUNT(*)
                     FROM batch_experiments
                     WHERE batch_experiments.batch_id = batches.id
                 ) AS experiment_count,
@@ -170,6 +176,56 @@ class BatchRepository:
             (receipt_note, receipt_updated_by, batch_id),
         )
 
+    def update_received_wells(
+        self,
+        *,
+        batch_id: int,
+        received_well_ids: set[int],
+        received_by: int,
+    ) -> None:
+        rows = self.connection.execute(
+            """
+            SELECT id, received_at
+            FROM batch_wells
+            WHERE batch_id = ?
+            """,
+            (batch_id,),
+        ).fetchall()
+        mark_ids = [
+            int(row["id"])
+            for row in rows
+            if int(row["id"]) in received_well_ids and not row["received_at"]
+        ]
+        clear_ids = [
+            int(row["id"])
+            for row in rows
+            if int(row["id"]) not in received_well_ids and row["received_at"]
+        ]
+        if mark_ids:
+            self.connection.executemany(
+                """
+                UPDATE batch_wells
+                SET
+                    received_at = CURRENT_TIMESTAMP,
+                    received_by = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                [(received_by, well_id) for well_id in mark_ids],
+            )
+        if clear_ids:
+            self.connection.executemany(
+                """
+                UPDATE batch_wells
+                SET
+                    received_at = '',
+                    received_by = NULL,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                [(well_id,) for well_id in clear_ids],
+            )
+
     def list_order_monitor_batches(self) -> list[dict]:
         return self.connection.execute(
             """
@@ -239,9 +295,12 @@ class BatchRepository:
                 proteins.name AS protein_name,
                 proteins.sequence AS protein_sequence,
                 proteins.protein_type AS protein_type,
-                proteins.score_details_json AS score_details_json
+                proteins.score_details_json AS score_details_json,
+                COALESCE(receipt_users.name, '') AS received_by_name,
+                COALESCE(receipt_users.email, '') AS received_by_email
             FROM batch_wells
             JOIN proteins ON proteins.id = batch_wells.protein_id
+            LEFT JOIN users AS receipt_users ON receipt_users.id = batch_wells.received_by
             WHERE batch_wells.batch_id = ?
             ORDER BY batch_wells.position ASC
             """,
@@ -270,9 +329,12 @@ class BatchRepository:
             """
             SELECT
                 batch_wells.*,
-                proteins.name AS protein_name
+                proteins.name AS protein_name,
+                COALESCE(receipt_users.name, '') AS received_by_name,
+                COALESCE(receipt_users.email, '') AS received_by_email
             FROM batch_wells
             JOIN proteins ON proteins.id = batch_wells.protein_id
+            LEFT JOIN users AS receipt_users ON receipt_users.id = batch_wells.received_by
             WHERE batch_wells.batch_id = ? AND batch_wells.id = ?
             """,
             (batch_id, well_id),

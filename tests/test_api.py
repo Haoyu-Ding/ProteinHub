@@ -481,6 +481,8 @@ def test_database_schema_has_no_sequence_or_collaboration_tables(tmp_path: Path)
     assert "receipt_note" in batch_columns
     assert "receipt_updated_by" in batch_columns
     assert "receipt_updated_at" in batch_columns
+    assert "received_at" in batch_well_columns
+    assert "received_by" in batch_well_columns
     assert "result_value" not in batch_well_columns
     assert "result_note" not in batch_well_columns
     assert not {
@@ -785,7 +787,10 @@ def test_init_db_removes_retired_collaboration_schema_from_existing_database(
             """
         ).fetchone()
         well = connection.execute(
-            "SELECT id, batch_id, protein_id, position FROM batch_wells"
+            """
+            SELECT id, batch_id, protein_id, position, received_at, received_by
+            FROM batch_wells
+            """
         ).fetchone()
 
     assert "protein_comments" not in tables
@@ -804,6 +809,8 @@ def test_init_db_removes_retired_collaboration_schema_from_existing_database(
     assert "receipt_note" in batch_columns
     assert "receipt_updated_by" in batch_columns
     assert "receipt_updated_at" in batch_columns
+    assert "received_at" in batch_well_columns
+    assert "received_by" in batch_well_columns
     assert "result_value" not in batch_well_columns
     assert "result_note" not in batch_well_columns
     assert "ordered_at" in batch_columns
@@ -835,7 +842,65 @@ def test_init_db_removes_retired_collaboration_schema_from_existing_database(
         "",
     )
     assert batch == (9, "legacy batch", "kept batch", "96", "not_ordered", "", None, "")
-    assert well == (11, 9, 7, "A01")
+    assert well == (11, 9, 7, "A01", "", None)
+
+
+def test_init_db_backfills_fully_received_batch_wells(tmp_path: Path) -> None:
+    database_path = tmp_path / "proteinhub.sqlite3"
+    init_db(database_path)
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "INSERT INTO users (id, name, email, password_hash) VALUES (1, 'Owner', 'owner@example.com', 'hash')"
+        )
+        connection.execute(
+            "INSERT INTO projects (id, name, owner_id) VALUES (3, 'Project', 1)"
+        )
+        connection.execute(
+            """
+            INSERT INTO proteins (id, project_id, name, sequence)
+            VALUES (7, 3, 'binder', 'ACD')
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO batches (
+                id,
+                project_id,
+                name,
+                order_status,
+                ordered_at,
+                receipt_updated_by,
+                receipt_updated_at,
+                created_by
+            )
+            VALUES (
+                9,
+                3,
+                'full batch',
+                'fully_received',
+                '2026-01-01 00:00:00',
+                1,
+                '2026-01-02 03:04:00',
+                1
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO batch_wells (id, batch_id, protein_id, position)
+            VALUES (11, 9, 7, 'A01')
+            """
+        )
+        connection.commit()
+
+    init_db(database_path)
+
+    with sqlite3.connect(database_path) as connection:
+        well = connection.execute(
+            "SELECT received_at, received_by FROM batch_wells WHERE id = 11"
+        ).fetchone()
+
+    assert well == ("2026-01-02 03:04:00", 1)
 
 
 def test_public_registration_route_is_not_available(tmp_path: Path) -> None:
@@ -2677,6 +2742,11 @@ def test_batch_order_status_moves_forward_and_locks_ordered_batch_edits(
     assert fully_received.status_code == 200, fully_received.text
     assert fully_received.json()["batch"]["order_status"] == "fully_received"
     assert fully_received.json()["batch"]["ordered_at"] == ordered_at
+    assert all(well["received_at"] for well in fully_received.json()["wells"])
+    assert all(
+        well["received_by"] == project["owner_id"]
+        for well in fully_received.json()["wells"]
+    )
 
     back_from_fully_received = client.patch(
         f"/api/batches/{batch['id']}/status",
@@ -2763,6 +2833,127 @@ def test_batch_order_status_can_move_through_partial_receipt(tmp_path: Path) -> 
     )
     assert fully_received.status_code == 200, fully_received.text
     assert fully_received.json()["batch"]["order_status"] == "fully_received"
+
+
+def test_batch_partial_receipt_tracks_received_wells(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+    member_token = register(client, "member@example.com")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Detailed receipt plate"},
+    ).json()
+    protein_a = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "binder-a", "sequence": "ACDEFG"},
+    ).json()
+    protein_b = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "binder-b", "sequence": "HIKLMN"},
+    ).json()
+    added_member = client.post(
+        f"/api/projects/{project['id']}/members",
+        headers=auth(owner_token),
+        json={"email": "member@example.com", "role": "member"},
+    )
+    assert added_member.status_code == 200, added_member.text
+
+    created = client.post(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+        json={
+            "name": "Detailed receipt batch",
+            "protein_ids": [protein_a["id"], protein_b["id"]],
+        },
+    )
+    assert created.status_code == 200, created.text
+    batch_payload = created.json()
+    batch = batch_payload["batch"]
+    wells = batch_payload["wells"]
+    assert all(well["received_at"] == "" for well in wells)
+    assert all(well["received_by"] is None for well in wells)
+
+    ordered = client.patch(
+        f"/api/batches/{batch['id']}/status",
+        headers=auth(owner_token),
+        json={"order_status": "ordered"},
+    )
+    assert ordered.status_code == 200, ordered.text
+
+    partial = client.patch(
+        f"/api/batches/{batch['id']}/status",
+        headers=auth(owner_token),
+        json={
+            "order_status": "ordered",
+            "receipt_note": "A01 已收货，A02 待补发。",
+            "received_well_ids": [wells[0]["id"]],
+        },
+    )
+    assert partial.status_code == 200, partial.text
+    partial_payload = partial.json()
+    assert partial_payload["batch"]["order_status"] == "partially_received"
+    assert partial_payload["batch"]["receipt_note"] == "A01 已收货，A02 待补发。"
+    assert partial_payload["batch"]["receipt_updated_by"] == project["owner_id"]
+    received_by_id = {
+        well["id"]: well["received_by"] for well in partial_payload["wells"]
+    }
+    received_at_by_id = {
+        well["id"]: well["received_at"] for well in partial_payload["wells"]
+    }
+    assert received_by_id[wells[0]["id"]] == project["owner_id"]
+    assert received_at_by_id[wells[0]["id"]]
+    assert received_by_id[wells[1]["id"]] is None
+    assert received_at_by_id[wells[1]["id"]] == ""
+
+    listed = client.get(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+    )
+    assert listed.status_code == 200, listed.text
+    assert listed.json()[0]["received_well_count"] == 1
+
+    member_receipt_update = client.patch(
+        f"/api/batches/{batch['id']}/status",
+        headers=auth(member_token),
+        json={
+            "order_status": "partially_received",
+            "received_well_ids": [wells[0]["id"], wells[1]["id"]],
+        },
+    )
+    assert member_receipt_update.status_code == 403
+
+    other_batch = client.post(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+        json={"name": "Other batch", "protein_ids": [protein_a["id"]]},
+    ).json()
+    invalid_well = client.patch(
+        f"/api/batches/{batch['id']}/status",
+        headers=auth(owner_token),
+        json={
+            "order_status": "partially_received",
+            "received_well_ids": [other_batch["wells"][0]["id"]],
+        },
+    )
+    assert invalid_well.status_code == 400
+
+    fully_received = client.patch(
+        f"/api/batches/{batch['id']}/status",
+        headers=auth(owner_token),
+        json={
+            "order_status": "partially_received",
+            "received_well_ids": [well["id"] for well in wells],
+        },
+    )
+    assert fully_received.status_code == 200, fully_received.text
+    full_payload = fully_received.json()
+    assert full_payload["batch"]["order_status"] == "fully_received"
+    assert all(well["received_at"] for well in full_payload["wells"])
+    assert all(well["received_by"] == project["owner_id"] for well in full_payload["wells"])
 
 
 def test_order_monitor_lists_accessible_ordered_batches_by_week(tmp_path: Path) -> None:
