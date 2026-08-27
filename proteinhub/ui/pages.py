@@ -63,6 +63,14 @@ PROJECT_STATUS_EMPTY_STATES = {
     "archived": ("inventory_2", "还没有归档项目", "归档后的项目会显示在这里。"),
     "trash": ("delete", "回收站为空", "移入回收站的项目会显示在这里。"),
 }
+ADMIN_SEQUENCE_SOURCE_LABELS = {
+    "batch_protein": "已进批次",
+    "public_protein": "公共蛋白",
+}
+ADMIN_SEQUENCE_SOURCE_ICONS = {
+    "batch_protein": "science",
+    "public_protein": "biotech",
+}
 HELP_SECTIONS = (
     {
         "id": "quick-start",
@@ -380,6 +388,14 @@ def _project_status_label(status: str | None) -> str:
 
 def _project_status_badge_color(status: str | None) -> str:
     return PROJECT_STATUS_BADGE_COLORS.get(status or "active", "positive")
+
+
+def _admin_sequence_source_label(source_type: str | None) -> str:
+    return ADMIN_SEQUENCE_SOURCE_LABELS.get(source_type or "", "序列")
+
+
+def _admin_sequence_source_icon(source_type: str | None) -> str:
+    return ADMIN_SEQUENCE_SOURCE_ICONS.get(source_type or "", "search")
 
 
 def _render_sequence_similarity_badge(protein: dict, open_dialog) -> None:
@@ -870,6 +886,262 @@ def install_ui() -> None:
 
             await load_monitor()
 
+    @ui.page("/admin/sequences")
+    async def admin_sequences_page() -> None:
+        shell()
+        if not await ensure_logged_in():
+            return
+
+        with ui.column().classes("ph-page"):
+            with ui.row().classes("ph-page-header w-full"):
+                with ui.column().classes("gap-1"):
+                    ui.label("管理员").classes("ph-eyebrow")
+                    ui.label("序列搜索").classes("ph-title")
+                    ui.label("搜索已进批次的合成蛋白和公共蛋白序列。").classes("ph-subtitle")
+                refresh_button = ui.button(
+                    "刷新",
+                    icon="refresh",
+                    on_click=lambda: load_sequences(),
+                ).props("unelevated no-wrap")
+
+            with ui.row().classes("ph-panel w-full items-end gap-3 p-4"):
+                sequence_query = ui.input(
+                    "序列片段",
+                    placeholder="ACDEFG",
+                ).props("outlined clearable").classes("min-w-[260px] flex-1")
+                search_button = ui.button(
+                    "搜索",
+                    icon="search",
+                    on_click=lambda: load_sequences(),
+                ).props("unelevated no-wrap")
+                ui.button(
+                    "清空",
+                    icon="restart_alt",
+                    on_click=lambda: reset_sequence_search(),
+                ).props("flat no-wrap")
+
+            results_column = ui.column().classes("w-full gap-3")
+            sequence_page_size = 100
+            sequence_page_state = {"offset": 0}
+            load_more_button = ui.button(
+                "加载更多",
+                icon="expand_more",
+                on_click=lambda: load_more_sequences(),
+            ).props("flat no-wrap")
+            load_more_button.visible = False
+
+            def render_sequence_result(result: dict) -> None:
+                sequence = result.get("sequence") or ""
+                preview = sequence[:90] + ("..." if len(sequence) > 90 else "")
+                source_type = result.get("source_type") or ""
+                source_color = "primary" if source_type == "batch_protein" else "secondary"
+                with ui.card().classes("ph-resource-card ph-protein-card w-full p-4"):
+                    with ui.element("div").classes("ph-protein-card-layout"):
+                        with ui.row().classes("ph-protein-card-main"):
+                            with ui.element("div").classes("ph-icon-box ph-icon-protein"):
+                                ui.icon(_admin_sequence_source_icon(source_type))
+                            with ui.column().classes("ph-protein-card-content"):
+                                with ui.column().classes("w-full gap-1"):
+                                    ui.label(result["name"]).classes("ph-card-title")
+                                    with ui.row().classes("ph-protein-tags"):
+                                        ui.badge(
+                                            _admin_sequence_source_label(source_type)
+                                        ).props(f"outline color={source_color}")
+                                        ui.badge(
+                                            _project_status_label(result.get("project_status"))
+                                        ).props(
+                                            f"outline color={_project_status_badge_color(result.get('project_status'))}"
+                                        )
+                                        if result.get("protein_type"):
+                                            ui.badge(result["protein_type"]).props("outline")
+                                        if result.get("target"):
+                                            ui.badge(
+                                                f"靶标 {result['target']}"
+                                            ).props("outline color=secondary")
+                                batch_text = ""
+                                if result.get("batch_count"):
+                                    batch_text = f" · {result['batch_count']} 个批次"
+                                ui.label(
+                                    f"项目 {result['project_name']} · "
+                                    f"{result['sequence_length']} 个氨基酸"
+                                    f"{batch_text}"
+                                ).classes("ph-meta")
+                                ui.label(preview).classes(
+                                    "ph-protein-sequence-preview font-mono text-sm text-slate-700"
+                                )
+                        open_button = ui.button(
+                            icon="open_in_new",
+                            on_click=lambda path=result["detail_path"]: ui.navigate.to(path),
+                        ).props("flat round dense")
+                        with open_button:
+                            ui.tooltip("打开详情")
+
+            async def load_sequences() -> None:
+                await fetch_sequences(reset=True)
+
+            async def load_more_sequences() -> None:
+                await fetch_sequences(reset=False)
+
+            async def fetch_sequences(*, reset: bool) -> None:
+                if reset:
+                    sequence_page_state["offset"] = 0
+                    load_more_button.visible = False
+                    results_column.clear()
+                    with results_column:
+                        ui.label("正在加载序列...").classes("ph-muted")
+                try:
+                    search_button.disable()
+                    refresh_button.disable()
+                    load_more_button.disable()
+                    params = {
+                        "limit": sequence_page_size,
+                        "offset": sequence_page_state["offset"],
+                    }
+                    if sequence_query.value:
+                        params["q"] = sequence_query.value
+                    endpoint = f"/api/admin/sequences?{urlencode(params)}"
+                    results = await ui.run_javascript(
+                        f"return await phApi({json.dumps(endpoint)})",
+                        timeout=10,
+                    )
+                    if reset:
+                        results_column.clear()
+                    with results_column:
+                        if reset and not results:
+                            if sequence_query.value:
+                                empty_state("search_off", "没有匹配序列", "换一段序列试试看。")
+                            else:
+                                empty_state("science", "还没有可搜索序列", "已进批次的合成蛋白和公共蛋白会显示在这里。")
+                        for result in results:
+                            render_sequence_result(result)
+                    sequence_page_state["offset"] += len(results)
+                    load_more_button.visible = len(results) == sequence_page_size
+                except Exception as error:
+                    if reset:
+                        results_column.clear()
+                        with results_column:
+                            empty_state("lock", "无法加载序列", "请确认当前账号具有管理员权限。")
+                    notify_error(error)
+                finally:
+                    search_button.enable()
+                    refresh_button.enable()
+                    load_more_button.enable()
+
+            async def reset_sequence_search() -> None:
+                sequence_query.value = ""
+                await load_sequences()
+
+            await load_sequences()
+
+    @ui.page("/public-proteins/{public_protein_id}")
+    async def public_protein_page(public_protein_id: int) -> None:
+        shell()
+        if not await ensure_logged_in():
+            return
+        state = {"project_id": None}
+
+        def open_project() -> None:
+            if state["project_id"]:
+                ui.navigate.to(f"/projects/{state['project_id']}")
+            else:
+                ui.run_javascript("history.back()")
+
+        with ui.column().classes("ph-page"):
+            with ui.row().classes("ph-page-header w-full"):
+                with ui.column().classes("gap-1"):
+                    ui.label("公共蛋白").classes("ph-eyebrow")
+                    public_protein_title = ui.label("公共蛋白").classes("ph-title")
+                    public_protein_description = ui.label().classes("ph-subtitle")
+                with ui.column().classes("items-end gap-2"):
+                    ui.button(
+                        "返回项目",
+                        icon="arrow_back",
+                        on_click=open_project,
+                    ).props("flat")
+                    public_protein_meta = ui.row().classes("gap-2")
+
+            with ui.column().classes("ph-sequence-panel"):
+                with ui.row().classes("w-full items-center justify-between border-b border-slate-200 px-4 py-3"):
+                    ui.label("氨基酸序列").classes("font-semibold text-slate-800")
+                    public_sequence_length_badge = ui.badge().props("outline")
+                public_sequence_text = ui.label().classes("ph-sequence-text")
+
+            public_details_column = ui.column().classes("ph-panel w-full gap-3 p-4")
+
+            async def load_public_protein() -> None:
+                public_details_column.clear()
+                with public_details_column:
+                    ui.label("正在加载公共蛋白...").classes("ph-muted")
+                try:
+                    data = await ui.run_javascript(
+                        f"return await phApi('/api/public-proteins/{public_protein_id}')",
+                        timeout=10,
+                    )
+                    public_protein = data["public_protein"]
+                    state["project_id"] = public_protein["project_id"]
+                    public_protein_title.text = public_protein["name"]
+                    public_protein_description.text = (
+                        public_protein["description"] or "暂无描述"
+                    )
+                    public_sequence_text.text = sequence_display(public_protein["sequence"])
+                    public_sequence_length_badge.text = (
+                        f"{len(public_protein['sequence'])} 个氨基酸"
+                    )
+                    public_protein_meta.clear()
+                    with public_protein_meta:
+                        if public_protein.get("project_name"):
+                            ui.badge(
+                                f"项目 {public_protein['project_name']}"
+                            ).props("outline color=primary")
+                        ui.badge(
+                            _project_status_label(public_protein.get("project_status"))
+                        ).props(
+                            f"outline color={_project_status_badge_color(public_protein.get('project_status'))}"
+                        )
+                        if public_protein.get("protein_type"):
+                            ui.badge(public_protein["protein_type"]).props("outline")
+                        if public_protein.get("target"):
+                            ui.badge(
+                                f"靶标 {public_protein['target']}"
+                            ).props("outline color=secondary")
+                    public_details_column.clear()
+                    with public_details_column:
+                        with ui.row().classes("ph-section-bar w-full"):
+                            with ui.column().classes("gap-0"):
+                                ui.label("记录信息").classes("text-xl font-semibold")
+                                ui.label("公共蛋白用于工具蛋白、对照蛋白或公共序列。").classes("ph-muted")
+                        with ui.row().classes("ph-file-row w-full"):
+                            with ui.row().classes("min-w-0 flex-1 items-center gap-3"):
+                                with ui.element("div").classes("ph-icon-box ph-icon-protein"):
+                                    ui.icon("person")
+                                with ui.column().classes("min-w-0 gap-1"):
+                                    ui.label(
+                                        person_label(
+                                            public_protein.get("created_by_name"),
+                                            public_protein.get("created_by_email"),
+                                        )
+                                    ).classes("font-semibold text-slate-900")
+                                    ui.label(
+                                        public_protein.get("created_by_email") or "未记录邮箱"
+                                    ).classes("ph-meta")
+                        with ui.row().classes("ph-file-row w-full"):
+                            with ui.row().classes("min-w-0 flex-1 items-center gap-3"):
+                                with ui.element("div").classes("ph-icon-box ph-icon-artifact"):
+                                    ui.icon("schedule")
+                                with ui.column().classes("min-w-0 gap-1"):
+                                    ui.label("创建与更新").classes("font-semibold text-slate-900")
+                                    ui.label(
+                                        f"创建 {format_datetime_minute(public_protein.get('created_at'))} · "
+                                        f"更新 {format_datetime_minute(public_protein.get('updated_at'))}"
+                                    ).classes("ph-meta")
+                except Exception as error:
+                    public_details_column.clear()
+                    with public_details_column:
+                        empty_state("error", "公共蛋白加载失败", "请稍后重试或返回项目页。")
+                    notify_error(error)
+
+            await load_public_protein()
+
     @ui.page("/projects/{project_id}")
     async def project_page(project_id: int) -> None:
         shell()
@@ -1168,6 +1440,12 @@ def install_ui() -> None:
                                             ).classes("ph-meta")
                                             ui.label(preview).classes("ph-protein-sequence-preview font-mono text-sm text-slate-700")
                                     with ui.row().classes("ph-protein-card-actions"):
+                                        open_button = ui.button(
+                                            icon="open_in_new",
+                                            on_click=lambda p=public_protein: ui.navigate.to(f"/public-proteins/{p['id']}"),
+                                        ).props("flat round dense")
+                                        with open_button:
+                                            ui.tooltip("打开公共蛋白")
                                         edit_button = ui.button(
                                             icon="edit",
                                             on_click=lambda p=public_protein: open_public_protein_dialog(p),

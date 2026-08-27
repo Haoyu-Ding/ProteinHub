@@ -1363,6 +1363,9 @@ def shell() -> None:
             ui.link("订单监控", "/order-monitor").classes(
                 "text-sm no-underline text-slate-700 ph-admin-only hidden"
             )
+            ui.link("序列搜索", "/admin/sequences").classes(
+                "text-sm no-underline text-slate-700 ph-admin-only hidden"
+            )
             ui.link("帮助", "/help").classes("text-sm no-underline text-slate-700")
             ui.button("退出登录", on_click=lambda: ui.run_javascript("phClearToken(); window.location.href='/login'")).props("flat dense")
     ui.add_body_html(

@@ -33,9 +33,12 @@ class PublicProteinRepository:
             f"""
             SELECT
                 {PUBLIC_PROTEIN_COLUMNS},
+                projects.name AS project_name,
+                projects.status AS project_status,
                 users.name AS created_by_name,
                 users.email AS created_by_email
             FROM public_proteins
+            JOIN projects ON projects.id = public_proteins.project_id
             JOIN users ON users.id = public_proteins.created_by
             WHERE public_proteins.project_id = ?
             ORDER BY public_proteins.created_at DESC, public_proteins.id DESC
@@ -85,9 +88,12 @@ class PublicProteinRepository:
             f"""
             SELECT
                 {PUBLIC_PROTEIN_COLUMNS},
+                projects.name AS project_name,
+                projects.status AS project_status,
                 users.name AS created_by_name,
                 users.email AS created_by_email
             FROM public_proteins
+            JOIN projects ON projects.id = public_proteins.project_id
             JOIN users ON users.id = public_proteins.created_by
             WHERE public_proteins.id = ?
             """,

@@ -130,6 +130,30 @@ def get_public_protein(
     return public_protein
 
 
+def get_public_protein_detail(
+    connection: sqlite3.Connection,
+    *,
+    public_protein_id: int,
+    user_id: int,
+) -> dict:
+    repository = PublicProteinRepository(connection)
+    project_id = repository.project_id_for(public_protein_id)
+    if project_id is None:
+        raise NotFoundError("Public protein not found")
+    access_role = require_project_read(
+        connection,
+        project_id=project_id,
+        user_id=user_id,
+    )
+    public_protein = repository.get(public_protein_id)
+    if not public_protein:
+        raise NotFoundError("Public protein not found")
+    return {
+        "public_protein": public_protein,
+        "access_role": access_role,
+    }
+
+
 def _require_public_protein_project(
     connection: sqlite3.Connection,
     *,

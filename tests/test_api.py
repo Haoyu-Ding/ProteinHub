@@ -1068,6 +1068,118 @@ def test_project_public_proteins_are_project_bound_crud_records(
     assert empty.json() == []
 
 
+def test_admin_sequence_search_includes_batched_and_public_sequences(
+    tmp_path: Path,
+) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+    outsider_token = register(client, "outsider@example.com")
+    admin_token = register(client, "ruolan.chen@northstar-bio.local", "陈若澜")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Sequence search project"},
+    ).json()
+    batched_protein = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={
+            "name": "Batched binder",
+            "sequence": "ACDEFGHIKL",
+            "protein_type": "nanobody",
+            "target": "CD19",
+        },
+    ).json()
+    unbatched_protein = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "Draft binder", "sequence": "MNPQRSTVWY"},
+    ).json()
+    public_protein = client.post(
+        f"/api/projects/{project['id']}/public-proteins",
+        headers=auth(owner_token),
+        json={
+            "name": "Public control",
+            "sequence": "GGGGACDEFGTT",
+            "protein_type": "tool enzyme",
+            "target": "purification",
+        },
+    ).json()
+    batch = client.post(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+        json={"name": "Search batch", "protein_ids": [batched_protein["id"]]},
+    )
+    assert batch.status_code == 200, batch.text
+
+    denied = client.get("/api/admin/sequences", headers=auth(owner_token))
+    assert denied.status_code == 403
+
+    listed = client.get("/api/admin/sequences", headers=auth(admin_token))
+    assert listed.status_code == 200, listed.text
+    results = listed.json()
+    result_names = {item["name"] for item in results}
+    assert "Batched binder" in result_names
+    assert "Public control" in result_names
+    assert "Draft binder" not in result_names
+
+    batched_result = next(
+        item for item in results if item["name"] == batched_protein["name"]
+    )
+    assert batched_result["source_type"] == "batch_protein"
+    assert batched_result["protein_id"] == batched_protein["id"]
+    assert batched_result["public_protein_id"] is None
+    assert batched_result["project_name"] == "Sequence search project"
+    assert batched_result["sequence_length"] == len(batched_protein["sequence"])
+    assert batched_result["batch_count"] == 1
+    assert batched_result["detail_path"] == f"/proteins/{batched_protein['id']}"
+
+    public_result = next(item for item in results if item["name"] == "Public control")
+    assert public_result["source_type"] == "public_protein"
+    assert public_result["protein_id"] is None
+    assert public_result["public_protein_id"] == public_protein["id"]
+    assert public_result["detail_path"] == f"/public-proteins/{public_protein['id']}"
+
+    searched = client.get(
+        "/api/admin/sequences",
+        headers=auth(admin_token),
+        params={"q": " c d e f "},
+    )
+    assert searched.status_code == 200, searched.text
+    assert {item["name"] for item in searched.json()} == {
+        "Batched binder",
+        "Public control",
+    }
+
+    public_detail = client.get(
+        f"/api/public-proteins/{public_protein['id']}",
+        headers=auth(owner_token),
+    )
+    assert public_detail.status_code == 200, public_detail.text
+    assert public_detail.json()["public_protein"]["project_name"] == (
+        "Sequence search project"
+    )
+
+    outsider_detail = client.get(
+        f"/api/public-proteins/{public_protein['id']}",
+        headers=auth(outsider_token),
+    )
+    assert outsider_detail.status_code == 403
+
+    admin_detail = client.get(
+        f"/api/public-proteins/{public_protein['id']}",
+        headers=auth(admin_token),
+    )
+    assert admin_detail.status_code == 200, admin_detail.text
+
+    unbatched_detail = client.get(
+        f"/api/proteins/{unbatched_protein['id']}",
+        headers=auth(admin_token),
+    )
+    assert unbatched_detail.status_code == 200
+
+
 def test_project_list_includes_owner_and_member_summary(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     owner_token = register(client, "owner@example.com", "张三")

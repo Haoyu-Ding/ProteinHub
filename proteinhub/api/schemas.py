@@ -241,6 +241,8 @@ class ProteinStructureImportResponse(BaseModel):
 class PublicProteinResponse(BaseModel):
     id: int
     project_id: int
+    project_name: str = ""
+    project_status: str = "active"
     name: str
     sequence: str
     description: str
@@ -251,6 +253,28 @@ class PublicProteinResponse(BaseModel):
     created_by_email: str
     created_at: str
     updated_at: str
+
+
+class PublicProteinDetailResponse(BaseModel):
+    public_protein: PublicProteinResponse
+    access_role: str = ""
+
+
+class AdminSequenceSearchResultResponse(BaseModel):
+    source_type: str
+    protein_id: int | None = None
+    public_protein_id: int | None = None
+    project_id: int
+    project_name: str
+    project_status: str
+    name: str
+    sequence: str
+    sequence_length: int
+    protein_type: str
+    target: str
+    updated_at: str
+    batch_count: int = 0
+    detail_path: str
 
 
 class StructureSequenceResponse(BaseModel):

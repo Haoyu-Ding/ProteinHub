@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from proteinhub.infrastructure.sqlite.repositories.admin_sequences import (
+    AdminSequenceRepository,
+)
 from proteinhub.infrastructure.sqlite.repositories.artifacts import ArtifactRepository
 from proteinhub.infrastructure.sqlite.repositories.batches import BatchRepository
 from proteinhub.infrastructure.sqlite.repositories.experiments import ExperimentRepository
@@ -14,6 +17,7 @@ from proteinhub.infrastructure.sqlite.repositories.public_proteins import (
 from proteinhub.infrastructure.sqlite.repositories.users import UserRepository
 
 __all__ = [
+    "AdminSequenceRepository",
     "ArtifactRepository",
     "BatchRepository",
     "ExperimentRepository",
