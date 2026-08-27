@@ -701,9 +701,8 @@ def install_ui() -> None:
                             f"return await phApi('/api/projects/{project['id']}/status', {{method: 'PATCH', body: {{status: {status!r}}}}})",
                             timeout=10,
                         )
-                        status_tabs.value = status
                         ui.notify("项目状态已更新", type="positive")
-                        await load_projects(status)
+                        await load_projects()
                     except Exception as error:
                         notify_error(error)
 
