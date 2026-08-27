@@ -698,6 +698,51 @@ def design_system() -> None:
             background: #ffffff;
         }
 
+        .ph-structure-viewer {
+            width: 100%;
+            gap: 12px;
+            padding: 14px 16px;
+            border: 1px solid var(--ph-border);
+            border-radius: 8px;
+            background: var(--ph-surface);
+        }
+
+        .ph-structure-viewer-header {
+            width: 100%;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+        }
+
+        .ph-structure-viewer-actions {
+            align-items: center;
+            justify-content: flex-end;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .ph-structure-viewer-frame {
+            width: 100%;
+            height: min(62vh, 520px);
+            min-height: 360px;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid var(--ph-border);
+            border-radius: 8px;
+            background: #ffffff;
+        }
+
+        .ph-structure-viewer-status {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 18px;
+            color: var(--ph-muted);
+            text-align: center;
+        }
+
         .ph-akta-preview-status {
             padding: 28px;
             text-align: center;
@@ -1162,6 +1207,20 @@ def design_system() -> None:
                 grid-template-columns: 1fr;
             }
 
+            .ph-structure-viewer-header {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .ph-structure-viewer-actions {
+                justify-content: flex-start;
+            }
+
+            .ph-structure-viewer-frame {
+                height: 52vh;
+                min-height: 280px;
+            }
+
             .ph-batch-mapping-scroll {
                 max-height: min(56vh, 420px);
             }
@@ -1267,6 +1326,112 @@ def api_script() -> None:
                 throw new Error(phErrorText(detail));
             }
             return data;
+        }
+        window.phStructureViewers = window.phStructureViewers || {};
+        window.phLoadNgl = function() {
+            if (window.NGL) return Promise.resolve();
+            if (window.phNglScriptPromise) return window.phNglScriptPromise;
+            window.phNglScriptPromise = new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'https://unpkg.com/ngl@2.0.0-dev.39/dist/ngl.js';
+                script.async = true;
+                script.onload = () => window.NGL
+                    ? resolve()
+                    : reject(new Error('NGL Viewer 加载失败'));
+                script.onerror = () => reject(new Error('NGL Viewer 加载失败'));
+                document.head.appendChild(script);
+            });
+            return window.phNglScriptPromise;
+        }
+        window.phWaitForElement = async function(id, attempts = 30) {
+            for (let attempt = 0; attempt < attempts; attempt += 1) {
+                const element = document.getElementById(id);
+                if (element) return element;
+                await new Promise((resolve) => setTimeout(resolve, 50));
+            }
+            return null;
+        }
+        window.phStructureFileExtension = function(filename, mimeType) {
+            const name = String(filename || '').toLowerCase();
+            const mime = String(mimeType || '').toLowerCase();
+            if (name.endsWith('.cif') || name.endsWith('.mmcif') || mime.includes('cif')) {
+                return 'cif';
+            }
+            return 'pdb';
+        }
+        window.phSetStructureViewerStatus = function(container, text) {
+            container.innerHTML = '';
+            const status = document.createElement('div');
+            status.className = 'ph-structure-viewer-status';
+            status.textContent = text;
+            container.appendChild(status);
+        }
+        window.phRenderProteinStructure = async function(config) {
+            const container = await phWaitForElement(config.containerId);
+            if (!container) return false;
+            phSetStructureViewerStatus(container, '正在加载 3D 结构...');
+            try {
+                await phLoadNgl();
+                const token = phToken();
+                const headers = token ? {Authorization: `Bearer ${token}`} : {};
+                const response = await fetch(config.downloadPath, {headers});
+                if (!response.ok) {
+                    let detail = '结构文件加载失败';
+                    try {
+                        const data = await response.json();
+                        detail = data && data.detail ? phErrorText(data.detail) : detail;
+                    } catch (error) {}
+                    throw new Error(detail);
+                }
+                const blob = await response.blob();
+                const previous = phStructureViewers[config.containerId];
+                if (previous && previous.stage) previous.stage.dispose();
+                container.innerHTML = '';
+                const stage = new NGL.Stage(config.containerId, {
+                    backgroundColor: 'white',
+                });
+                const component = await stage.loadFile(blob, {
+                    ext: phStructureFileExtension(config.filename, config.mimeType),
+                    name: config.filename || 'structure',
+                });
+                component.addRepresentation('cartoon', {colorScheme: 'chainindex'});
+                component.autoView();
+                stage.handleResize();
+                phStructureViewers[config.containerId] = {stage, component};
+                setTimeout(() => stage.handleResize(), 100);
+                return true;
+            } catch (error) {
+                const message = error && error.message ? error.message : '结构文件加载失败';
+                phSetStructureViewerStatus(container, message);
+                return false;
+            }
+        }
+        window.phSetProteinStructureRepresentation = function(containerId, representation) {
+            const viewer = phStructureViewers[containerId];
+            if (!viewer || !viewer.component) {
+                phNotify('结构还在加载中', 'warning');
+                return false;
+            }
+            const paramsByRepresentation = {
+                cartoon: {colorScheme: 'chainindex'},
+                surface: {colorScheme: 'chainindex', opacity: 0.72},
+                'ball+stick': {colorScheme: 'element'},
+            };
+            viewer.component.removeAllRepresentations();
+            viewer.component.addRepresentation(
+                representation,
+                paramsByRepresentation[representation] || paramsByRepresentation.cartoon,
+            );
+            viewer.component.autoView();
+            viewer.stage.handleResize();
+            return true;
+        }
+        window.phResetProteinStructureView = function(containerId) {
+            const viewer = phStructureViewers[containerId];
+            if (!viewer || !viewer.component) return false;
+            viewer.component.autoView();
+            viewer.stage.handleResize();
+            return true;
         }
         window.phSetToken = function(token) {
             localStorage.setItem('proteinhub_token', token);

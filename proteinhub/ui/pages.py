@@ -65,7 +65,7 @@ PROJECT_STATUS_EMPTY_STATES = {
 }
 ADMIN_SEQUENCE_SOURCE_LABELS = {
     "batch_protein": "已进批次",
-    "public_protein": "公共蛋白",
+    "public_protein": "工具蛋白",
 }
 ADMIN_SEQUENCE_SOURCE_ICONS = {
     "batch_protein": "science",
@@ -82,12 +82,12 @@ HELP_SECTIONS = (
         "steps": (
             ("1", "创建项目", "进入“项目”页面，新建一个项目。项目是数据和权限的边界。"),
             ("2", "添加成员", "项目负责人可以在项目工作台的成员区域添加协作者，并设置成员角色。"),
-            ("3", "导入合成蛋白", "从 PDB/mmCIF 新建或批量导入合成蛋白；导入后可以在蛋白详情页查看结构和资料。"),
+            ("3", "导入设计蛋白", "从 PDB/mmCIF 新建或批量导入设计蛋白；导入后可以在蛋白详情页查看结构和资料。"),
             ("4", "创建批次", "在项目工作台选择蛋白创建 96 孔板批次，系统会记录孔位与蛋白的映射关系。"),
             ("5", "上传实验", "进入批次详情页，根据实验类型上传 HPLC、SPR 或 AKTA 文件。"),
         ),
         "tips": (
-            "先建立项目和成员，再导入合成蛋白；后续的批次、实验和资料都会继承项目权限。",
+            "先建立项目和成员，再导入设计蛋白；后续的批次、实验和资料都会继承项目权限。",
             "实验结果生成后，可以从蛋白详情页查看对应的实验图和下载文件。",
         ),
     },
@@ -897,7 +897,7 @@ def install_ui() -> None:
                 with ui.column().classes("gap-1"):
                     ui.label("管理员").classes("ph-eyebrow")
                     ui.label("序列搜索").classes("ph-title")
-                    ui.label("搜索已进批次的合成蛋白和公共蛋白序列。").classes("ph-subtitle")
+                    ui.label("搜索已进批次的设计蛋白和工具蛋白序列。").classes("ph-subtitle")
                 refresh_button = ui.button(
                     "刷新",
                     icon="refresh",
@@ -1011,7 +1011,7 @@ def install_ui() -> None:
                             if sequence_query.value:
                                 empty_state("search_off", "没有匹配序列", "换一段序列试试看。")
                             else:
-                                empty_state("science", "还没有可搜索序列", "已进批次的合成蛋白和公共蛋白会显示在这里。")
+                                empty_state("science", "还没有可搜索序列", "已进批次的设计蛋白和工具蛋白会显示在这里。")
                         for result in results:
                             render_sequence_result(result)
                     sequence_page_state["offset"] += len(results)
@@ -1049,8 +1049,8 @@ def install_ui() -> None:
         with ui.column().classes("ph-page"):
             with ui.row().classes("ph-page-header w-full"):
                 with ui.column().classes("gap-1"):
-                    ui.label("公共蛋白").classes("ph-eyebrow")
-                    public_protein_title = ui.label("公共蛋白").classes("ph-title")
+                    ui.label("工具蛋白").classes("ph-eyebrow")
+                    public_protein_title = ui.label("工具蛋白").classes("ph-title")
                     public_protein_description = ui.label().classes("ph-subtitle")
                 with ui.column().classes("items-end gap-2"):
                     ui.button(
@@ -1071,7 +1071,7 @@ def install_ui() -> None:
             async def load_public_protein() -> None:
                 public_details_column.clear()
                 with public_details_column:
-                    ui.label("正在加载公共蛋白...").classes("ph-muted")
+                    ui.label("正在加载工具蛋白...").classes("ph-muted")
                 try:
                     data = await ui.run_javascript(
                         f"return await phApi('/api/public-proteins/{public_protein_id}')",
@@ -1109,7 +1109,7 @@ def install_ui() -> None:
                         with ui.row().classes("ph-section-bar w-full"):
                             with ui.column().classes("gap-0"):
                                 ui.label("记录信息").classes("text-xl font-semibold")
-                                ui.label("公共蛋白用于工具蛋白、对照蛋白或公共序列。").classes("ph-muted")
+                                ui.label("工具蛋白用于工具酶、对照蛋白或通用序列。").classes("ph-muted")
                         with ui.row().classes("ph-file-row w-full"):
                             with ui.row().classes("min-w-0 flex-1 items-center gap-3"):
                                 with ui.element("div").classes("ph-icon-box ph-icon-protein"):
@@ -1137,7 +1137,7 @@ def install_ui() -> None:
                 except Exception as error:
                     public_details_column.clear()
                     with public_details_column:
-                        empty_state("error", "公共蛋白加载失败", "请稍后重试或返回项目页。")
+                        empty_state("error", "工具蛋白加载失败", "请稍后重试或返回项目页。")
                     notify_error(error)
 
             await load_public_protein()
@@ -1163,19 +1163,19 @@ def install_ui() -> None:
                         ui.label("项目视图").classes("ph-eyebrow")
                         ui.label("浏览项目内容").classes("font-semibold text-slate-900")
                     with ui.tabs().props("vertical").classes("ph-side-tabs w-full") as tabs:
-                        proteins_tab = ui.tab("合成蛋白", icon="science")
-                        public_proteins_tab = ui.tab("公共蛋白", icon="biotech")
+                        proteins_tab = ui.tab("设计蛋白", icon="science")
+                        public_proteins_tab = ui.tab("工具蛋白", icon="biotech")
                         batches_tab = ui.tab("实验批次", icon="grid_view")
                         members_tab = ui.tab("成员", icon="group")
                 with ui.tab_panels(tabs, value=proteins_tab).classes("ph-panel ph-workspace-panel"):
                     with ui.tab_panel(proteins_tab).classes("ph-proteins-panel"):
                         with ui.row().classes("ph-section-bar w-full"):
                             with ui.column().classes("gap-0"):
-                                ui.label("合成蛋白").classes("text-xl font-semibold")
+                                ui.label("设计蛋白").classes("text-xl font-semibold")
                                 ui.label("查询和管理这个项目中进入批次和实验流程的蛋白。").classes("ph-muted")
                             with ui.row().classes("gap-2"):
                                 bulk_import_button = ui.button("批量导入", icon="drive_folder_upload", on_click=lambda: bulk_import_dialog.open()).props("flat no-wrap")
-                                new_protein_button = ui.button("新建合成蛋白", icon="add", on_click=lambda: protein_dialog.open()).props("unelevated no-wrap")
+                                new_protein_button = ui.button("新建设计蛋白", icon="add", on_click=lambda: protein_dialog.open()).props("unelevated no-wrap")
                         with ui.row().classes("ph-protein-filter-row w-full"):
                             protein_rating_filter = (
                                 ui.select(
@@ -1221,10 +1221,10 @@ def install_ui() -> None:
                     with ui.tab_panel(public_proteins_tab).classes("ph-proteins-panel"):
                         with ui.row().classes("ph-section-bar w-full"):
                             with ui.column().classes("gap-0"):
-                                ui.label("公共蛋白").classes("text-xl font-semibold")
+                                ui.label("工具蛋白").classes("text-xl font-semibold")
                                 ui.label("维护这个项目内的工具蛋白、对照蛋白和常用公共信息。").classes("ph-muted")
                             new_public_protein_button = ui.button(
-                                "新建公共蛋白",
+                                "新建工具蛋白",
                                 icon="add",
                                 on_click=lambda: open_public_protein_dialog(),
                             ).props("unelevated no-wrap")
@@ -1326,7 +1326,7 @@ def install_ui() -> None:
             async def load_proteins() -> None:
                 proteins_column.clear()
                 with proteins_column:
-                    ui.label("正在加载合成蛋白...").classes("ph-muted")
+                    ui.label("正在加载设计蛋白...").classes("ph-muted")
                 try:
                     proteins = await ui.run_javascript(
                         f"return await phApi({json.dumps(protein_list_path())})",
@@ -1336,7 +1336,7 @@ def install_ui() -> None:
                     proteins_column.clear()
                     with proteins_column:
                         if not proteins:
-                            empty_state("science", "还没有合成蛋白", "先创建合成蛋白并填写序列。")
+                            empty_state("science", "还没有设计蛋白", "先创建设计蛋白并填写序列。")
                         for protein in proteins:
                             preview = protein["sequence"][:50] + (
                                 "..." if len(protein["sequence"]) > 50 else ""
@@ -1396,13 +1396,13 @@ def install_ui() -> None:
                 except Exception as error:
                     proteins_column.clear()
                     with proteins_column:
-                        ui.label("合成蛋白加载失败，请稍后重试。").classes("ph-muted")
+                        ui.label("设计蛋白加载失败，请稍后重试。").classes("ph-muted")
                     notify_error(error)
 
             async def load_public_proteins() -> None:
                 public_proteins_column.clear()
                 with public_proteins_column:
-                    ui.label("正在加载公共蛋白...").classes("ph-muted")
+                    ui.label("正在加载工具蛋白...").classes("ph-muted")
                 try:
                     public_proteins = await ui.run_javascript(
                         f"return await phApi('/api/projects/{project_id}/public-proteins')",
@@ -1411,7 +1411,7 @@ def install_ui() -> None:
                     public_proteins_column.clear()
                     with public_proteins_column:
                         if not public_proteins:
-                            empty_state("biotech", "还没有公共蛋白", "先添加工具蛋白或对照蛋白。")
+                            empty_state("biotech", "还没有工具蛋白", "先添加工具蛋白或对照蛋白。")
                         for public_protein in public_proteins:
                             sequence = public_protein["sequence"]
                             preview = sequence[:50] + (
@@ -1445,25 +1445,25 @@ def install_ui() -> None:
                                             on_click=lambda p=public_protein: ui.navigate.to(f"/public-proteins/{p['id']}"),
                                         ).props("flat round dense")
                                         with open_button:
-                                            ui.tooltip("打开公共蛋白")
+                                            ui.tooltip("打开工具蛋白")
                                         edit_button = ui.button(
                                             icon="edit",
                                             on_click=lambda p=public_protein: open_public_protein_dialog(p),
                                         ).props("flat round dense")
                                         edit_button.visible = project_access["role"] in {"owner", "member"}
                                         with edit_button:
-                                            ui.tooltip("编辑公共蛋白")
+                                            ui.tooltip("编辑工具蛋白")
                                         delete_button = ui.button(
                                             icon="delete",
                                             on_click=lambda p=public_protein: open_delete_public_protein_dialog(p),
                                         ).props("flat round dense color=negative")
                                         delete_button.visible = project_access["role"] in {"owner", "member"}
                                         with delete_button:
-                                            ui.tooltip("删除公共蛋白")
+                                            ui.tooltip("删除工具蛋白")
                 except Exception as error:
                     public_proteins_column.clear()
                     with public_proteins_column:
-                        ui.label("公共蛋白加载失败，请稍后重试。").classes("ph-muted")
+                        ui.label("工具蛋白加载失败，请稍后重试。").classes("ph-muted")
                     notify_error(error)
 
             async def load_batches() -> None:
@@ -1543,7 +1543,7 @@ def install_ui() -> None:
                     ui.button("保存", icon="save", on_click=save_rating)
 
             with ui.dialog() as protein_dialog, ui.card().classes("ph-dialog-card w-full max-w-md gap-4"):
-                ui.label("新建合成蛋白").classes("text-lg font-semibold")
+                ui.label("新建设计蛋白").classes("text-lg font-semibold")
                 protein_name = ui.input("名称").props("outlined").classes("w-full ph-protein-name-input")
                 protein_type = ui.select(PROTEIN_TYPE_OPTIONS, value="TCR", label="类型").props("outlined").classes("w-full ph-protein-type-select")
                 protein_target = ui.input("靶标").props("outlined").classes("w-full ph-protein-target-input")
@@ -1668,7 +1668,7 @@ def install_ui() -> None:
                     ui.button("创建", icon="add", on_click=create_protein)
 
             with ui.dialog() as public_protein_dialog, ui.card().classes("ph-dialog-card w-full max-w-md gap-4"):
-                public_protein_dialog_title = ui.label("新建公共蛋白").classes("text-lg font-semibold")
+                public_protein_dialog_title = ui.label("新建工具蛋白").classes("text-lg font-semibold")
                 public_protein_name = ui.input("名称").props("outlined").classes("w-full")
                 public_protein_type = ui.input("类型").props("outlined").classes("w-full")
                 public_protein_target = ui.input("靶标/用途").props("outlined").classes("w-full")
@@ -1678,7 +1678,7 @@ def install_ui() -> None:
                 def open_public_protein_dialog(public_protein: dict | None = None) -> None:
                     public_protein_form_target["public_protein"] = public_protein
                     public_protein_dialog_title.text = (
-                        "编辑公共蛋白" if public_protein else "新建公共蛋白"
+                        "编辑工具蛋白" if public_protein else "新建工具蛋白"
                     )
                     public_protein_name.value = public_protein["name"] if public_protein else ""
                     public_protein_type.value = (
@@ -1734,11 +1734,11 @@ def install_ui() -> None:
 
             with ui.dialog() as delete_public_protein_dialog, ui.card().classes("ph-dialog-card w-full max-w-md gap-4"):
                 delete_public_protein_title = ui.label().classes("text-lg font-semibold")
-                ui.label("删除后不会影响合成蛋白、批次或实验结果。").classes("ph-muted")
+                ui.label("删除后不会影响设计蛋白、批次或实验结果。").classes("ph-muted")
 
                 def open_delete_public_protein_dialog(public_protein: dict) -> None:
                     public_protein_delete_target["public_protein"] = public_protein
-                    delete_public_protein_title.text = f"删除公共蛋白：{public_protein['name']}"
+                    delete_public_protein_title.text = f"删除工具蛋白：{public_protein['name']}"
                     delete_public_protein_dialog.open()
 
                 async def delete_selected_public_protein() -> None:
@@ -1766,7 +1766,7 @@ def install_ui() -> None:
                     ).props("unelevated color=negative")
 
             with ui.dialog() as bulk_import_dialog, ui.card().classes("ph-dialog-card w-full max-w-md gap-4"):
-                ui.label("批量导入合成蛋白").classes("text-lg font-semibold")
+                ui.label("批量导入设计蛋白").classes("text-lg font-semibold")
                 bulk_protein_type = ui.select(PROTEIN_TYPE_OPTIONS, value="TCR", label="类型").props("outlined").classes("w-full ph-bulk-protein-type-select")
                 bulk_protein_target = ui.input("靶标").props("outlined").classes("w-full ph-bulk-protein-target-input")
                 bulk_protein_description = ui.textarea("描述").props("outlined").classes("w-full ph-bulk-protein-description-input")
@@ -1896,16 +1896,16 @@ def install_ui() -> None:
                                 window.phBulkImportFiles = [];
                                 window.phBulkScoreFile = null;
                                 if (!scoreFile) {{
-                                    if (status) status.textContent = `已导入 ${{proteins.length}} 个合成蛋白`;
-                                    phNotify(`已导入 ${{proteins.length}} 个合成蛋白`, 'positive');
+                                    if (status) status.textContent = `已导入 ${{proteins.length}} 个设计蛋白`;
+                                    phNotify(`已导入 ${{proteins.length}} 个设计蛋白`, 'positive');
                                 }} else if (skipped.length) {{
                                     const preview = skipped.slice(0, 6).join(', ');
                                     const suffix = skipped.length > 6 ? `${{preview}} 等 ${{skipped.length}} 行` : preview;
-                                    if (status) status.textContent = `已导入 ${{proteins.length}} 个合成蛋白，打分表匹配 ${{matched}} 个，跳过 ${{skipped.length}} 行`;
-                                    phNotify(`已导入 ${{proteins.length}} 个合成蛋白，打分表跳过：${{suffix}}`, 'warning');
+                                    if (status) status.textContent = `已导入 ${{proteins.length}} 个设计蛋白，打分表匹配 ${{matched}} 个，跳过 ${{skipped.length}} 行`;
+                                    phNotify(`已导入 ${{proteins.length}} 个设计蛋白，打分表跳过：${{suffix}}`, 'warning');
                                 }} else {{
-                                    if (status) status.textContent = `已导入 ${{proteins.length}} 个合成蛋白，打分表匹配 ${{matched}} 个`;
-                                    phNotify(`已导入 ${{proteins.length}} 个合成蛋白，打分表匹配 ${{matched}} 个`, 'positive');
+                                    if (status) status.textContent = `已导入 ${{proteins.length}} 个设计蛋白，打分表匹配 ${{matched}} 个`;
+                                    phNotify(`已导入 ${{proteins.length}} 个设计蛋白，打分表匹配 ${{matched}} 个`, 'positive');
                                 }}
                                 window.location.reload();
                             }} catch (error) {{
@@ -3197,6 +3197,7 @@ def install_ui() -> None:
                     ui.label("结构文件").classes("text-xl font-semibold")
                     ui.label("这个蛋白导入时保存的 PDB/mmCIF 文件。").classes("ph-muted")
             structure_file_column = ui.column().classes("w-full gap-3")
+            structure_viewer_id = f"ph-structure-viewer-{protein_id}"
 
             with ui.row().classes("ph-section-bar w-full"):
                 with ui.column().classes("gap-0"):
@@ -3222,6 +3223,38 @@ def install_ui() -> None:
                 similarity_subtitle.text = protein.get("name") or "未命名蛋白"
                 _render_sequence_similarity_matches(protein, similarity_matches_column)
                 similarity_dialog.open()
+
+            def set_structure_representation(representation: str) -> None:
+                ui.run_javascript(
+                    "phSetProteinStructureRepresentation("
+                    f"{json.dumps(structure_viewer_id)}, {json.dumps(representation)}"
+                    ")"
+                )
+
+            def reset_structure_view() -> None:
+                ui.run_javascript(
+                    f"phResetProteinStructureView({json.dumps(structure_viewer_id)})"
+                )
+
+            async def render_protein_structure(protein: dict) -> None:
+                try:
+                    await ui.run_javascript(
+                        "return await phRenderProteinStructure("
+                        + json.dumps(
+                            {
+                                "containerId": structure_viewer_id,
+                                "downloadPath": (
+                                    f"/api/proteins/{protein_id}/structure/download"
+                                ),
+                                "filename": protein.get("structure_filename") or "",
+                                "mimeType": protein.get("structure_mime_type") or "",
+                            }
+                        )
+                        + ")",
+                        timeout=45,
+                    )
+                except Exception as error:
+                    notify_error(error, "结构视图加载失败")
 
             async def load_protein() -> None:
                 artifacts_column.clear()
@@ -3268,7 +3301,7 @@ def install_ui() -> None:
                                         ui.label(str(value_text)).classes("ph-spr-result-value")
                     with structure_file_column:
                         if not protein["structure_storage_path"]:
-                            empty_state("description", "还没有结构文件", "从 PDB/mmCIF 新建或批量导入合成蛋白后会显示在这里。")
+                            empty_state("description", "还没有结构文件", "从 PDB/mmCIF 新建或批量导入设计蛋白后会显示在这里。")
                         else:
                             with ui.row().classes("ph-file-row"):
                                 with ui.row().classes("min-w-0 flex-1 items-center gap-3"):
@@ -3284,6 +3317,44 @@ def install_ui() -> None:
                                         p["structure_filename"]
                                     ),
                                 ).props("flat")
+                            with ui.column().classes("ph-structure-viewer"):
+                                with ui.row().classes("ph-structure-viewer-header"):
+                                    with ui.column().classes("gap-0"):
+                                        ui.label("3D 结构").classes("font-semibold text-slate-800")
+                                        ui.label("NGL Viewer").classes("ph-meta")
+                                    with ui.row().classes("ph-structure-viewer-actions"):
+                                        ui.button(
+                                            "卡通",
+                                            icon="view_in_ar",
+                                            on_click=lambda: set_structure_representation("cartoon"),
+                                        ).props("flat dense no-wrap")
+                                        ui.button(
+                                            "表面",
+                                            icon="blur_on",
+                                            on_click=lambda: set_structure_representation("surface"),
+                                        ).props("flat dense no-wrap")
+                                        ui.button(
+                                            "球棍",
+                                            icon="hub",
+                                            on_click=lambda: set_structure_representation("ball+stick"),
+                                        ).props("flat dense no-wrap")
+                                        reset_button = ui.button(
+                                            icon="center_focus_strong",
+                                            on_click=reset_structure_view,
+                                        ).props("flat round dense")
+                                        with reset_button:
+                                            ui.tooltip("重置视角")
+                                ui.html(
+                                    (
+                                        f'<div id="{structure_viewer_id}" '
+                                        'class="ph-structure-viewer-frame">'
+                                        '<div class="ph-structure-viewer-status">'
+                                        "等待加载 3D 结构..."
+                                        "</div>"
+                                        "</div>"
+                                    )
+                                ).classes("w-full")
+                            await render_protein_structure(protein)
                     with batch_results_column:
                         if not data["batch_results"]:
                             empty_state("grid_view", "还没有批次结果", "把这个蛋白加入实验批次后，结果会显示在这里。")
