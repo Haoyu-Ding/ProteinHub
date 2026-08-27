@@ -561,6 +561,7 @@ def install_ui() -> None:
         visible_project_statuses = ["active", "archived"]
         if is_admin_user:
             visible_project_statuses.append("trash")
+        project_view_state = {"status": "active"}
         with ui.column().classes("ph-page"):
             with ui.row().classes("ph-page-header w-full"):
                 with ui.column().classes("gap-1"):
@@ -569,9 +570,13 @@ def install_ui() -> None:
                     ui.label("项目权限会保护每个蛋白记录和实验资料。").classes("ph-subtitle")
                 ui.button("新建项目", icon="add", on_click=lambda: project_dialog.open()).props("unelevated")
 
+            def select_project_status(event) -> None:
+                project_view_state["status"] = str(event.value or "active")
+                return load_projects()
+
             with ui.tabs(
                 value="active",
-                on_change=lambda event: load_projects(),
+                on_change=select_project_status,
             ).classes("ph-project-status-tabs") as status_tabs:
                 for status in visible_project_statuses:
                     ui.tab(
@@ -584,10 +589,9 @@ def install_ui() -> None:
             project_delete_target = {"project": None}
 
             def selected_project_status() -> str:
-                return str(status_tabs.value or "active")
+                return str(project_view_state["status"] or "active")
 
             async def load_projects(status: str | None = None) -> None:
-                project_list.clear()
                 try:
                     status = status or selected_project_status()
                     endpoint = f"/api/projects?{urlencode({'status': status})}"
@@ -595,6 +599,7 @@ def install_ui() -> None:
                         f"return await phApi({json.dumps(endpoint)})",
                         timeout=10,
                     )
+                    project_list.clear()
                     with project_list:
                         if not projects:
                             empty_state(*PROJECT_STATUS_EMPTY_STATES[status])
@@ -666,6 +671,7 @@ def install_ui() -> None:
                         project_dialog.close()
                         name.value = ""
                         description.value = ""
+                        project_view_state["status"] = "active"
                         status_tabs.value = "active"
                         await load_projects("active")
                     except Exception as error:
