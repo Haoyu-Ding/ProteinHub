@@ -3224,13 +3224,6 @@ def install_ui() -> None:
                 _render_sequence_similarity_matches(protein, similarity_matches_column)
                 similarity_dialog.open()
 
-            def set_structure_representation(representation: str) -> None:
-                ui.run_javascript(
-                    "phSetProteinStructureRepresentation("
-                    f"{json.dumps(structure_viewer_id)}, {json.dumps(representation)}"
-                    ")"
-                )
-
             def reset_structure_view() -> None:
                 ui.run_javascript(
                     f"phResetProteinStructureView({json.dumps(structure_viewer_id)})"
@@ -3321,23 +3314,8 @@ def install_ui() -> None:
                                 with ui.row().classes("ph-structure-viewer-header"):
                                     with ui.column().classes("gap-0"):
                                         ui.label("3D 结构").classes("font-semibold text-slate-800")
-                                        ui.label("NGL Viewer").classes("ph-meta")
+                                        ui.label("Mol* Viewer").classes("ph-meta")
                                     with ui.row().classes("ph-structure-viewer-actions"):
-                                        ui.button(
-                                            "卡通",
-                                            icon="view_in_ar",
-                                            on_click=lambda: set_structure_representation("cartoon"),
-                                        ).props("flat dense no-wrap")
-                                        ui.button(
-                                            "表面",
-                                            icon="blur_on",
-                                            on_click=lambda: set_structure_representation("surface"),
-                                        ).props("flat dense no-wrap")
-                                        ui.button(
-                                            "球棍",
-                                            icon="hub",
-                                            on_click=lambda: set_structure_representation("ball+stick"),
-                                        ).props("flat dense no-wrap")
                                         reset_button = ui.button(
                                             icon="center_focus_strong",
                                             on_click=reset_structure_view,

@@ -723,13 +723,18 @@ def design_system() -> None:
 
         .ph-structure-viewer-frame {
             width: 100%;
-            height: min(62vh, 520px);
-            min-height: 360px;
+            height: min(72vh, 720px);
+            min-height: 520px;
             position: relative;
             overflow: hidden;
             border: 1px solid var(--ph-border);
             border-radius: 8px;
             background: #ffffff;
+        }
+
+        .ph-structure-viewer-frame .msp-plugin {
+            position: absolute;
+            inset: 0;
         }
 
         .ph-structure-viewer-status {
@@ -1217,8 +1222,8 @@ def design_system() -> None:
             }
 
             .ph-structure-viewer-frame {
-                height: 52vh;
-                min-height: 280px;
+                height: 62vh;
+                min-height: 380px;
             }
 
             .ph-batch-mapping-scroll {
@@ -1328,20 +1333,27 @@ def api_script() -> None:
             return data;
         }
         window.phStructureViewers = window.phStructureViewers || {};
-        window.phLoadNgl = function() {
-            if (window.NGL) return Promise.resolve();
-            if (window.phNglScriptPromise) return window.phNglScriptPromise;
-            window.phNglScriptPromise = new Promise((resolve, reject) => {
+        window.phLoadMolstar = function() {
+            if (window.molstar && window.molstar.Viewer) return Promise.resolve();
+            if (window.phMolstarScriptPromise) return window.phMolstarScriptPromise;
+            window.phMolstarScriptPromise = new Promise((resolve, reject) => {
+                if (!document.querySelector('link[data-ph-molstar-css]')) {
+                    const link = document.createElement('link');
+                    link.rel = 'stylesheet';
+                    link.href = 'https://cdn.jsdelivr.net/npm/molstar@5.4.2/build/viewer/molstar.css';
+                    link.dataset.phMolstarCss = 'true';
+                    document.head.appendChild(link);
+                }
                 const script = document.createElement('script');
-                script.src = 'https://unpkg.com/ngl@2.0.0-dev.39/dist/ngl.js';
+                script.src = 'https://cdn.jsdelivr.net/npm/molstar@5.4.2/build/viewer/molstar.js';
                 script.async = true;
-                script.onload = () => window.NGL
+                script.onload = () => window.molstar && window.molstar.Viewer
                     ? resolve()
-                    : reject(new Error('NGL Viewer 加载失败'));
-                script.onerror = () => reject(new Error('NGL Viewer 加载失败'));
+                    : reject(new Error('Mol* Viewer 加载失败'));
+                script.onerror = () => reject(new Error('Mol* Viewer 加载失败'));
                 document.head.appendChild(script);
             });
-            return window.phNglScriptPromise;
+            return window.phMolstarScriptPromise;
         }
         window.phWaitForElement = async function(id, attempts = 30) {
             for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -1355,7 +1367,7 @@ def api_script() -> None:
             const name = String(filename || '').toLowerCase();
             const mime = String(mimeType || '').toLowerCase();
             if (name.endsWith('.cif') || name.endsWith('.mmcif') || mime.includes('cif')) {
-                return 'cif';
+                return 'mmcif';
             }
             return 'pdb';
         }
@@ -1371,7 +1383,7 @@ def api_script() -> None:
             if (!container) return false;
             phSetStructureViewerStatus(container, '正在加载 3D 结构...');
             try {
-                await phLoadNgl();
+                await phLoadMolstar();
                 const token = phToken();
                 const headers = token ? {Authorization: `Bearer ${token}`} : {};
                 const response = await fetch(config.downloadPath, {headers});
@@ -1383,22 +1395,31 @@ def api_script() -> None:
                     } catch (error) {}
                     throw new Error(detail);
                 }
-                const blob = await response.blob();
+                const structureText = await response.text();
                 const previous = phStructureViewers[config.containerId];
-                if (previous && previous.stage) previous.stage.dispose();
+                if (previous && previous.viewer) previous.viewer.dispose();
                 container.innerHTML = '';
-                const stage = new NGL.Stage(config.containerId, {
-                    backgroundColor: 'white',
+                const viewer = await window.molstar.Viewer.create(config.containerId, {
+                    layoutIsExpanded: false,
+                    layoutShowControls: true,
+                    layoutShowSequence: true,
+                    layoutShowLog: false,
+                    layoutShowRemoteState: false,
+                    layoutShowLeftPanel: true,
+                    viewportShowExpand: true,
+                    viewportShowSelectionMode: true,
+                    viewportShowAnimation: false,
                 });
-                const component = await stage.loadFile(blob, {
-                    ext: phStructureFileExtension(config.filename, config.mimeType),
-                    name: config.filename || 'structure',
+                await viewer.loadStructureFromData(structureText, phStructureFileExtension(config.filename, config.mimeType), {
+                    dataLabel: config.filename || 'structure',
                 });
-                component.addRepresentation('cartoon', {colorScheme: 'chainindex'});
-                component.autoView();
-                stage.handleResize();
-                phStructureViewers[config.containerId] = {stage, component};
-                setTimeout(() => stage.handleResize(), 100);
+                phStructureViewers[config.containerId] = {viewer};
+                setTimeout(() => {
+                    const updated = viewer.plugin.layout
+                        && viewer.plugin.layout.events
+                        && viewer.plugin.layout.events.updated;
+                    if (updated && updated.next) updated.next();
+                }, 100);
                 return true;
             } catch (error) {
                 const message = error && error.message ? error.message : '结构文件加载失败';
@@ -1406,31 +1427,11 @@ def api_script() -> None:
                 return false;
             }
         }
-        window.phSetProteinStructureRepresentation = function(containerId, representation) {
-            const viewer = phStructureViewers[containerId];
-            if (!viewer || !viewer.component) {
-                phNotify('结构还在加载中', 'warning');
-                return false;
-            }
-            const paramsByRepresentation = {
-                cartoon: {colorScheme: 'chainindex'},
-                surface: {colorScheme: 'chainindex', opacity: 0.72},
-                'ball+stick': {colorScheme: 'element'},
-            };
-            viewer.component.removeAllRepresentations();
-            viewer.component.addRepresentation(
-                representation,
-                paramsByRepresentation[representation] || paramsByRepresentation.cartoon,
-            );
-            viewer.component.autoView();
-            viewer.stage.handleResize();
-            return true;
-        }
         window.phResetProteinStructureView = function(containerId) {
             const viewer = phStructureViewers[containerId];
-            if (!viewer || !viewer.component) return false;
-            viewer.component.autoView();
-            viewer.stage.handleResize();
+            if (!viewer || !viewer.viewer) return false;
+            const camera = viewer.viewer.plugin.managers.camera;
+            if (camera && camera.reset) camera.reset(undefined, 250);
             return true;
         }
         window.phSetToken = function(token) {
