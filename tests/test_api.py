@@ -24,7 +24,6 @@ def make_client(
     tmp_path: Path,
     *,
     admin_emails: tuple[str, ...] | None = None,
-    public_base_url: str = "http://10.6.108.62",
 ) -> TestClient:
     domesticator_script, domesticator_database = write_fake_domesticator(tmp_path)
     akta_script = write_fake_akta_hap(tmp_path)
@@ -33,7 +32,6 @@ def make_client(
         "storage_root": tmp_path / "storage",
         "jwt_secret": "test-secret",
         "nicegui_storage_secret": "test-storage-secret",
-        "public_base_url": public_base_url,
         "legacy_domesticator_python": Path(sys.executable),
         "legacy_domesticator_script": domesticator_script,
         "legacy_domesticator_database": domesticator_database,
@@ -4518,72 +4516,6 @@ def test_batch_translation_generates_dna_on_demand(tmp_path: Path) -> None:
         json={"organism": "E. coli"},
     )
     assert outsider_translation.status_code == 403
-
-
-def test_batch_label_svg_uses_project_owner_and_public_batch_url(
-    tmp_path: Path,
-) -> None:
-    client = make_client(
-        tmp_path,
-        public_base_url="http://10.6.108.62/",
-    )
-    owner_token = register(client, "owner@example.com", name="负责人甲")
-    member_token = register(client, "member@example.com")
-    outsider_token = register(client, "outsider@example.com")
-
-    project = client.post(
-        "/api/projects",
-        headers=auth(owner_token),
-        json={"name": "Label project"},
-    ).json()
-    added_member = client.post(
-        f"/api/projects/{project['id']}/members",
-        headers=auth(owner_token),
-        json={"email": "member@example.com", "role": "member"},
-    )
-    assert added_member.status_code == 200, added_member.text
-    protein = client.post(
-        f"/api/projects/{project['id']}/proteins",
-        headers=auth(owner_token),
-        json={"name": "binder", "sequence": "MGK"},
-    ).json()
-    batch = client.post(
-        f"/api/projects/{project['id']}/batches",
-        headers=auth(owner_token),
-        json={"name": "Label plate", "protein_ids": [protein["id"]]},
-    ).json()["batch"]
-
-    response = client.get(
-        f"/api/batches/{batch['id']}/label.svg",
-        headers=auth(owner_token),
-    )
-    assert response.status_code == 200, response.text
-    assert response.headers["content-type"].startswith("image/svg+xml")
-    assert f"batch-{batch['id']}-label.svg" in response.headers["content-disposition"]
-
-    root = ElementTree.fromstring(response.text)
-    assert root.attrib["width"] == "50mm"
-    assert root.attrib["height"] == "30mm"
-    assert root.attrib["viewBox"] == "0 0 500 300"
-    assert "项目负责人" in response.text
-    assert "负责人甲" in response.text
-    assert "批次 ID" in response.text
-    assert "打印日期" in response.text
-    assert date.today().isoformat() in response.text
-    assert f"http://10.6.108.62/batches/{batch['id']}" in response.text
-    assert "<path d=" in response.text
-
-    member_response = client.get(
-        f"/api/batches/{batch['id']}/label.svg",
-        headers=auth(member_token),
-    )
-    assert member_response.status_code == 200, member_response.text
-
-    outsider_response = client.get(
-        f"/api/batches/{batch['id']}/label.svg",
-        headers=auth(outsider_token),
-    )
-    assert outsider_response.status_code == 403
 
 
 def test_batch_translation_csv_import_replaces_selected_dna(tmp_path: Path) -> None:

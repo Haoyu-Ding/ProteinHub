@@ -32,13 +32,6 @@ export PROTEINHUB_ARTIFACT_STORAGE_BACKEND=database
 When `PROTEINHUB_DATABASE_URL` is set, `PROTEINHUB_ARTIFACT_STORAGE_BACKEND`
 defaults to `database`. Leave it unset for local SQLite development.
 
-Batch labels generate a 50 x 30 mm SVG with a QR code to the batch detail page.
-Configure the externally reachable base URL before printing labels:
-
-```bash
-export PROTEINHUB_PUBLIC_BASE_URL=http://10.6.108.62
-```
-
 Batch DNA translation shells out to the legacy xiaopang/domesticator workflow.
 ProteinHub auto-discovers `~/Downloads/domesticator.py`,
 `~/Documents/SMARTS_intern/database`, and common `envs/trans/bin/python` paths.
@@ -123,7 +116,6 @@ Detailed project standards live in:
 - `PATCH /api/batches/{batch_id}/wells/{well_id}/position`
 - `GET /api/batches/{batch_id}/plate/export`
 - `GET /api/batches/{batch_id}/summary/export`
-- `GET /api/batches/{batch_id}/label.svg`
 - `POST /api/batches/{batch_id}/translations`
 - `POST /api/batches/{batch_id}/translations/import-csv`
 - `POST /api/batches/{batch_id}/akta-results`

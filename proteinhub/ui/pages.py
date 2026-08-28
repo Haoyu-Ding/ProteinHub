@@ -2604,11 +2604,6 @@ def install_ui() -> None:
                             icon="download",
                             on_click=lambda: download_summary_workbook(),
                         ).props("flat no-wrap")
-                        ui.button(
-                            "下载标签",
-                            icon="qr_code_2",
-                            on_click=lambda: download_batch_label(),
-                        ).props("flat no-wrap")
                 mapping_table = (
                     ui.element("div")
                     .classes("ph-batch-mapping ph-batch-mapping-scroll")
@@ -3392,41 +3387,6 @@ def install_ui() -> None:
                         const disposition = response.headers.get('content-disposition') || '';
                         const match = disposition.match(/filename="([^"]+)"/);
                         const filename = match ? match[1] : 'batch-{batch_id}-summary.xlsx';
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = filename;
-                        document.body.appendChild(a);
-                        a.click();
-                        a.remove();
-                        URL.revokeObjectURL(url);
-                        """,
-                        timeout=30,
-                    )
-                except Exception as error:
-                    notify_error(error)
-
-            async def download_batch_label() -> None:
-                try:
-                    await ui.run_javascript(
-                        f"""
-                        const token = phToken();
-                        const response = await fetch('/api/batches/{batch_id}/label.svg', {{
-                            headers: {{Authorization: `Bearer ${{token}}`}}
-                        }});
-                        if (!response.ok) {{
-                            const text = await response.text();
-                            let detail = text || 'Download failed';
-                            try {{
-                                const parsed = JSON.parse(text);
-                                detail = parsed.detail || detail;
-                            }} catch (error) {{}}
-                            throw new Error(phErrorText(detail));
-                        }}
-                        const blob = await response.blob();
-                        const disposition = response.headers.get('content-disposition') || '';
-                        const match = disposition.match(/filename="([^"]+)"/);
-                        const filename = match ? match[1] : 'batch-{batch_id}-label.svg';
                         const url = URL.createObjectURL(blob);
                         const a = document.createElement('a');
                         a.href = url;

@@ -126,13 +126,3 @@ def test_get_settings_allows_filesystem_storage_with_postgres(
     settings = config.get_settings()
 
     assert settings.artifact_storage_backend == "filesystem"
-
-
-def test_get_settings_reads_public_base_url(
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("PROTEINHUB_PUBLIC_BASE_URL", "https://example.test/app/")
-
-    settings = config.get_settings()
-
-    assert settings.public_base_url == "https://example.test/app"

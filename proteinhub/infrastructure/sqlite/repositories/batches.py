@@ -30,24 +30,6 @@ class BatchRepository:
             (batch_id,),
         ).fetchone()
 
-    def get_label_context(self, batch_id: int) -> dict | None:
-        return self.connection.execute(
-            """
-            SELECT
-                batches.id AS batch_id,
-                batches.name AS batch_name,
-                batches.project_id,
-                projects.owner_id,
-                owner_users.name AS owner_name,
-                owner_users.email AS owner_email
-            FROM batches
-            JOIN projects ON projects.id = batches.project_id
-            JOIN users AS owner_users ON owner_users.id = projects.owner_id
-            WHERE batches.id = ?
-            """,
-            (batch_id,),
-        ).fetchone()
-
     def list_for_project(self, project_id: int) -> list[dict]:
         return self.connection.execute(
             """

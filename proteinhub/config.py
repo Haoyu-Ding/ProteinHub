@@ -34,7 +34,6 @@ AKTA_HAP_SCRIPT_CANDIDATES = (
     HOME_DIR / "Documents/SMARTS_intern/LJW-AKTAResults/akta_hap.py",
 )
 DEFAULT_ADMIN_EMAILS = ("ruolan.chen@northstar-bio.local",)
-DEFAULT_PUBLIC_BASE_URL = "http://10.6.108.62"
 
 
 @dataclass(frozen=True)
@@ -45,7 +44,6 @@ class Settings:
     nicegui_storage_secret: str
     database_url: str = ""
     artifact_storage_backend: str = "filesystem"
-    public_base_url: str = DEFAULT_PUBLIC_BASE_URL
     admin_emails: tuple[str, ...] = DEFAULT_ADMIN_EMAILS
     jwt_issuer: str = "proteinhub"
     token_ttl_seconds: int = 60 * 60 * 24
@@ -66,11 +64,6 @@ def get_settings() -> Settings:
     artifact_storage_backend = os.getenv("PROTEINHUB_ARTIFACT_STORAGE_BACKEND", "").strip()
     if not artifact_storage_backend:
         artifact_storage_backend = "database" if database_url else "filesystem"
-    public_base_url = os.getenv(
-        "PROTEINHUB_PUBLIC_BASE_URL",
-        DEFAULT_PUBLIC_BASE_URL,
-    ).strip()
-    public_base_url = public_base_url.rstrip("/") or DEFAULT_PUBLIC_BASE_URL
     jwt_secret = os.getenv("PROTEINHUB_JWT_SECRET", "dev-only-change-me")
     nicegui_storage_secret = os.getenv(
         "PROTEINHUB_NICEGUI_STORAGE_SECRET",
@@ -111,7 +104,6 @@ def get_settings() -> Settings:
         database_url=database_url,
         storage_root=storage_root,
         artifact_storage_backend=artifact_storage_backend,
-        public_base_url=public_base_url,
         jwt_secret=jwt_secret,
         nicegui_storage_secret=nicegui_storage_secret,
         admin_emails=admin_emails,

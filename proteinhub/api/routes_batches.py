@@ -27,7 +27,6 @@ from proteinhub.application.batch_service import (
     create_batch_experiment,
     export_batch_plate_workbook,
     export_batch_summary_workbook,
-    generate_batch_label_svg,
     get_batch,
     get_batch_experiment,
     import_akta_results,
@@ -185,28 +184,6 @@ def create_batches_router(
             return Response(
                 content=content,
                 media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-            )
-        except DomainError as error:
-            raise map_domain_error(error) from error
-
-    @router.get("/batches/{batch_id}/label.svg")
-    def batch_label_svg(
-        batch_id: int,
-        user: dict = Depends(current_user),
-        connection: sqlite3.Connection = Depends(get_connection),
-    ) -> Response:
-        try:
-            content = generate_batch_label_svg(
-                connection,
-                batch_id=batch_id,
-                user_id=user["id"],
-                settings=context.settings,
-            )
-            filename = f"batch-{batch_id}-label.svg"
-            return Response(
-                content=content,
-                media_type="image/svg+xml",
                 headers={"Content-Disposition": f'attachment; filename="{filename}"'},
             )
         except DomainError as error:
