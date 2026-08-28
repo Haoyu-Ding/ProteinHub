@@ -27,7 +27,7 @@ proteinhub/
   application/
   domain/
   infrastructure/
-  ui.py
+  ui/
 ```
 
 ### `app.py`
@@ -93,7 +93,7 @@ Infrastructure 代码不应该编码产品策略，除非该规则是技术不�
 
 必要时，Infrastructure 可以 import Python 标准库和少量共享领域类型。
 
-### `ui.py`
+### `ui/`
 
 UI 层负责 NiceGUI 页面和浏览器交互。
 
@@ -123,7 +123,7 @@ ui -> api -> application -> infrastructure
 - `domain` import 任意更高层。
 - `infrastructure` import `api` 或 `ui`。
 - `application` import FastAPI、NiceGUI 或 UI helper。
-- `ui.py` import `proteinhub.db`、`proteinhub.services` 或 `proteinhub.security`。
+- `proteinhub/ui/` import `proteinhub.db`、`proteinhub.services` 或 `proteinhub.security`。
 
 ## 数据归属
 
@@ -158,7 +158,7 @@ filename 在参与路径构造前必须被 sanitize。Repository 查询不应把
 - 任意 project member 可以创建 batch 和回填 batch well 结果。
 - 只有 project owner 可以添加成员。
 - 只有 project owner 可以删除 artifact。
-- 只有全局 admin 可以删除 project。
+- 只有全局 admin 可以调整 project 状态，例如 active、archived 和 trash。
 
 权限检查应放在 `application/permissions.py` 或 application service 中，不应在 API 路由或 UI 页面里重复实现。
 
@@ -185,4 +185,4 @@ Infrastructure 代码可以为意外失败抛出技术异常。如果某个技�
 1. 在 schema 变更变频繁之前加入数据库 migration。
 2. 引入 typed domain models 或 DTOs，减少跨层 `dict` 使用。
 3. 当 repository 继续变大时，按 aggregate 拆分 SQLite repositories。
-4. 如果 NiceGUI 页面继续增长，把 UI 拆成 package。
+4. 如果 NiceGUI 页面继续增长，继续在 `proteinhub/ui/` 内按页面或 workflow 拆分。

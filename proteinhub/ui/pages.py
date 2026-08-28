@@ -2620,8 +2620,14 @@ def install_ui() -> None:
                 with ui.row().classes("ph-section-bar w-full"):
                     with ui.column().classes("gap-0"):
                         ui.label("翻译").classes("text-xl font-semibold")
-                        translation_status = ui.label("等待翻译").classes("ph-muted")
+                        translation_status = ui.label("等待翻译").classes(
+                            "ph-muted ph-translation-status"
+                        )
                     with ui.row().classes("items-center gap-2"):
+                        dna_import_button = ui.button(
+                            "导入 DNA CSV",
+                            icon="upload_file",
+                        ).props("flat no-wrap")
                         ui.button(
                             "下载 DNA",
                             icon="download",
@@ -3395,6 +3401,57 @@ def install_ui() -> None:
                 except Exception as error:
                     notify_error(error)
 
+            def translation_csv_upload_js() -> str:
+                return f"""
+                () => {{
+                    const statusLabel = document.querySelector('.ph-translation-status');
+                    const setStatus = (text) => {{
+                        if (statusLabel) statusLabel.textContent = text;
+                    }};
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.accept = '.csv,text/csv';
+                    input.style.display = 'none';
+                    input.addEventListener('change', async () => {{
+                        const file = input.files && input.files[0];
+                        if (!file) {{
+                            input.remove();
+                            return;
+                        }}
+                        if (!file.name.toLowerCase().endsWith('.csv')) {{
+                            setStatus('DNA CSV 选择失败');
+                            phNotify('请只选择一个 DNA CSV', 'negative');
+                            input.remove();
+                            return;
+                        }}
+                        const form = new FormData();
+                        form.append('file', file, file.name);
+                        try {{
+                            setStatus('正在导入 DNA CSV...');
+                            phNotify('DNA CSV 导入中', 'info');
+                            const result = await phApi('/api/batches/{batch_id}/translations/import-csv', {{
+                                method: 'POST',
+                                body: form,
+                            }});
+                            const count = result && Array.isArray(result.sequences)
+                                ? result.sequences.length
+                                : 0;
+                            setStatus(`DNA CSV 导入成功：表中共有 ${{count}} 条 DNA 序列`);
+                            phNotify('DNA CSV 导入成功', 'positive');
+                            setTimeout(() => window.location.reload(), 500);
+                        }} catch (error) {{
+                            const message = error && error.message ? error.message : 'DNA CSV 导入失败';
+                            setStatus(`DNA CSV 导入失败：${{message}}`);
+                            phNotifyError(error, 'DNA CSV 导入失败');
+                        }} finally {{
+                            input.remove();
+                        }}
+                    }}, {{once: true}});
+                    document.body.appendChild(input);
+                    input.click();
+                }}
+                """
+
             async def translate_batch_sequences_ui() -> None:
                 if not batch_editable_state["can_write"]:
                     ui.notify("只读模式，不能重新翻译", type="warning")
@@ -3634,8 +3691,10 @@ def install_ui() -> None:
                         control.disable()
                 if batch_editable:
                     translate_button.enable()
+                    dna_import_button.enable()
                 else:
                     translate_button.disable()
+                    dna_import_button.disable()
                 mapping_summary.text = (
                     f"{batch['plate_format']} 孔 · {len(wells)} 条蛋白映射 · {len(experiments)} 个实验记录"
                 )
@@ -3746,6 +3805,8 @@ def install_ui() -> None:
                                 ).props("flat dense no-wrap")
                                 if not batch_editable:
                                     save_button.disable()
+
+            dna_import_button.on("click", js_handler=translation_csv_upload_js())
 
             async def load_batch() -> None:
                 try:

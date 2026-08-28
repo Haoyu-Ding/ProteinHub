@@ -30,6 +30,7 @@ from proteinhub.application.batch_service import (
     get_batch,
     get_batch_experiment,
     import_akta_results,
+    import_batch_translation_csv,
     import_spr_concentrations,
     import_spr_results,
     list_batches,
@@ -209,6 +210,27 @@ def create_batches_router(
                 backbone=payload.backbone,
                 resistance=payload.resistance,
                 settings=context.settings,
+            )
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.post(
+        "/batches/{batch_id}/translations/import-csv",
+        response_model=BatchTranslationResponse,
+    )
+    def import_batch_translation_csv_route(
+        batch_id: int,
+        file: UploadFile = File(...),
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> dict:
+        try:
+            return import_batch_translation_csv(
+                connection,
+                batch_id=batch_id,
+                user_id=user["id"],
+                filename=file.filename or "translations.csv",
+                content=file.file.read(),
             )
         except DomainError as error:
             raise map_domain_error(error) from error

@@ -4518,6 +4518,241 @@ def test_batch_translation_generates_dna_on_demand(tmp_path: Path) -> None:
     assert outsider_translation.status_code == 403
 
 
+def test_batch_translation_csv_import_replaces_selected_dna(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Manual translation batch"},
+    ).json()
+    short_protein = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "short", "sequence": "MGK"},
+    ).json()
+    long_protein = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "long", "sequence": "ACDEFG"},
+    ).json()
+    batch = client.post(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+        json={
+            "name": "Manual translation plate",
+            "protein_ids": [short_protein["id"], long_protein["id"]],
+        },
+    ).json()["batch"]
+
+    translated = client.post(
+        f"/api/batches/{batch['id']}/translations",
+        headers=auth(owner_token),
+        json={
+            "padding": True,
+            "add_additional_w": True,
+            "organism": "E. coli",
+            "backbone": "5",
+            "resistance": "Kan",
+        },
+    )
+    assert translated.status_code == 200, translated.text
+
+    short_manual_dna = "ATGGGTAAA"
+    imported = client.post(
+        f"/api/batches/{batch['id']}/translations/import-csv",
+        headers=auth(owner_token),
+        files={
+            "file": (
+                "manual-translations.csv",
+                f"蛋白名称,DNA序列\nshort,{short_manual_dna}\n".encode(),
+                "text/csv",
+            )
+        },
+    )
+    assert imported.status_code == 200, imported.text
+    payload = imported.json()
+    assert payload["padding"] is True
+    assert payload["add_additional_w"] is True
+    assert payload["backbone"] == "5"
+    assert payload["resistance"] == "Kan"
+
+    sequences_by_name = {
+        sequence["protein_name"]: sequence for sequence in payload["sequences"]
+    }
+    assert sequences_by_name["short"]["dna_sequence"] == short_manual_dna
+    assert sequences_by_name["short"]["translated_aa_sequence"] == "MGK"
+    assert translate_dna(sequences_by_name["short"]["dna_sequence"]) == "MGK"
+    assert translate_dna(sequences_by_name["long"]["dna_sequence"]) == "ACDEFGW"
+
+    long_manual_dna = "GCTTGTGATGAATTTGGT"
+    headerless_import = client.post(
+        f"/api/batches/{batch['id']}/translations/import-csv",
+        headers=auth(owner_token),
+        files={
+            "file": (
+                "manual-translations.csv",
+                f"long,{long_manual_dna}\n".encode(),
+                "text/csv",
+            )
+        },
+    )
+    assert headerless_import.status_code == 200, headerless_import.text
+    sequences_by_name = {
+        sequence["protein_name"]: sequence
+        for sequence in headerless_import.json()["sequences"]
+    }
+    assert sequences_by_name["short"]["dna_sequence"] == short_manual_dna
+    assert sequences_by_name["long"]["dna_sequence"] == long_manual_dna
+    assert sequences_by_name["long"]["translated_aa_sequence"] == "ACDEFG"
+    assert ">A01 short\n" in headerless_import.json()["dna_fasta"]
+    assert ">A02 long\n" in headerless_import.json()["dna_fasta"]
+
+    batch_detail = client.get(
+        f"/api/batches/{batch['id']}",
+        headers=auth(owner_token),
+    )
+    assert batch_detail.status_code == 200, batch_detail.text
+    wells_by_name = {
+        well["protein_name"]: well for well in batch_detail.json()["wells"]
+    }
+    assert wells_by_name["short"]["dna_sequence"] == short_manual_dna
+    assert wells_by_name["short"]["translated_aa_sequence"] == "MGK"
+    assert wells_by_name["long"]["dna_sequence"] == long_manual_dna
+    assert wells_by_name["long"]["translated_aa_sequence"] == "ACDEFG"
+
+    summary_export = client.get(
+        f"/api/batches/{batch['id']}/summary/export",
+        headers=auth(owner_token),
+    )
+    assert summary_export.status_code == 200, summary_export.text
+    summary_values = xlsx_sheet_values(summary_export.content)
+    assert summary_values["B7"] == 6
+    assert summary_values["B8"] == 3
+
+
+def test_batch_translation_csv_import_validates_input_and_access(
+    tmp_path: Path,
+) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+    outsider_token = register(client, "outsider@example.com")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Manual translation validation"},
+    ).json()
+    protein = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "binder", "sequence": "MGK"},
+    ).json()
+    batch = client.post(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+        json={"name": "Validation plate", "protein_ids": [protein["id"]]},
+    ).json()["batch"]
+    valid_dna = "ATGGGTAAA"
+
+    unmatched = client.post(
+        f"/api/batches/{batch['id']}/translations/import-csv",
+        headers=auth(owner_token),
+        files={
+            "file": (
+                "manual.csv",
+                f" binder,{valid_dna}\n".encode(),
+                "text/csv",
+            )
+        },
+    )
+    assert unmatched.status_code == 400
+    assert "not in this batch" in unmatched.json()["detail"]
+
+    duplicate_csv = client.post(
+        f"/api/batches/{batch['id']}/translations/import-csv",
+        headers=auth(owner_token),
+        files={
+            "file": (
+                "manual.csv",
+                f"binder,{valid_dna}\nbinder,{valid_dna}\n".encode(),
+                "text/csv",
+            )
+        },
+    )
+    assert duplicate_csv.status_code == 400
+    assert "duplicate protein name" in duplicate_csv.json()["detail"]
+
+    invalid_dna = client.post(
+        f"/api/batches/{batch['id']}/translations/import-csv",
+        headers=auth(owner_token),
+        files={"file": ("manual.csv", b"binder,ATGN\n", "text/csv")},
+    )
+    assert invalid_dna.status_code == 400
+    assert "not divisible by 3" in invalid_dna.json()["detail"]
+
+    mismatch = client.post(
+        f"/api/batches/{batch['id']}/translations/import-csv",
+        headers=auth(owner_token),
+        files={"file": ("manual.csv", b"binder,GCT\n", "text/csv")},
+    )
+    assert mismatch.status_code == 400
+    assert "DNA verification failed" in mismatch.json()["detail"]
+
+    outsider_import = client.post(
+        f"/api/batches/{batch['id']}/translations/import-csv",
+        headers=auth(outsider_token),
+        files={"file": ("manual.csv", f"binder,{valid_dna}\n".encode(), "text/csv")},
+    )
+    assert outsider_import.status_code == 403
+
+    duplicate_name_project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Duplicate protein names"},
+    ).json()
+    first_duplicate = client.post(
+        f"/api/projects/{duplicate_name_project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "dup", "sequence": "MGK"},
+    ).json()
+    second_duplicate = client.post(
+        f"/api/projects/{duplicate_name_project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "dup", "sequence": "ACDEFG"},
+    ).json()
+    duplicate_name_batch = client.post(
+        f"/api/projects/{duplicate_name_project['id']}/batches",
+        headers=auth(owner_token),
+        json={
+            "name": "Duplicate names plate",
+            "protein_ids": [first_duplicate["id"], second_duplicate["id"]],
+        },
+    ).json()["batch"]
+    ambiguous = client.post(
+        f"/api/batches/{duplicate_name_batch['id']}/translations/import-csv",
+        headers=auth(owner_token),
+        files={"file": ("manual.csv", f"dup,{valid_dna}\n".encode(), "text/csv")},
+    )
+    assert ambiguous.status_code == 400
+    assert "match multiple batch wells" in ambiguous.json()["detail"]
+
+    ordered = client.patch(
+        f"/api/batches/{batch['id']}/status",
+        headers=auth(owner_token),
+        json={"order_status": "ordered"},
+    )
+    assert ordered.status_code == 200, ordered.text
+    locked_import = client.post(
+        f"/api/batches/{batch['id']}/translations/import-csv",
+        headers=auth(owner_token),
+        files={"file": ("manual.csv", f"binder,{valid_dna}\n".encode(), "text/csv")},
+    )
+    assert locked_import.status_code == 400
+    assert "cannot be changed" in locked_import.json()["detail"]
+
+
 def test_batch_translation_uses_script_long_padding_rule(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     owner_token = register(client, "owner@example.com")

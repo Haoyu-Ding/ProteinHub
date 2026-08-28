@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import csv
 import json
 import math
 import re
 import sqlite3
 from collections.abc import Mapping
 from datetime import date
-from io import BytesIO
+from io import BytesIO, StringIO
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,7 @@ from proteinhub.application.plate_workbook import (
     build_plate_workbook,
     build_summary_workbook,
 )
+from proteinhub.application.reverse_translation import translate_dna
 from proteinhub.application.validation import required
 from proteinhub.config import Settings
 from proteinhub.domain.errors import ConflictError, DomainError, NotFoundError
@@ -1014,6 +1016,119 @@ def translate_batch_sequences(
     }
 
 
+def import_batch_translation_csv(
+    connection: sqlite3.Connection,
+    *,
+    batch_id: int,
+    user_id: int,
+    filename: str,
+    content: bytes,
+) -> dict:
+    project_id = project_for_batch(connection, batch_id)
+    require_project_write(connection, project_id=project_id, user_id=user_id)
+
+    batch_repository = BatchRepository(connection)
+    batch = batch_repository.get(batch_id)
+    if not batch:
+        raise NotFoundError("Batch not found")
+    _require_batch_editable(batch)
+
+    imported_sequences = _parse_translation_csv(filename=filename, content=content)
+    rows = batch_repository.list_sequence_exports(batch_id)
+    rows_by_name: dict[str, dict] = {}
+    duplicate_batch_names: set[str] = set()
+    for row in rows:
+        protein_name = row["protein_name"]
+        if protein_name in rows_by_name:
+            duplicate_batch_names.add(protein_name)
+            continue
+        rows_by_name[protein_name] = row
+
+    missing_names = [
+        protein_name
+        for protein_name in imported_sequences
+        if protein_name not in rows_by_name
+    ]
+    if missing_names:
+        raise DomainError(
+            "Translation CSV protein names are not in this batch: "
+            f"{', '.join(missing_names[:5])}"
+        )
+
+    ambiguous_names = [
+        protein_name
+        for protein_name in imported_sequences
+        if protein_name in duplicate_batch_names
+    ]
+    if ambiguous_names:
+        raise DomainError(
+            "Translation CSV protein names match multiple batch wells: "
+            f"{', '.join(ambiguous_names[:5])}"
+        )
+
+    translated_rows = []
+    verification_failures = []
+    for protein_name, dna_sequence in imported_sequences.items():
+        row = rows_by_name[protein_name]
+        expected_sequence = _normalize_protein_sequence_for_translation(
+            row["protein_sequence"]
+        )
+        observed_sequence = translate_dna(dna_sequence)
+        if observed_sequence != expected_sequence:
+            verification_failures.append(
+                f"{protein_name}: expected {_short_sequence(expected_sequence)}, "
+                f"got {_short_sequence(observed_sequence)}"
+            )
+            continue
+        translated_rows.append(
+            {
+                "well_id": row["well_id"],
+                "position": row["position"],
+                "protein_id": row["protein_id"],
+                "protein_name": row["protein_name"],
+                "source_aa_sequence": expected_sequence,
+                "translated_aa_sequence": expected_sequence,
+                "dna_sequence": dna_sequence,
+            }
+        )
+
+    if verification_failures:
+        shown = "; ".join(verification_failures[:5])
+        suffix = (
+            f"; and {len(verification_failures) - 5} more"
+            if len(verification_failures) > 5
+            else ""
+        )
+        raise DomainError(f"Translation CSV DNA verification failed: {shown}{suffix}")
+
+    with transaction(connection):
+        for row in translated_rows:
+            batch_repository.update_well_translation_result(
+                well_id=row["well_id"],
+                source_aa_sequence=row["source_aa_sequence"],
+                translated_aa_sequence=row["translated_aa_sequence"],
+                dna_sequence=row["dna_sequence"],
+            )
+
+    refreshed_batch = batch_repository.get(batch_id) or batch
+    saved_sequences = [
+        {
+            "well_id": well["id"],
+            "position": well["position"],
+            "protein_id": well["protein_id"],
+            "protein_name": well["protein_name"],
+            "source_aa_sequence": well.get("source_aa_sequence")
+            or well.get("protein_sequence")
+            or "",
+            "translated_aa_sequence": well.get("translated_aa_sequence") or "",
+            "dna_sequence": well.get("dna_sequence") or "",
+        }
+        for well in batch_repository.list_wells(batch_id)
+        if well.get("dna_sequence")
+    ]
+    return _batch_translation_response(refreshed_batch, saved_sequences)
+
+
 def project_for_batch(connection: sqlite3.Connection, batch_id: int) -> int:
     project_id = BatchRepository(connection).project_id_for(batch_id)
     if project_id is None:
@@ -1593,6 +1708,18 @@ def _sequence_fasta(rows: list[dict], sequence_key: str) -> str:
     return "\n".join(lines) + ("\n" if lines else "")
 
 
+def _batch_translation_response(batch: dict, sequences: list[dict]) -> dict:
+    return {
+        "padding": bool(batch.get("translation_padding")),
+        "add_additional_w": bool(batch.get("translation_additional_w")),
+        "organism": batch.get("translation_organism") or "E. coli",
+        "backbone": batch.get("translation_backbone") or "5",
+        "resistance": batch.get("translation_resistance") or "Amp",
+        "sequences": sequences,
+        "dna_fasta": _sequence_fasta(sequences, "dna_sequence"),
+    }
+
+
 def _wrap_fasta_sequence(sequence: str, width: int = 60) -> list[str]:
     return [sequence[index : index + width] for index in range(0, len(sequence), width)]
 
@@ -1631,3 +1758,98 @@ def _normalize_translation_resistance(resistance: str) -> str:
     if normalized not in TRANSLATION_RESISTANCES:
         raise DomainError("Resistance must be Amp, Kan, Tet, Cam, or Sep")
     return normalized
+
+
+def _parse_translation_csv(*, filename: str, content: bytes) -> dict[str, str]:
+    file_name = required(filename, "Filename")
+    if not file_name.lower().endswith(".csv"):
+        raise DomainError("Translation import must be a CSV file")
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise DomainError("Translation CSV must be UTF-8 encoded") from exc
+
+    rows = [
+        row
+        for row in csv.reader(StringIO(text))
+        if any(cell.strip() for cell in row)
+    ]
+    if not rows:
+        raise DomainError("Translation CSV has no sequence rows")
+
+    has_header = _is_translation_csv_header(rows[0])
+    data_rows = rows[1:] if has_header else rows
+    if not data_rows:
+        raise DomainError("Translation CSV has no sequence rows")
+
+    sequences: dict[str, str] = {}
+    first_row_number = 2 if has_header else 1
+    for row_number, row in enumerate(data_rows, start=first_row_number):
+        if len(row) < 2:
+            raise DomainError(
+                f"Translation CSV row {row_number} must include protein name and DNA sequence"
+            )
+        protein_name = row[0]
+        if not protein_name.strip():
+            raise DomainError(f"Translation CSV row {row_number} is missing protein name")
+        if protein_name in sequences:
+            raise DomainError(
+                f"Translation CSV has duplicate protein name: {protein_name}"
+            )
+        sequences[protein_name] = _normalize_imported_dna_sequence(
+            row[1],
+            row_number=row_number,
+        )
+
+    return sequences
+
+
+def _is_translation_csv_header(row: list[str]) -> bool:
+    if len(row) < 2:
+        return False
+    protein_header = _normalize_csv_header(row[0])
+    dna_header = _normalize_csv_header(row[1])
+    return protein_header in {
+        "proteinname",
+        "protein",
+        "name",
+        "蛋白名称",
+        "蛋白名",
+    } and dna_header in {
+        "dnasequence",
+        "dna",
+        "dna序列",
+        "核酸序列",
+        "nucleotidesequence",
+    }
+
+
+def _normalize_csv_header(value: str) -> str:
+    return re.sub(r"[\s_-]+", "", value.strip().lower())
+
+
+def _normalize_imported_dna_sequence(value: str, *, row_number: int) -> str:
+    dna_sequence = "".join(value.upper().replace("U", "T").split())
+    if not dna_sequence:
+        raise DomainError(f"Translation CSV row {row_number} is missing DNA sequence")
+    if len(dna_sequence) % 3 != 0:
+        raise DomainError(
+            f"Translation CSV row {row_number} DNA length is not divisible by 3"
+        )
+    invalid_characters = sorted(set(dna_sequence) - {"A", "C", "G", "T"})
+    if invalid_characters:
+        raise DomainError(
+            "Translation CSV row "
+            f"{row_number} DNA contains invalid bases: {''.join(invalid_characters)}"
+        )
+    return dna_sequence
+
+
+def _normalize_protein_sequence_for_translation(sequence: str) -> str:
+    return "".join(sequence.upper().split())
+
+
+def _short_sequence(sequence: str) -> str:
+    if len(sequence) <= 24:
+        return sequence
+    return f"{sequence[:12]}...{sequence[-6:]}"

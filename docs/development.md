@@ -46,6 +46,14 @@ python main.py
 - `PROTEINHUB_ARTIFACT_STORAGE_BACKEND`
 - `PROTEINHUB_JWT_SECRET`
 - `PROTEINHUB_NICEGUI_STORAGE_SECRET`
+- `PROTEINHUB_ADMIN_EMAILS`
+- `PROTEINHUB_LEGACY_DOMESTICATOR_PYTHON`
+- `PROTEINHUB_LEGACY_DOMESTICATOR_SCRIPT`
+- `PROTEINHUB_LEGACY_DOMESTICATOR_DATABASE`
+- `PROTEINHUB_LEGACY_DOMESTICATOR_TIMEOUT_SECONDS`
+- `PROTEINHUB_AKTA_HAP_PYTHON`
+- `PROTEINHUB_AKTA_HAP_SCRIPT`
+- `PROTEINHUB_AKTA_HAP_TIMEOUT_SECONDS`
 
 不要在配置默认值之外硬编码 secrets。默认值只适用于本地开发。
 
@@ -101,7 +109,8 @@ Experiment raw files 不走 filesystem backend，始终保存原始 bytes 到数
 
 ## UI 规范
 
-- 在 UI 继续变大到需要拆 package 之前，NiceGUI 页面放在 `proteinhub/ui.py`。
+- NiceGUI 页面和浏览器 helper 放在 `proteinhub/ui/`。
+- `proteinhub/ui/pages.py` 负责页面注册和页面级交互；`proteinhub/ui/support.py` 放共享展示 helper 和浏览器脚本。
 - UI 交互必须调用 `/api/...`。
 - UI 代码不能 import database、repository、security 或 application service 模块。
 - UI 页面可以通过现有 helper 把 browser token 存入 local storage。

@@ -62,7 +62,7 @@ ProteinHub keeps framework, business, and infrastructure concerns separate:
 - `proteinhub/infrastructure/sqlite/` owns SQLite schema and repository queries.
 - `proteinhub/infrastructure/postgres/` owns PostgreSQL connection and schema setup.
 - `proteinhub/infrastructure/storage/` owns file storage adapters and safe artifact paths.
-- `proteinhub/ui.py` defines NiceGUI pages and talks to the backend only through `/api/...`.
+- `proteinhub/ui/` defines NiceGUI pages and browser helpers that talk to the backend only through `/api/...`.
 
 The legacy modules `proteinhub.db`, `proteinhub.storage`, and `proteinhub.services` remain as compatibility exports for existing imports and tests.
 
@@ -78,27 +78,49 @@ Detailed project standards live in:
 - `GET /api/health`
 - `POST /api/auth/login`
 - `GET /api/me`
+- `GET /api/admin/sequences`
+- `GET /api/admin/users`
+- `POST /api/admin/users`
+- `PATCH /api/admin/users/{target_user_id}`
+- `POST /api/admin/users/{target_user_id}/disable`
+- `POST /api/admin/users/{target_user_id}/enable`
+- `POST /api/admin/users/{target_user_id}/reset-password`
 - `GET /api/projects`
 - `POST /api/projects`
+- `PATCH /api/projects/{project_id}/status`
 - `GET /api/projects/{project_id}`
+- `GET /api/projects/{project_id}/member-candidates`
 - `POST /api/projects/{project_id}/members`
+- `PATCH /api/projects/{project_id}/members/{member_user_id}`
 - `GET /api/projects/{project_id}/proteins`
 - `POST /api/projects/{project_id}/proteins`
 - `POST /api/projects/{project_id}/proteins/sequence-check`
 - `POST /api/projects/{project_id}/proteins/with-structure`
 - `POST /api/projects/{project_id}/proteins/import-structures`
 - `POST /api/projects/{project_id}/proteins/parse-structure`
+- `GET /api/projects/{project_id}/public-proteins`
+- `POST /api/projects/{project_id}/public-proteins`
+- `PATCH /api/projects/{project_id}/public-proteins/{public_protein_id}`
+- `DELETE /api/projects/{project_id}/public-proteins/{public_protein_id}`
 - `GET /api/projects/{project_id}/batches`
 - `POST /api/projects/{project_id}/batches`
+- `GET /api/public-proteins/{public_protein_id}`
 - `GET /api/proteins/{protein_id}`
+- `PATCH /api/proteins/{protein_id}/manual-rating`
+- `POST /api/proteins/{protein_id}/parse-structure`
 - `GET /api/proteins/{protein_id}/structure/download`
+- `GET /api/proteins/{protein_id}/artifacts`
+- `POST /api/proteins/{protein_id}/artifacts`
 - `GET /api/batches/{batch_id}`
 - `PATCH /api/batches/{batch_id}/status`
 - `PATCH /api/batches/{batch_id}/wells/{well_id}/position`
 - `GET /api/batches/{batch_id}/plate/export`
 - `GET /api/batches/{batch_id}/summary/export`
 - `POST /api/batches/{batch_id}/translations`
+- `POST /api/batches/{batch_id}/translations/import-csv`
 - `POST /api/batches/{batch_id}/akta-results`
+- `POST /api/batches/{batch_id}/spr-results`
+- `POST /api/batches/{batch_id}/spr-concentrations`
 - `POST /api/batches/{batch_id}/hplc-results`
 - `GET /api/order-monitor`
 - `GET /api/batches/{batch_id}/experiments`
@@ -107,7 +129,5 @@ Detailed project standards live in:
 - `GET /api/experiments/{experiment_id}/raw-files`
 - `GET /api/experiment-raw-files/{raw_file_id}/download`
 - `PATCH /api/experiments/{experiment_id}/wells/{well_id}/result`
-- `GET /api/proteins/{protein_id}/artifacts`
-- `POST /api/proteins/{protein_id}/artifacts`
 - `GET /api/artifacts/{artifact_id}/download`
 - `DELETE /api/artifacts/{artifact_id}`
