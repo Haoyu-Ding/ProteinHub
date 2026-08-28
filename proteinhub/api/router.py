@@ -6,6 +6,7 @@ from fastapi import APIRouter
 
 from proteinhub.api.dependencies import ApiContext, build_dependencies
 from proteinhub.api.routes_admin_sequences import create_admin_sequences_router
+from proteinhub.api.routes_admin_users import create_admin_users_router
 from proteinhub.api.routes_artifacts import create_artifacts_router
 from proteinhub.api.routes_auth import create_auth_router
 from proteinhub.api.routes_batches import create_batches_router
@@ -46,6 +47,13 @@ def create_api_router(
     )
     router.include_router(
         create_admin_sequences_router(
+            context=context,
+            get_connection=get_connection,
+            current_user=current_user,
+        )
+    )
+    router.include_router(
+        create_admin_users_router(
             context=context,
             get_connection=get_connection,
             current_user=current_user,

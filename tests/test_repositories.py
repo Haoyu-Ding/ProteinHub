@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from proteinhub.infrastructure.postgres.schema import POSTGRES_SCHEMA
+from proteinhub.infrastructure.postgres.schema import POSTGRES_MIGRATIONS, POSTGRES_SCHEMA
 from proteinhub.infrastructure.sqlite.connection import init_db
 from proteinhub.infrastructure.sqlite.repositories.projects import ProjectRepository
 
@@ -63,3 +63,17 @@ def test_project_workspace_indexes_are_present_for_postgresql() -> None:
         "CREATE INDEX IF NOT EXISTS idx_experiment_well_results_experiment"
         in POSTGRES_SCHEMA
     )
+
+
+def test_user_account_columns_are_present_for_postgresql() -> None:
+    migration_text = "\n".join(POSTGRES_MIGRATIONS)
+    for column in (
+        "is_active",
+        "disabled_at",
+        "disabled_by",
+        "disabled_reason",
+        "last_login_at",
+        "password_updated_at",
+    ):
+        assert column in POSTGRES_SCHEMA
+        assert f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {column}" in migration_text

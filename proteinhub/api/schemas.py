@@ -23,6 +23,12 @@ class UserResponse(BaseModel):
     name: str
     email: str
     global_role: str = "user"
+    is_active: bool = True
+    disabled_at: str = ""
+    disabled_by: int | None = None
+    disabled_reason: str = ""
+    last_login_at: str = ""
+    password_updated_at: str = ""
     created_at: str
 
 
@@ -30,6 +36,31 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class AdminUserResponse(UserResponse):
+    disabled_by_name: str = ""
+    disabled_by_email: str = ""
+
+
+class AdminUserCreateRequest(BaseModel):
+    name: str
+    email: str
+    global_role: str = "user"
+
+
+class AdminUserUpdateRequest(BaseModel):
+    name: str | None = None
+    global_role: str | None = None
+
+
+class AdminUserDisableRequest(BaseModel):
+    reason: str = ""
+
+
+class AdminUserPasswordResponse(BaseModel):
+    user: AdminUserResponse
+    temporary_password: str
 
 
 class ProjectCreateRequest(BaseModel):

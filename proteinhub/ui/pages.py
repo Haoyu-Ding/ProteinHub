@@ -75,6 +75,20 @@ ADMIN_SEQUENCE_SOURCE_ICONS = {
     "batch_protein": "science",
     "public_protein": "biotech",
 }
+ADMIN_ACCOUNT_STATUS_OPTIONS = {
+    "all": "全部状态",
+    "active": "启用",
+    "disabled": "禁用",
+}
+ADMIN_USER_ROLE_FILTER_OPTIONS = {
+    "all": "全部角色",
+    "admin": "管理员",
+    "user": "普通用户",
+}
+ADMIN_USER_ROLE_OPTIONS = {
+    "user": "普通用户",
+    "admin": "管理员",
+}
 HELP_SECTIONS = (
     {
         "id": "quick-start",
@@ -400,6 +414,14 @@ def _admin_sequence_source_label(source_type: str | None) -> str:
 
 def _admin_sequence_source_icon(source_type: str | None) -> str:
     return ADMIN_SEQUENCE_SOURCE_ICONS.get(source_type or "", "search")
+
+
+def _admin_user_role_badge_color(role: str | None) -> str:
+    return "primary" if role == "admin" else "secondary"
+
+
+def _admin_user_time_text(value: str | None) -> str:
+    return format_datetime_minute(value) if value else "未记录"
 
 
 def _render_sequence_similarity_badge(protein: dict, open_dialog) -> None:
@@ -1140,6 +1162,362 @@ def install_ui() -> None:
                 await load_sequences()
 
             await load_sequences()
+
+    @ui.page("/admin/users")
+    async def admin_users_page() -> None:
+        shell()
+        if not await ensure_logged_in():
+            return
+        try:
+            current_user = await ui.run_javascript(
+                "return await phApi('/api/me')",
+                timeout=10,
+            )
+        except Exception as error:
+            notify_error(error)
+            return
+        if current_user.get("global_role") != "admin":
+            ui.notify("只有管理员可以访问账户管理", type="warning")
+            ui.navigate.to("/projects")
+            return
+
+        current_user_id = int(current_user["id"])
+        selected_user_state: dict[str, dict | None] = {"user": None}
+        temporary_password_state = {"value": ""}
+
+        with ui.column().classes("ph-page"):
+            with ui.row().classes("ph-page-header w-full"):
+                with ui.column().classes("gap-1"):
+                    ui.label("管理员").classes("ph-eyebrow")
+                    ui.label("账户管理").classes("ph-title")
+                    ui.label("创建账号、调整角色，并禁用不再使用的账号。").classes("ph-subtitle")
+                with ui.row().classes("gap-2"):
+                    refresh_button = ui.button(
+                        "刷新",
+                        icon="refresh",
+                        on_click=lambda: load_users(),
+                    ).props("flat no-wrap")
+                    ui.button(
+                        "新建账号",
+                        icon="person_add",
+                        on_click=lambda: open_create_user_dialog(),
+                    ).props("unelevated no-wrap")
+
+            with ui.element("div").classes("ph-panel ph-admin-user-filters w-full p-4"):
+                user_query = ui.input(
+                    "姓名或邮箱",
+                    placeholder="name@example.com",
+                ).props("outlined clearable dense")
+                status_filter = ui.select(
+                    ADMIN_ACCOUNT_STATUS_OPTIONS,
+                    value="all",
+                    label="状态",
+                ).props("outlined dense")
+                role_filter = ui.select(
+                    ADMIN_USER_ROLE_FILTER_OPTIONS,
+                    value="all",
+                    label="角色",
+                ).props("outlined dense")
+                search_button = ui.button(
+                    "搜索",
+                    icon="search",
+                    on_click=lambda: load_users(),
+                ).props("unelevated no-wrap")
+                ui.button(
+                    "重置",
+                    icon="restart_alt",
+                    on_click=lambda: reset_user_filters(),
+                ).props("flat no-wrap")
+
+            users_column = ui.column().classes("w-full gap-3")
+
+            def render_user(user: dict) -> None:
+                is_active = bool(user.get("is_active", True))
+                global_role = user.get("global_role") or "user"
+                status_label = "启用" if is_active else "禁用"
+                status_color = "positive" if is_active else "negative"
+                is_self = int(user["id"]) == current_user_id
+                with ui.card().classes("ph-resource-card ph-admin-user-row w-full p-4"):
+                    with ui.row().classes("ph-admin-user-main w-full"):
+                        with ui.element("div").classes("ph-icon-box ph-icon-project"):
+                            ui.icon("admin_panel_settings" if global_role == "admin" else "person")
+                        with ui.column().classes("min-w-0 flex-1 gap-2"):
+                            with ui.row().classes("items-center gap-2 flex-wrap"):
+                                ui.label(person_label(user.get("name"), user.get("email"))).classes("ph-card-title")
+                                ui.badge(ROLE_LABELS.get(global_role, global_role)).props(
+                                    f"outline color={_admin_user_role_badge_color(global_role)}"
+                                )
+                                ui.badge(status_label).props(f"outline color={status_color}")
+                                if is_self:
+                                    ui.badge("当前账号").props("outline color=primary")
+                            ui.label(user["email"]).classes("ph-card-description")
+                            with ui.element("div").classes("ph-admin-user-metadata"):
+                                ui.label(
+                                    f"创建 {format_datetime_minute(user.get('created_at')) or '未知'}"
+                                ).classes("ph-meta")
+                                ui.label(
+                                    f"最后登录 {_admin_user_time_text(user.get('last_login_at'))}"
+                                ).classes("ph-meta")
+                                ui.label(
+                                    f"密码更新 {_admin_user_time_text(user.get('password_updated_at'))}"
+                                ).classes("ph-meta")
+                                if not is_active:
+                                    disabled_by = person_label(
+                                        user.get("disabled_by_name"),
+                                        user.get("disabled_by_email"),
+                                    )
+                                    ui.label(
+                                        f"禁用 {format_datetime_minute(user.get('disabled_at')) or '未知'} · {disabled_by}"
+                                    ).classes("ph-meta")
+                                    if user.get("disabled_reason"):
+                                        ui.label(f"原因 {user['disabled_reason']}").classes("ph-meta")
+                    with ui.row().classes("ph-admin-user-actions"):
+                        edit_button = ui.button(
+                            icon="edit",
+                            on_click=lambda u=user: open_edit_user_dialog(u),
+                        ).props("flat round dense")
+                        with edit_button:
+                            ui.tooltip("编辑账号")
+                        reset_button = ui.button(
+                            icon="lock_reset",
+                            on_click=lambda u=user: reset_user_password(u),
+                        ).props("flat round dense")
+                        with reset_button:
+                            ui.tooltip("重置密码")
+                        if is_active:
+                            disable_button = ui.button(
+                                icon="person_off",
+                                on_click=lambda u=user: open_disable_user_dialog(u),
+                            ).props("flat round dense color=negative")
+                            if is_self:
+                                disable_button.disable()
+                            with disable_button:
+                                ui.tooltip("禁用账号" if not is_self else "不能禁用当前账号")
+                        else:
+                            enable_button = ui.button(
+                                icon="person",
+                                on_click=lambda u=user: enable_user(u),
+                            ).props("flat round dense color=positive")
+                            with enable_button:
+                                ui.tooltip("启用账号")
+
+            async def load_users() -> None:
+                users_column.clear()
+                with users_column:
+                    ui.label("正在加载账户...").classes("ph-muted")
+                try:
+                    search_button.disable()
+                    refresh_button.disable()
+                    params = {
+                        "q": user_query.value or "",
+                        "status": status_filter.value or "all",
+                        "global_role": role_filter.value or "all",
+                    }
+                    endpoint = f"/api/admin/users?{urlencode(params)}"
+                    users = await ui.run_javascript(
+                        f"return await phApi({json.dumps(endpoint)})",
+                        timeout=10,
+                    )
+                    users_column.clear()
+                    with users_column:
+                        if not users:
+                            empty_state("manage_accounts", "没有匹配账户", "换一个关键词或筛选条件试试看。")
+                        for user in users:
+                            render_user(user)
+                except Exception as error:
+                    users_column.clear()
+                    with users_column:
+                        empty_state("lock", "无法加载账户", "请确认当前账号具有管理员权限。")
+                    notify_error(error)
+                finally:
+                    search_button.enable()
+                    refresh_button.enable()
+
+            async def reset_user_filters() -> None:
+                user_query.value = ""
+                status_filter.value = "all"
+                role_filter.value = "all"
+                await load_users()
+
+            def open_create_user_dialog() -> None:
+                create_user_name.value = ""
+                create_user_email.value = ""
+                create_user_role.value = "user"
+                create_user_dialog.open()
+
+            async def create_user_from_dialog() -> None:
+                payload = {
+                    "name": create_user_name.value or "",
+                    "email": create_user_email.value or "",
+                    "global_role": create_user_role.value or "user",
+                }
+                try:
+                    result = await ui.run_javascript(
+                        f"return await phApi('/api/admin/users', "
+                        f"{{method: 'POST', body: {json.dumps(payload)}}})",
+                        timeout=10,
+                    )
+                    create_user_dialog.close()
+                    show_temporary_password("账号已创建", result["user"], result["temporary_password"])
+                    await load_users()
+                except Exception as error:
+                    notify_error(error)
+
+            def open_edit_user_dialog(user: dict) -> None:
+                selected_user_state["user"] = user
+                edit_user_title.text = f"编辑账号：{person_label(user.get('name'), user.get('email'))}"
+                edit_user_name.value = user.get("name") or ""
+                edit_user_role.value = user.get("global_role") or "user"
+                edit_user_dialog.open()
+
+            async def update_user_from_dialog() -> None:
+                user = selected_user_state["user"]
+                if not user:
+                    return
+                payload = {
+                    "name": edit_user_name.value or "",
+                    "global_role": edit_user_role.value or "user",
+                }
+                try:
+                    result = await ui.run_javascript(
+                        f"return await phApi('/api/admin/users/{user['id']}', "
+                        f"{{method: 'PATCH', body: {json.dumps(payload)}}})",
+                        timeout=10,
+                    )
+                    edit_user_dialog.close()
+                    selected_user_state["user"] = None
+                    ui.notify(f"{person_label(result.get('name'), result.get('email'))} 已更新", type="positive")
+                    await load_users()
+                except Exception as error:
+                    notify_error(error)
+
+            def open_disable_user_dialog(user: dict) -> None:
+                selected_user_state["user"] = user
+                disable_user_title.text = f"禁用账号：{person_label(user.get('name'), user.get('email'))}"
+                disable_user_reason.value = ""
+                disable_user_dialog.open()
+
+            async def disable_user_from_dialog() -> None:
+                user = selected_user_state["user"]
+                if not user:
+                    return
+                payload = {"reason": disable_user_reason.value or ""}
+                try:
+                    result = await ui.run_javascript(
+                        f"return await phApi('/api/admin/users/{user['id']}/disable', "
+                        f"{{method: 'POST', body: {json.dumps(payload)}}})",
+                        timeout=10,
+                    )
+                    disable_user_dialog.close()
+                    selected_user_state["user"] = None
+                    ui.notify(f"{person_label(result.get('name'), result.get('email'))} 已禁用", type="positive")
+                    await load_users()
+                except Exception as error:
+                    notify_error(error)
+
+            async def enable_user(user: dict) -> None:
+                try:
+                    result = await ui.run_javascript(
+                        f"return await phApi('/api/admin/users/{user['id']}/enable', "
+                        "{method: 'POST'})",
+                        timeout=10,
+                    )
+                    ui.notify(f"{person_label(result.get('name'), result.get('email'))} 已启用", type="positive")
+                    await load_users()
+                except Exception as error:
+                    notify_error(error)
+
+            async def reset_user_password(user: dict) -> None:
+                try:
+                    result = await ui.run_javascript(
+                        f"return await phApi('/api/admin/users/{user['id']}/reset-password', "
+                        "{method: 'POST'})",
+                        timeout=10,
+                    )
+                    show_temporary_password("密码已重置", result["user"], result["temporary_password"])
+                    await load_users()
+                except Exception as error:
+                    notify_error(error)
+
+            def show_temporary_password(title: str, user: dict, password: str) -> None:
+                temporary_password_state["value"] = password
+                temporary_password_title.text = title
+                temporary_password_user.text = (
+                    f"{person_label(user.get('name'), user.get('email'))} · {user.get('email')}"
+                )
+                temporary_password_label.text = password
+                temporary_password_dialog.open()
+
+            async def copy_temporary_password() -> None:
+                password = temporary_password_state["value"]
+                if not password:
+                    ui.notify("没有可复制的临时密码", type="warning")
+                    return
+                try:
+                    await ui.run_javascript(
+                        f"await navigator.clipboard.writeText({json.dumps(password)}); return true",
+                        timeout=5,
+                    )
+                    ui.notify("临时密码已复制", type="positive")
+                except Exception as error:
+                    notify_error(error)
+
+            with ui.dialog() as create_user_dialog, ui.card().classes("ph-dialog-card w-full max-w-md gap-4"):
+                ui.label("新建账号").classes("text-lg font-semibold")
+                create_user_name = ui.input("姓名").props("outlined").classes("w-full")
+                create_user_email = ui.input("邮箱").props("outlined").classes("w-full")
+                create_user_role = ui.select(
+                    ADMIN_USER_ROLE_OPTIONS,
+                    value="user",
+                    label="角色",
+                ).props("outlined").classes("w-full")
+                with ui.row().classes("justify-end w-full"):
+                    ui.button("取消", on_click=create_user_dialog.close).props("flat")
+                    ui.button(
+                        "创建",
+                        icon="person_add",
+                        on_click=create_user_from_dialog,
+                    ).props("unelevated")
+
+            with ui.dialog() as edit_user_dialog, ui.card().classes("ph-dialog-card w-full max-w-md gap-4"):
+                edit_user_title = ui.label().classes("text-lg font-semibold")
+                edit_user_name = ui.input("姓名").props("outlined").classes("w-full")
+                edit_user_role = ui.select(
+                    ADMIN_USER_ROLE_OPTIONS,
+                    value="user",
+                    label="角色",
+                ).props("outlined").classes("w-full")
+                with ui.row().classes("justify-end w-full"):
+                    ui.button("取消", on_click=edit_user_dialog.close).props("flat")
+                    ui.button("保存", icon="save", on_click=update_user_from_dialog).props("unelevated")
+
+            with ui.dialog() as disable_user_dialog, ui.card().classes("ph-dialog-card w-full max-w-md gap-4"):
+                disable_user_title = ui.label().classes("text-lg font-semibold")
+                disable_user_reason = ui.textarea(
+                    "原因",
+                    placeholder="例如：成员离职或账号暂时停用",
+                ).props("outlined autogrow").classes("w-full")
+                with ui.row().classes("justify-end w-full"):
+                    ui.button("取消", on_click=disable_user_dialog.close).props("flat")
+                    ui.button(
+                        "禁用",
+                        icon="person_off",
+                        on_click=disable_user_from_dialog,
+                    ).props("unelevated color=negative")
+
+            with ui.dialog() as temporary_password_dialog, ui.card().classes("ph-dialog-card w-full max-w-md gap-4"):
+                temporary_password_title = ui.label().classes("text-lg font-semibold")
+                temporary_password_user = ui.label().classes("ph-muted")
+                temporary_password_label = ui.label().classes("ph-temp-password")
+                with ui.row().classes("justify-end w-full"):
+                    ui.button(
+                        "复制",
+                        icon="content_copy",
+                        on_click=copy_temporary_password,
+                    ).props("flat")
+                    ui.button("完成", on_click=temporary_password_dialog.close).props("unelevated")
+
+            await load_users()
 
     @ui.page("/public-proteins/{public_protein_id}")
     async def public_protein_page(public_protein_id: int) -> None:

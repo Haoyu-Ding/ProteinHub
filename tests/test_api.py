@@ -20,22 +20,29 @@ from proteinhub.infrastructure.database.connection import connect
 from proteinhub.infrastructure.spr.pptx import _chart_svg
 
 
-def make_client(tmp_path: Path) -> TestClient:
+def make_client(
+    tmp_path: Path,
+    *,
+    admin_emails: tuple[str, ...] | None = None,
+) -> TestClient:
     domesticator_script, domesticator_database = write_fake_domesticator(tmp_path)
     akta_script = write_fake_akta_hap(tmp_path)
-    settings = Settings(
-        database_path=tmp_path / "proteinhub.sqlite3",
-        storage_root=tmp_path / "storage",
-        jwt_secret="test-secret",
-        nicegui_storage_secret="test-storage-secret",
-        legacy_domesticator_python=Path(sys.executable),
-        legacy_domesticator_script=domesticator_script,
-        legacy_domesticator_database=domesticator_database,
-        legacy_domesticator_timeout_seconds=30,
-        akta_hap_python=Path(sys.executable),
-        akta_hap_script=akta_script,
-        akta_hap_timeout_seconds=30,
-    )
+    settings_kwargs = {
+        "database_path": tmp_path / "proteinhub.sqlite3",
+        "storage_root": tmp_path / "storage",
+        "jwt_secret": "test-secret",
+        "nicegui_storage_secret": "test-storage-secret",
+        "legacy_domesticator_python": Path(sys.executable),
+        "legacy_domesticator_script": domesticator_script,
+        "legacy_domesticator_database": domesticator_database,
+        "legacy_domesticator_timeout_seconds": 30,
+        "akta_hap_python": Path(sys.executable),
+        "akta_hap_script": akta_script,
+        "akta_hap_timeout_seconds": 30,
+    }
+    if admin_emails is not None:
+        settings_kwargs["admin_emails"] = admin_emails
+    settings = Settings(**settings_kwargs)
     init_db(settings.database_path)
 
     from fastapi import FastAPI
@@ -453,7 +460,15 @@ def test_database_schema_has_no_sequence_or_collaboration_tables(tmp_path: Path)
     assert "public_proteins" in tables
     assert "schema_migrations" in tables
     assert "0001_current_schema" in applied_migrations
-    assert "global_role" in user_columns
+    assert {
+        "global_role",
+        "is_active",
+        "disabled_at",
+        "disabled_by",
+        "disabled_reason",
+        "last_login_at",
+        "password_updated_at",
+    }.issubset(user_columns)
     assert "protein_type" in protein_columns
     assert "target" in protein_columns
     assert "manual_rating" in protein_columns
@@ -748,6 +763,9 @@ def test_init_db_removes_retired_collaboration_schema_from_existing_database(
         protein_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(proteins)")
         }
+        user_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(users)")
+        }
         batch_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(batches)")
         }
@@ -797,6 +815,15 @@ def test_init_db_removes_retired_collaboration_schema_from_existing_database(
     assert "protein_comments" not in tables
     assert "sequences" not in tables
     assert "sequence_comments" not in tables
+    assert {
+        "global_role",
+        "is_active",
+        "disabled_at",
+        "disabled_by",
+        "disabled_reason",
+        "last_login_at",
+        "password_updated_at",
+    }.issubset(user_columns)
     assert not {
         "status",
         "priority",
@@ -979,6 +1006,225 @@ def test_internal_user_creation_can_assign_admin_role(tmp_path: Path) -> None:
     )
     assert login.status_code == 200, login.text
     assert login.json()["user"]["global_role"] == "admin"
+
+
+def test_admin_can_manage_user_lifecycle(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    admin_token = register(client, "ruolan.chen@northstar-bio.local", "陈若澜")
+    owner_token = register(client, "owner@example.com", "项目负责人")
+    admin_user = client.get("/api/me", headers=auth(admin_token)).json()
+
+    denied = client.get("/api/admin/users", headers=auth(owner_token))
+    assert denied.status_code == 403
+
+    created = client.post(
+        "/api/admin/users",
+        headers=auth(admin_token),
+        json={
+            "name": "新成员",
+            "email": "new.member@example.com",
+            "global_role": "user",
+        },
+    )
+    assert created.status_code == 200, created.text
+    created_payload = created.json()
+    temporary_password = created_payload["temporary_password"]
+    managed_user = created_payload["user"]
+    assert len(temporary_password) >= 8
+    assert managed_user["name"] == "新成员"
+    assert managed_user["global_role"] == "user"
+    assert managed_user["is_active"] is True
+    assert managed_user["password_updated_at"]
+
+    login = client.post(
+        "/api/auth/login",
+        json={"email": "new.member@example.com", "password": temporary_password},
+    )
+    assert login.status_code == 200, login.text
+    managed_token = login.json()["access_token"]
+    assert login.json()["user"]["last_login_at"]
+
+    listed = client.get(
+        "/api/admin/users",
+        headers=auth(admin_token),
+        params={"q": "new.member", "status": "active", "global_role": "user"},
+    )
+    assert listed.status_code == 200, listed.text
+    assert [user["email"] for user in listed.json()] == ["new.member@example.com"]
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Candidate project"},
+    ).json()
+
+    disabled = client.post(
+        f"/api/admin/users/{managed_user['id']}/disable",
+        headers=auth(admin_token),
+        json={"reason": "成员离职"},
+    )
+    assert disabled.status_code == 200, disabled.text
+    disabled_user = disabled.json()
+    assert disabled_user["is_active"] is False
+    assert disabled_user["disabled_by"] == admin_user["id"]
+    assert disabled_user["disabled_reason"] == "成员离职"
+    assert disabled_user["disabled_at"]
+
+    disabled_login = client.post(
+        "/api/auth/login",
+        json={"email": "new.member@example.com", "password": temporary_password},
+    )
+    assert disabled_login.status_code == 401
+
+    stale_token_me = client.get("/api/me", headers=auth(managed_token))
+    assert stale_token_me.status_code == 401
+
+    candidates = client.get(
+        f"/api/projects/{project['id']}/member-candidates",
+        headers=auth(owner_token),
+        params={"query": "新成员"},
+    )
+    assert candidates.status_code == 200, candidates.text
+    assert candidates.json() == []
+
+    add_disabled_member = client.post(
+        f"/api/projects/{project['id']}/members",
+        headers=auth(owner_token),
+        json={"email": "new.member@example.com", "role": "member"},
+    )
+    assert add_disabled_member.status_code == 400
+
+    disabled_list = client.get(
+        "/api/admin/users",
+        headers=auth(admin_token),
+        params={"q": "new.member", "status": "disabled"},
+    )
+    assert disabled_list.status_code == 200, disabled_list.text
+    assert [user["id"] for user in disabled_list.json()] == [managed_user["id"]]
+
+    enabled = client.post(
+        f"/api/admin/users/{managed_user['id']}/enable",
+        headers=auth(admin_token),
+    )
+    assert enabled.status_code == 200, enabled.text
+    assert enabled.json()["is_active"] is True
+
+    enabled_login = client.post(
+        "/api/auth/login",
+        json={"email": "new.member@example.com", "password": temporary_password},
+    )
+    assert enabled_login.status_code == 200, enabled_login.text
+
+    reset = client.post(
+        f"/api/admin/users/{managed_user['id']}/reset-password",
+        headers=auth(admin_token),
+    )
+    assert reset.status_code == 200, reset.text
+    reset_password = reset.json()["temporary_password"]
+    assert len(reset_password) >= 8
+    assert reset_password != temporary_password
+
+    old_password_login = client.post(
+        "/api/auth/login",
+        json={"email": "new.member@example.com", "password": temporary_password},
+    )
+    assert old_password_login.status_code == 401
+
+    new_password_login = client.post(
+        "/api/auth/login",
+        json={"email": "new.member@example.com", "password": reset_password},
+    )
+    assert new_password_login.status_code == 200, new_password_login.text
+
+    updated = client.patch(
+        f"/api/admin/users/{managed_user['id']}",
+        headers=auth(admin_token),
+        json={"name": "新管理员", "global_role": "admin"},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["name"] == "新管理员"
+    assert updated.json()["global_role"] == "admin"
+
+    admin_filtered = client.get(
+        "/api/admin/users",
+        headers=auth(admin_token),
+        params={"q": "new.member", "global_role": "admin"},
+    )
+    assert admin_filtered.status_code == 200, admin_filtered.text
+    assert [user["id"] for user in admin_filtered.json()] == [managed_user["id"]]
+
+
+def test_admin_user_management_protects_administrators(tmp_path: Path) -> None:
+    client = make_client(tmp_path, admin_emails=())
+    settings = client.app.state.settings
+    connection = connect(settings)
+    try:
+        create_user(
+            connection,
+            name="独立管理员",
+            email="admin@example.com",
+            password="password123",
+            global_role="admin",
+            admin_emails=settings.admin_emails,
+        )
+    finally:
+        connection.close()
+
+    login = client.post(
+        "/api/auth/login",
+        json={"email": "admin@example.com", "password": "password123"},
+    )
+    assert login.status_code == 200, login.text
+    admin_token = login.json()["access_token"]
+    admin_user = login.json()["user"]
+
+    self_disable = client.post(
+        f"/api/admin/users/{admin_user['id']}/disable",
+        headers=auth(admin_token),
+        json={"reason": "误操作"},
+    )
+    assert self_disable.status_code == 400
+
+    demote_last_admin = client.patch(
+        f"/api/admin/users/{admin_user['id']}",
+        headers=auth(admin_token),
+        json={"global_role": "user"},
+    )
+    assert demote_last_admin.status_code == 400
+
+    second_admin = client.post(
+        "/api/admin/users",
+        headers=auth(admin_token),
+        json={
+            "name": "第二管理员",
+            "email": "second.admin@example.com",
+            "global_role": "admin",
+        },
+    )
+    assert second_admin.status_code == 200, second_admin.text
+
+    demote_with_backup = client.patch(
+        f"/api/admin/users/{admin_user['id']}",
+        headers=auth(admin_token),
+        json={"global_role": "user"},
+    )
+    assert demote_with_backup.status_code == 200, demote_with_backup.text
+    assert demote_with_backup.json()["global_role"] == "user"
+
+
+def test_configured_admin_user_cannot_be_downgraded(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    admin_token = register(client, "ruolan.chen@northstar-bio.local", "陈若澜")
+    admin_user = client.get("/api/me", headers=auth(admin_token)).json()
+
+    demote = client.patch(
+        f"/api/admin/users/{admin_user['id']}",
+        headers=auth(admin_token),
+        json={"global_role": "user"},
+    )
+
+    assert demote.status_code == 400
+    assert "Configured administrator" in demote.json()["detail"]
 
 
 def test_project_to_artifact_integration_flow(tmp_path: Path) -> None:

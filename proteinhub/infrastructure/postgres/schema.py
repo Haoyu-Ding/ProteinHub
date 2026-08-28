@@ -13,6 +13,12 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     global_role TEXT NOT NULL DEFAULT 'user' CHECK (global_role IN ('admin', 'user')),
+    is_active INTEGER NOT NULL DEFAULT 1,
+    disabled_at TEXT NOT NULL DEFAULT '',
+    disabled_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    disabled_reason TEXT NOT NULL DEFAULT '',
+    last_login_at TEXT NOT NULL DEFAULT '',
+    password_updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text),
     created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text)
 );
 
@@ -200,6 +206,12 @@ BASELINE_MIGRATION = "0001_postgres_schema"
 
 
 POSTGRES_MIGRATIONS = [
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS disabled_at TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS disabled_by BIGINT REFERENCES users(id) ON DELETE SET NULL",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS disabled_reason TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_updated_at TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE projects ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived', 'trash'))",
     "ALTER TABLE proteins ADD COLUMN IF NOT EXISTS structure_storage_backend TEXT NOT NULL DEFAULT 'database' CHECK (structure_storage_backend IN ('filesystem', 'database'))",
     "ALTER TABLE proteins ADD COLUMN IF NOT EXISTS structure_content BYTEA",

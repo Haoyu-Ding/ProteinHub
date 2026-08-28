@@ -23,11 +23,14 @@ def get_user(
     user = UserRepository(connection).get_public(user_id)
     if not user:
         raise NotFoundError("User not found")
-    return _apply_configured_admin_role(
+    user = _apply_configured_admin_role(
         connection,
         user,
         admin_emails=admin_emails,
     )
+    if not _is_active(user):
+        raise AuthenticationError("Account is disabled")
+    return user
 
 
 def register_user(
@@ -88,6 +91,10 @@ def authenticate_user(
     user = UserRepository(connection).get_by_email(email.strip().lower())
     if not user or not verify_password(password, user["password_hash"]):
         raise AuthenticationError()
+    get_user(connection, user["id"], admin_emails=admin_emails)
+    users = UserRepository(connection)
+    with transaction(connection):
+        users.record_login(user_id=user["id"])
     return get_user(connection, user["id"], admin_emails=admin_emails)
 
 
@@ -116,3 +123,7 @@ def _normalize_global_role(value: str) -> str:
     if role not in {"user", "admin"}:
         raise DomainError("Global role must be user or admin")
     return role
+
+
+def _is_active(user: dict) -> bool:
+    return bool(user.get("is_active", 1))

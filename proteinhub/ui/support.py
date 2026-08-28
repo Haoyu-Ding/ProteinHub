@@ -5,6 +5,7 @@ from nicegui import ui
 
 ROLE_LABELS = {
     "admin": "管理员",
+    "user": "普通用户",
     "owner": "负责人",
     "member": "成员",
 }
@@ -516,6 +517,57 @@ def design_system() -> None:
             height: 100%;
             border-radius: inherit;
             background: #f97316;
+        }
+
+        .ph-admin-user-filters {
+            display: grid;
+            grid-template-columns: minmax(220px, 1fr) 150px 150px auto auto;
+            gap: 10px;
+            align-items: end;
+        }
+
+        .ph-admin-user-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 14px;
+            align-items: center;
+        }
+
+        .ph-admin-user-main {
+            min-width: 0;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .ph-admin-user-metadata {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: 6px 14px;
+            width: 100%;
+        }
+
+        .ph-admin-user-actions {
+            justify-content: flex-end;
+            gap: 4px;
+        }
+
+        .ph-admin-user-actions .q-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 999px;
+        }
+
+        .ph-temp-password {
+            width: 100%;
+            padding: 12px 14px;
+            border: 1px solid var(--ph-border);
+            border-radius: 8px;
+            background: #f8fafc;
+            color: var(--ph-text);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+            font-size: 16px;
+            line-height: 1.5;
+            word-break: break-all;
         }
 
         .ph-monitor-stat {
@@ -1305,6 +1357,19 @@ def design_system() -> None:
                 min-height: 0;
             }
 
+            .ph-admin-user-filters {
+                grid-template-columns: 1fr;
+            }
+
+            .ph-admin-user-row {
+                grid-template-columns: 1fr;
+            }
+
+            .ph-admin-user-actions {
+                justify-content: flex-start;
+                padding-left: 52px;
+            }
+
             .ph-monitor-date-input {
                 width: 100%;
             }
@@ -1644,6 +1709,9 @@ def shell() -> None:
                 "text-sm no-underline text-slate-700 ph-admin-only hidden"
             )
             ui.link("序列搜索", "/admin/sequences").classes(
+                "text-sm no-underline text-slate-700 ph-admin-only hidden"
+            )
+            ui.link("账户管理", "/admin/users").classes(
                 "text-sm no-underline text-slate-700 ph-admin-only hidden"
             )
             ui.link("帮助", "/help").classes("text-sm no-underline text-slate-700")

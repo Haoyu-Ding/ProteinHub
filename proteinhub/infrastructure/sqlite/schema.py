@@ -15,6 +15,12 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     global_role TEXT NOT NULL DEFAULT 'user' CHECK (global_role IN ('admin', 'user')),
+    is_active INTEGER NOT NULL DEFAULT 1,
+    disabled_at TEXT NOT NULL DEFAULT '',
+    disabled_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    disabled_reason TEXT NOT NULL DEFAULT '',
+    last_login_at TEXT NOT NULL DEFAULT '',
+    password_updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -210,6 +216,36 @@ MIGRATIONS = [
         "users",
         "global_role",
         "ALTER TABLE users ADD COLUMN global_role TEXT NOT NULL DEFAULT 'user' CHECK (global_role IN ('admin', 'user'))",
+    ),
+    (
+        "users",
+        "is_active",
+        "ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1",
+    ),
+    (
+        "users",
+        "disabled_at",
+        "ALTER TABLE users ADD COLUMN disabled_at TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "users",
+        "disabled_by",
+        "ALTER TABLE users ADD COLUMN disabled_by INTEGER REFERENCES users(id) ON DELETE SET NULL",
+    ),
+    (
+        "users",
+        "disabled_reason",
+        "ALTER TABLE users ADD COLUMN disabled_reason TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "users",
+        "last_login_at",
+        "ALTER TABLE users ADD COLUMN last_login_at TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "users",
+        "password_updated_at",
+        "ALTER TABLE users ADD COLUMN password_updated_at TEXT NOT NULL DEFAULT ''",
     ),
     (
         "projects",

@@ -161,6 +161,8 @@ def add_project_member(
     user = UserRepository(connection).get_by_email(email.strip().lower())
     if not user:
         raise NotFoundError("User not found")
+    if not user.get("is_active", 1):
+        raise DomainError("User account is disabled")
     projects = ProjectRepository(connection)
     project = projects.get(project_id)
     if not project:

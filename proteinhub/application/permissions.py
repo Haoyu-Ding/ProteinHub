@@ -19,7 +19,11 @@ def get_project_role(
 
 def is_admin(connection: sqlite3.Connection, *, user_id: int) -> bool:
     user = UserRepository(connection).get_public(user_id)
-    return bool(user and user.get("global_role") == "admin")
+    return bool(
+        user
+        and user.get("global_role") == "admin"
+        and bool(user.get("is_active", 1))
+    )
 
 
 def require_admin(connection: sqlite3.Connection, *, user_id: int) -> None:
