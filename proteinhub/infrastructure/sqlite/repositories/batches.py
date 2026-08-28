@@ -244,6 +244,9 @@ class BatchRepository:
                     THEN batches.updated_at
                     ELSE ''
                 END AS order_monitor_ordered_at,
+                projects.owner_id,
+                owner_users.name AS owner_name,
+                owner_users.email AS owner_email,
                 batches.created_at,
                 batches.updated_at,
                 users.name AS created_by_name,
@@ -252,9 +255,16 @@ class BatchRepository:
                     SELECT COUNT(*)
                     FROM batch_wells
                     WHERE batch_wells.batch_id = batches.id
-                ) AS well_count
+                ) AS well_count,
+                (
+                    SELECT COUNT(*)
+                    FROM batch_wells
+                    WHERE batch_wells.batch_id = batches.id
+                      AND batch_wells.received_at != ''
+                ) AS received_well_count
             FROM batches
             JOIN projects ON projects.id = batches.project_id
+            JOIN users AS owner_users ON owner_users.id = projects.owner_id
             JOIN users ON users.id = batches.created_by
             WHERE batches.order_status IN ('ordered', 'partially_received', 'fully_received')
             ORDER BY order_monitor_ordered_at DESC, batches.id DESC

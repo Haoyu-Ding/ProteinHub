@@ -43,6 +43,10 @@ ORDER_MONITOR_STATUS_SEGMENTS = (
     ("partially_received_count", "部分收货", "#f97316"),
     ("fully_received_count", "全部收货", "#94a3b8"),
 )
+ORDER_MONITOR_RANK_PERIOD_LABELS = {
+    "today": "Today",
+    "month": "1 Month",
+}
 PROJECT_STATUS_LABELS = {
     "active": "活跃",
     "archived": "归档",
@@ -762,6 +766,24 @@ def install_ui() -> None:
                 ).props("unelevated no-wrap")
 
             summary_grid = ui.element("div").classes("ph-monitor-summary-grid")
+            with ui.element("div").classes("ph-order-dashboard w-full"):
+                with ui.column().classes("ph-panel ph-order-dashboard-pane gap-3 p-4"):
+                    with ui.row().classes("ph-section-bar w-full"):
+                        with ui.column().classes("gap-0"):
+                            ui.label("负责人 Rank").classes("text-xl font-semibold")
+                            owner_rank_range_label = ui.label("Today").classes("ph-muted")
+                        owner_rank_period = ui.toggle(
+                            ORDER_MONITOR_RANK_PERIOD_LABELS,
+                            value="today",
+                            on_change=lambda event: render_owner_rankings(),
+                        ).props("toggle-color=primary unelevated")
+                    owner_rank_column = ui.column().classes("w-full gap-2")
+                with ui.column().classes("ph-panel ph-order-dashboard-pane gap-3 p-4"):
+                    with ui.row().classes("ph-section-bar w-full"):
+                        with ui.column().classes("gap-0"):
+                            ui.label("批次收货进度").classes("text-xl font-semibold")
+                            ui.label("等待最久优先").classes("ph-muted")
+                    receipt_progress_column = ui.column().classes("w-full gap-3")
             with ui.column().classes("ph-panel w-full gap-4 p-4"):
                 with ui.row().classes("ph-section-bar w-full"):
                     with ui.column().classes("gap-0"):
@@ -821,6 +843,87 @@ def install_ui() -> None:
                             f"目标 {summary['cadence_target_days']} 天内",
                         ).props(f"outline color={_cadence_badge_color(summary['cadence_status'])}")
 
+            monitor_payload_state: dict[str, dict] = {"value": {}}
+
+            def render_owner_rankings() -> None:
+                payload = monitor_payload_state["value"]
+                period = owner_rank_period.value or "today"
+                rankings = (payload.get("owner_rankings") or {}).get(period) or []
+                owner_rank_range_label.text = ORDER_MONITOR_RANK_PERIOD_LABELS.get(
+                    period,
+                    "Today",
+                )
+                owner_rank_column.clear()
+                max_protein_count = max(
+                    (int(ranking.get("protein_count") or 0) for ranking in rankings),
+                    default=0,
+                )
+                with owner_rank_column:
+                    if not rankings:
+                        empty_state("leaderboard", "暂无排行", "这个时间范围内还没有订单。")
+                        return
+                    for index, ranking in enumerate(rankings, start=1):
+                        protein_count = int(ranking.get("protein_count") or 0)
+                        batch_count = int(ranking.get("batch_count") or 0)
+                        width = (
+                            (protein_count / max_protein_count) * 100
+                            if max_protein_count
+                            else 0
+                        )
+                        with ui.element("div").classes("ph-owner-rank-row"):
+                            ui.label(str(index)).classes("ph-owner-rank-number")
+                            with ui.column().classes("min-w-0 gap-1"):
+                                ui.label(
+                                    person_label(
+                                        ranking.get("owner_name"),
+                                        ranking.get("owner_email"),
+                                    )
+                                ).classes("font-semibold text-slate-900")
+                                with ui.element("div").classes("ph-owner-rank-track"):
+                                    ui.element("div").classes("ph-owner-rank-fill").style(
+                                        f"width: {width:.1f}%;"
+                                    )
+                                ui.label(f"{batch_count} 个批次").classes("ph-meta")
+                            ui.label(f"{protein_count}").classes("ph-owner-rank-value")
+
+            def render_receipt_progress(batches: list[dict]) -> None:
+                receipt_progress_column.clear()
+                with receipt_progress_column:
+                    if not batches:
+                        empty_state("inventory_2", "暂无已 order 批次", "批次进入 order 后会显示收货进度。")
+                        return
+                    for batch in batches:
+                        well_count = int(batch.get("well_count") or 0)
+                        received_count = int(batch.get("received_well_count") or 0)
+                        percent = float(batch.get("receipt_progress_percent") or 0)
+                        percent = min(max(percent, 0), 100)
+                        with ui.element("div").classes("ph-receipt-progress-card"):
+                            with ui.row().classes("w-full items-start justify-between gap-3"):
+                                with ui.column().classes("min-w-0 gap-1"):
+                                    ui.label(batch["name"]).classes("font-semibold text-slate-900")
+                                    ui.label(
+                                        f"{batch['project_name']} · "
+                                        f"{person_label(batch.get('owner_name'), batch.get('owner_email'))}"
+                                    ).classes("ph-meta")
+                                open_button = ui.button(
+                                    icon="open_in_new",
+                                    on_click=lambda b=batch: ui.navigate.to(f"/batches/{b['id']}"),
+                                ).props("flat round dense")
+                                with open_button:
+                                    ui.tooltip("打开批次")
+                            with ui.element("div").classes("ph-receipt-progress-track"):
+                                ui.element("div").classes("ph-receipt-progress-fill").style(
+                                    f"width: {percent:.1f}%;"
+                                )
+                            with ui.row().classes("w-full items-center justify-between gap-3"):
+                                ui.label(
+                                    f"{received_count}/{well_count} 已收货 · {percent:.0f}%"
+                                ).classes("ph-meta")
+                                ui.label(
+                                    f"{_format_order_date(batch.get('ordered_at'))} · "
+                                    f"{_format_days_since(batch.get('days_since_order'))}"
+                                ).classes("ph-meta")
+
             def render_weeks(weeks: list[dict]) -> None:
                 week_chart.clear()
                 max_count = max((week["order_count"] for week in weeks), default=0)
@@ -872,7 +975,12 @@ def install_ui() -> None:
                     chart_range_label.text = (
                         f"{payload['range_start']} 至 {payload['range_end']}"
                     )
+                    monitor_payload_state["value"] = payload
                     render_summary(payload["summary"])
+                    render_owner_rankings()
+                    render_receipt_progress(
+                        payload.get("batch_receipt_progress") or payload["batches"]
+                    )
                     render_weeks(payload["weekly_orders"])
                 except Exception as error:
                     notify_error(error)

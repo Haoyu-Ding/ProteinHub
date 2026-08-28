@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
+from datetime import date, timedelta
 from io import BytesIO
 from pathlib import Path
 from xml.etree import ElementTree
@@ -3181,6 +3182,175 @@ def test_order_monitor_lists_accessible_ordered_batches_by_week(tmp_path: Path) 
         headers=auth(admin_token),
     )
     assert admin_artifact_delete.status_code == 204
+
+
+def test_order_monitor_dashboard_ranks_owners_and_sorts_receipt_progress(
+    tmp_path: Path,
+) -> None:
+    client = make_client(tmp_path)
+    owner_a_token = register(client, "owner-a@example.com", "Alpha Owner")
+    owner_b_token = register(client, "owner-b@example.com", "Beta Owner")
+    admin_token = register(client, "ruolan.chen@northstar-bio.local", "陈若澜")
+
+    project_a = client.post(
+        "/api/projects",
+        headers=auth(owner_a_token),
+        json={"name": "Alpha project"},
+    ).json()
+    project_b = client.post(
+        "/api/projects",
+        headers=auth(owner_b_token),
+        json={"name": "Beta project"},
+    ).json()
+    proteins_a = [
+        client.post(
+            f"/api/projects/{project_a['id']}/proteins",
+            headers=auth(owner_a_token),
+            json={"name": f"alpha-{index}", "sequence": unique_test_sequence(index)},
+        ).json()
+        for index in range(3)
+    ]
+    proteins_b = [
+        client.post(
+            f"/api/projects/{project_b['id']}/proteins",
+            headers=auth(owner_b_token),
+            json={"name": f"beta-{index}", "sequence": unique_test_sequence(index + 10)},
+        ).json()
+        for index in range(4)
+    ]
+
+    old_alpha = client.post(
+        f"/api/projects/{project_a['id']}/batches",
+        headers=auth(owner_a_token),
+        json={
+            "name": "Alpha old",
+            "protein_ids": [proteins_a[0]["id"], proteins_a[1]["id"]],
+        },
+    ).json()
+    today_alpha = client.post(
+        f"/api/projects/{project_a['id']}/batches",
+        headers=auth(owner_a_token),
+        json={
+            "name": "Alpha today",
+            "protein_ids": [proteins_a[0]["id"], proteins_a[2]["id"]],
+        },
+    ).json()
+    month_beta = client.post(
+        f"/api/projects/{project_b['id']}/batches",
+        headers=auth(owner_b_token),
+        json={
+            "name": "Beta month",
+            "protein_ids": [
+                proteins_b[0]["id"],
+                proteins_b[1]["id"],
+                proteins_b[2]["id"],
+            ],
+        },
+    ).json()
+    today_beta = client.post(
+        f"/api/projects/{project_b['id']}/batches",
+        headers=auth(owner_b_token),
+        json={"name": "Beta today", "protein_ids": [proteins_b[3]["id"]]},
+    ).json()
+
+    for token, batch in (
+        (owner_a_token, old_alpha),
+        (owner_a_token, today_alpha),
+        (owner_b_token, month_beta),
+        (owner_b_token, today_beta),
+    ):
+        ordered = client.patch(
+            f"/api/batches/{batch['batch']['id']}/status",
+            headers=auth(token),
+            json={"order_status": "ordered"},
+        )
+        assert ordered.status_code == 200, ordered.text
+
+    old_partial = client.patch(
+        f"/api/batches/{old_alpha['batch']['id']}/status",
+        headers=auth(owner_a_token),
+        json={
+            "order_status": "ordered",
+            "received_well_ids": [old_alpha["wells"][0]["id"]],
+        },
+    )
+    assert old_partial.status_code == 200, old_partial.text
+    month_partial = client.patch(
+        f"/api/batches/{month_beta['batch']['id']}/status",
+        headers=auth(owner_b_token),
+        json={
+            "order_status": "ordered",
+            "received_well_ids": [
+                month_beta["wells"][0]["id"],
+                month_beta["wells"][1]["id"],
+            ],
+        },
+    )
+    assert month_partial.status_code == 200, month_partial.text
+    beta_full = client.patch(
+        f"/api/batches/{today_beta['batch']['id']}/status",
+        headers=auth(owner_b_token),
+        json={
+            "order_status": "ordered",
+            "received_well_ids": [today_beta["wells"][0]["id"]],
+        },
+    )
+    assert beta_full.status_code == 200, beta_full.text
+
+    today = date.today()
+    ordered_dates = {
+        old_alpha["batch"]["id"]: today - timedelta(days=31),
+        month_beta["batch"]["id"]: today - timedelta(days=20),
+        today_alpha["batch"]["id"]: today,
+        today_beta["batch"]["id"]: today,
+    }
+    settings = client.app.state.settings
+    connection = connect(settings)
+    try:
+        for batch_id, ordered_date in ordered_dates.items():
+            connection.execute(
+                "UPDATE batches SET ordered_at = ? WHERE id = ?",
+                (f"{ordered_date.isoformat()} 08:00:00", batch_id),
+            )
+        connection.commit()
+    finally:
+        connection.close()
+
+    response = client.get("/api/order-monitor", headers=auth(admin_token))
+    assert response.status_code == 200, response.text
+    payload = response.json()
+
+    today_rank = payload["owner_rankings"]["today"]
+    assert [(rank["owner_name"], rank["protein_count"]) for rank in today_rank] == [
+        ("Alpha Owner", 2),
+        ("Beta Owner", 1),
+    ]
+    month_rank = payload["owner_rankings"]["month"]
+    assert [(rank["owner_name"], rank["protein_count"]) for rank in month_rank] == [
+        ("Beta Owner", 4),
+        ("Alpha Owner", 2),
+    ]
+    assert month_rank[0]["batch_count"] == 2
+    assert month_rank[1]["batch_count"] == 1
+
+    progress_ids = [batch["id"] for batch in payload["batch_receipt_progress"]]
+    assert progress_ids == [
+        old_alpha["batch"]["id"],
+        month_beta["batch"]["id"],
+        today_alpha["batch"]["id"],
+        today_beta["batch"]["id"],
+    ]
+    progress_by_id = {
+        batch["id"]: batch for batch in payload["batch_receipt_progress"]
+    }
+    assert progress_by_id[old_alpha["batch"]["id"]]["received_well_count"] == 1
+    assert progress_by_id[old_alpha["batch"]["id"]]["well_count"] == 2
+    assert progress_by_id[today_alpha["batch"]["id"]]["received_well_count"] == 0
+    assert progress_by_id[today_beta["batch"]["id"]]["receipt_progress_percent"] == 100
+    assert round(
+        progress_by_id[month_beta["batch"]["id"]]["receipt_progress_percent"],
+        1,
+    ) == 66.7
 
 
 def test_batch_akta_results_upload_maps_pngs_to_batch_proteins(tmp_path: Path) -> None:

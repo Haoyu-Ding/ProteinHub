@@ -357,10 +357,21 @@ class WeeklyOrderResponse(BaseModel):
     batch_ids: list[int]
 
 
+class OrderMonitorOwnerRankResponse(BaseModel):
+    owner_id: int
+    owner_name: str
+    owner_email: str
+    batch_count: int
+    protein_count: int
+
+
 class OrderMonitorBatchResponse(BaseModel):
     id: int
     project_id: int
     project_name: str
+    owner_id: int
+    owner_name: str
+    owner_email: str
     name: str
     description: str
     plate_format: str
@@ -369,6 +380,8 @@ class OrderMonitorBatchResponse(BaseModel):
     ordered_week: str
     days_since_order: int | None
     well_count: int
+    received_well_count: int = 0
+    receipt_progress_percent: float = 0
     created_at: str
     updated_at: str
     created_by_name: str
@@ -381,6 +394,12 @@ class OrderMonitorResponse(BaseModel):
     range_start: str
     range_end: str
     batches: list[OrderMonitorBatchResponse]
+    owner_rankings: dict[str, list[OrderMonitorOwnerRankResponse]] = Field(
+        default_factory=dict
+    )
+    batch_receipt_progress: list[OrderMonitorBatchResponse] = Field(
+        default_factory=list
+    )
 
 
 class BatchScoreDensityPlotResponse(BaseModel):

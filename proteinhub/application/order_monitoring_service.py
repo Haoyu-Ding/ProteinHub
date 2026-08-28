@@ -11,6 +11,7 @@ from proteinhub.infrastructure.sqlite.repositories import BatchRepository
 ORDERED_STATUSES = {"ordered", "partially_received", "fully_received"}
 CADENCE_TARGET_DAYS = 14
 RECENT_WEEK_COUNT = 8
+OWNER_RANKING_MONTH_DAYS = 30
 
 
 def get_order_monitor(
@@ -68,6 +69,19 @@ def get_order_monitor(
         "range_start": range_start.isoformat(),
         "range_end": range_end.isoformat(),
         "batches": batches,
+        "owner_rankings": {
+            "today": _owner_rankings(
+                batches,
+                start_date=today,
+                end_date=today,
+            ),
+            "month": _owner_rankings(
+                batches,
+                start_date=today - timedelta(days=OWNER_RANKING_MONTH_DAYS - 1),
+                end_date=today,
+            ),
+        },
+        "batch_receipt_progress": _batch_receipt_progress(batches),
     }
 
 
@@ -76,10 +90,15 @@ def _monitor_batch(row: dict, *, today: date) -> dict:
     ordered_datetime = _parse_timestamp(ordered_at)
     ordered_date = ordered_datetime.date() if ordered_datetime else None
     week_start = _week_start(ordered_date) if ordered_date else None
+    well_count = int(row["well_count"])
+    received_well_count = int(row.get("received_well_count") or 0)
     return {
         "id": row["id"],
         "project_id": row["project_id"],
         "project_name": row["project_name"],
+        "owner_id": row["owner_id"],
+        "owner_name": row.get("owner_name") or "",
+        "owner_email": row.get("owner_email") or "",
         "name": row["name"],
         "description": row.get("description") or "",
         "plate_format": row["plate_format"],
@@ -87,12 +106,63 @@ def _monitor_batch(row: dict, *, today: date) -> dict:
         "ordered_at": ordered_at,
         "ordered_week": _week_key(week_start) if week_start else "",
         "days_since_order": (today - ordered_date).days if ordered_date else None,
-        "well_count": int(row["well_count"]),
+        "well_count": well_count,
+        "received_well_count": received_well_count,
+        "receipt_progress_percent": (
+            (received_well_count / well_count) * 100 if well_count else 0
+        ),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "created_by_name": row.get("created_by_name") or "",
         "created_by_email": row.get("created_by_email") or "",
     }
+
+
+def _owner_rankings(
+    batches: list[dict],
+    *,
+    start_date: date,
+    end_date: date,
+) -> list[dict]:
+    rankings_by_owner: dict[int, dict] = {}
+    for batch in batches:
+        ordered_datetime = _parse_timestamp(batch.get("ordered_at") or "")
+        if ordered_datetime is None:
+            continue
+        ordered_date = ordered_datetime.date()
+        if ordered_date < start_date or ordered_date > end_date:
+            continue
+        owner_id = int(batch["owner_id"])
+        ranking = rankings_by_owner.setdefault(
+            owner_id,
+            {
+                "owner_id": owner_id,
+                "owner_name": batch.get("owner_name") or "",
+                "owner_email": batch.get("owner_email") or "",
+                "batch_count": 0,
+                "protein_count": 0,
+            },
+        )
+        ranking["batch_count"] += 1
+        ranking["protein_count"] += int(batch["well_count"])
+    return sorted(
+        rankings_by_owner.values(),
+        key=lambda ranking: (
+            -ranking["protein_count"],
+            -ranking["batch_count"],
+            (ranking.get("owner_name") or ranking.get("owner_email") or "").lower(),
+        ),
+    )
+
+
+def _batch_receipt_progress(batches: list[dict]) -> list[dict]:
+    return sorted(
+        batches,
+        key=lambda batch: (
+            _parse_timestamp(batch.get("ordered_at") or "") or datetime.max,
+            int(batch["id"]),
+        ),
+    )
 
 
 def _weekly_orders(

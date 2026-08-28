@@ -435,6 +435,89 @@ def design_system() -> None:
             width: 100%;
         }
 
+        .ph-order-dashboard {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 16px;
+            align-items: start;
+        }
+
+        .ph-order-dashboard-pane {
+            width: 100%;
+            min-height: 420px;
+        }
+
+        .ph-owner-rank-row {
+            display: grid;
+            grid-template-columns: 42px minmax(0, 1fr) 68px;
+            align-items: center;
+            gap: 12px;
+            width: 100%;
+            padding: 12px 14px;
+            border: 1px solid var(--ph-border);
+            border-radius: 8px;
+            background: #fbfcfd;
+        }
+
+        .ph-owner-rank-number {
+            width: 30px;
+            height: 30px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            background: #0f766e;
+            color: #ffffff;
+            font-size: 13px;
+            font-weight: 760;
+        }
+
+        .ph-owner-rank-track {
+            width: 100%;
+            height: 8px;
+            overflow: hidden;
+            border-radius: 999px;
+            background: #e2e8f0;
+        }
+
+        .ph-owner-rank-fill {
+            height: 100%;
+            border-radius: inherit;
+            background: #0f766e;
+        }
+
+        .ph-owner-rank-value {
+            color: var(--ph-text);
+            font-size: 24px;
+            font-weight: 760;
+            text-align: right;
+        }
+
+        .ph-receipt-progress-card {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 12px 14px;
+            border: 1px solid var(--ph-border);
+            border-radius: 8px;
+            background: #fbfcfd;
+        }
+
+        .ph-receipt-progress-track {
+            width: 100%;
+            height: 10px;
+            overflow: hidden;
+            border-radius: 999px;
+            background: #e2e8f0;
+        }
+
+        .ph-receipt-progress-fill {
+            height: 100%;
+            border-radius: inherit;
+            background: #f97316;
+        }
+
         .ph-monitor-stat {
             min-height: 112px;
             padding: 16px;
@@ -1212,6 +1295,14 @@ def design_system() -> None:
 
             .ph-monitor-bar-chart {
                 grid-template-columns: repeat(8, minmax(72px, 1fr));
+            }
+
+            .ph-order-dashboard {
+                grid-template-columns: 1fr;
+            }
+
+            .ph-order-dashboard-pane {
+                min-height: 0;
             }
 
             .ph-monitor-date-input {
