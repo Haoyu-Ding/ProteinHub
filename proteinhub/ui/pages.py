@@ -2456,7 +2456,7 @@ def install_ui() -> None:
                         await ui.run_javascript(
                             f"return await phApi('/api/projects/{project_id}/batches', "
                             f"{{method: 'POST', body: {json.dumps(payload)}}})",
-                            timeout=10,
+                            timeout=60,
                         )
                         batch_dialog.close()
                         batch_name.value = ""
