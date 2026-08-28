@@ -11,6 +11,7 @@ from io import BytesIO, StringIO
 from pathlib import Path
 from typing import Any
 
+from proteinhub.application.batch_label import render_batch_label_svg
 from proteinhub.application.permissions import (
     project_for_protein,
     require_project_owner,
@@ -170,6 +171,28 @@ def get_batch(
         "score_density_plots": _batch_score_density_plots(wells),
         "access_role": access_role,
     }
+
+
+def generate_batch_label_svg(
+    connection: sqlite3.Connection,
+    *,
+    batch_id: int,
+    user_id: int,
+    settings: Settings,
+) -> str:
+    project_id = project_for_batch(connection, batch_id)
+    require_project_read(connection, project_id=project_id, user_id=user_id)
+    context = BatchRepository(connection).get_label_context(batch_id)
+    if not context:
+        raise NotFoundError("Batch not found")
+    target_url = f"{settings.public_base_url.rstrip('/')}/batches/{batch_id}"
+    owner_name = context["owner_name"] or context["owner_email"] or ""
+    return render_batch_label_svg(
+        owner_name=owner_name,
+        batch_id=batch_id,
+        print_date=date.today(),
+        target_url=target_url,
+    )
 
 
 def update_batch_well_position(
