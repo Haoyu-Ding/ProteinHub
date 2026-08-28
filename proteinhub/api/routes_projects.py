@@ -29,7 +29,6 @@ from proteinhub.api.schemas import (
 from proteinhub.application.project_service import (
     add_project_member,
     create_project,
-    delete_project,
     get_project,
     list_project_members,
     list_projects,
@@ -86,17 +85,6 @@ def create_projects_router(
                 name=payload.name,
                 description=payload.description,
             )
-        except DomainError as error:
-            raise map_domain_error(error) from error
-
-    @router.delete("/projects/{project_id}", status_code=204)
-    def delete_project_route(
-        project_id: int,
-        user: dict = Depends(current_user),
-        connection: sqlite3.Connection = Depends(get_connection),
-    ) -> None:
-        try:
-            delete_project(connection, project_id=project_id, user_id=user["id"])
         except DomainError as error:
             raise map_domain_error(error) from error
 

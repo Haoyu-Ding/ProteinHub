@@ -81,7 +81,6 @@ Detailed project standards live in:
 - `GET /api/projects`
 - `POST /api/projects`
 - `GET /api/projects/{project_id}`
-- `DELETE /api/projects/{project_id}`
 - `POST /api/projects/{project_id}/members`
 - `GET /api/projects/{project_id}/proteins`
 - `POST /api/projects/{project_id}/proteins`

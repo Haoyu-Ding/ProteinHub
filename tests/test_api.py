@@ -2430,83 +2430,28 @@ def test_project_permissions_for_members_and_non_members(tmp_path: Path) -> None
     assert deleted_download.status_code == 404
 
 
-def test_admin_can_delete_project_and_cascade_project_data(tmp_path: Path) -> None:
+def test_project_delete_route_is_not_available(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     owner_token = register(client, "owner@example.com")
-    member_token = register(client, "member@example.com")
-    admin_token = register(client, "ruolan.chen@northstar-bio.local", "陈若澜")
 
     project = client.post(
         "/api/projects",
         headers=auth(owner_token),
-        json={"name": "Delete me"},
+        json={"name": "Kept project"},
     ).json()
-    added = client.post(
-        f"/api/projects/{project['id']}/members",
-        headers=auth(owner_token),
-        json={"email": "member@example.com", "role": "member"},
-    )
-    assert added.status_code == 200, added.text
-    protein = client.post(
-        f"/api/projects/{project['id']}/proteins",
-        headers=auth(owner_token),
-        json={"name": "Protein A", "sequence": "ACDEFG"},
-    ).json()
-    artifact = client.post(
-        f"/api/proteins/{protein['id']}/artifacts",
-        headers=auth(owner_token),
-        files={"file": ("notes.txt", b"delete me", "text/plain")},
-    ).json()
-    batch = client.post(
-        f"/api/projects/{project['id']}/batches",
-        headers=auth(owner_token),
-        json={"name": "Batch A", "protein_ids": [protein["id"]]},
-    ).json()["batch"]
 
-    owner_delete = client.delete(
+    delete_response = client.delete(
         f"/api/projects/{project['id']}",
         headers=auth(owner_token),
     )
-    assert owner_delete.status_code == 403
-    member_delete = client.delete(
+    assert delete_response.status_code == 405
+
+    kept_project = client.get(
         f"/api/projects/{project['id']}",
-        headers=auth(member_token),
+        headers=auth(owner_token),
     )
-    assert member_delete.status_code == 403
-
-    missing_delete = client.delete("/api/projects/999999", headers=auth(admin_token))
-    assert missing_delete.status_code == 404
-
-    admin_delete = client.delete(
-        f"/api/projects/{project['id']}",
-        headers=auth(admin_token),
-    )
-    assert admin_delete.status_code == 204
-
-    admin_projects = client.get("/api/projects", headers=auth(admin_token))
-    assert admin_projects.status_code == 200, admin_projects.text
-    assert project["id"] not in [item["id"] for item in admin_projects.json()]
-
-    deleted_project = client.get(
-        f"/api/projects/{project['id']}",
-        headers=auth(admin_token),
-    )
-    assert deleted_project.status_code == 404
-    deleted_protein = client.get(
-        f"/api/proteins/{protein['id']}",
-        headers=auth(admin_token),
-    )
-    assert deleted_protein.status_code == 404
-    deleted_batch = client.get(
-        f"/api/batches/{batch['id']}",
-        headers=auth(admin_token),
-    )
-    assert deleted_batch.status_code == 404
-    deleted_artifact = client.get(
-        f"/api/artifacts/{artifact['id']}/download",
-        headers=auth(admin_token),
-    )
-    assert deleted_artifact.status_code == 404
+    assert kept_project.status_code == 200, kept_project.text
+    assert kept_project.json()["project"]["name"] == "Kept project"
 
 
 def test_owner_can_search_member_candidates_by_name(tmp_path: Path) -> None:

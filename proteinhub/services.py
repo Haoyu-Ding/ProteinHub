@@ -43,7 +43,6 @@ from proteinhub.application.permissions import (
 from proteinhub.application.project_service import (
     add_project_member,
     create_project,
-    delete_project,
     get_project,
     list_project_members,
     list_projects,
@@ -81,7 +80,6 @@ __all__ = [
     "create_project",
     "create_protein",
     "create_user",
-    "delete_project",
     "get_artifact",
     "get_batch",
     "get_batch_experiment",

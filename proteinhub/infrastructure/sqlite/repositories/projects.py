@@ -84,9 +84,6 @@ class ProjectRepository:
             "SELECT * FROM projects WHERE id = ?", (project_id,)
         ).fetchone()
 
-    def delete(self, project_id: int) -> None:
-        self.connection.execute("DELETE FROM projects WHERE id = ?", (project_id,))
-
     def update_status(self, *, project_id: int, status: str) -> None:
         self.connection.execute(
             """

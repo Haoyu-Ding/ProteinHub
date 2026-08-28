@@ -57,18 +57,6 @@ def create_project(
     return get_project(connection, project_id=project_id, user_id=user_id)
 
 
-def delete_project(
-    connection: sqlite3.Connection, *, project_id: int, user_id: int
-) -> None:
-    require_admin(connection, user_id=user_id)
-    projects = ProjectRepository(connection)
-    if not projects.get(project_id):
-        raise NotFoundError("Project not found")
-
-    with transaction(connection):
-        projects.delete(project_id)
-
-
 def update_project_status(
     connection: sqlite3.Connection,
     *,

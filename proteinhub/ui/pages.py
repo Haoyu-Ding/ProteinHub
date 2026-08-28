@@ -151,15 +151,15 @@ HELP_SECTIONS = (
         "eyebrow": "权限",
         "title": "角色和数据权限",
         "summary": "所有业务数据都按项目隔离，权限不足时不会显示项目内容。",
-        "keywords": "权限 角色 管理员 负责人 成员 下载 删除 项目",
+        "keywords": "权限 角色 管理员 负责人 成员 下载 项目",
         "steps": (
-            ("管理员", "全局管理员", "可以查看项目列表，并执行项目删除等管理员操作。"),
+            ("管理员", "全局管理员", "可以查看项目列表，并调整项目状态、管理账号。"),
             ("负责人", "项目负责人", "可以管理成员，并删除项目内普通资料文件。"),
             ("成员", "项目成员", "可以查看项目内容，创建批次、上传实验和回填结果。"),
             ("下载", "资料下载", "结构文件、实验图和 artifact 下载都需要通过项目权限校验。"),
         ),
         "tips": (
-            "项目删除会连带删除项目下的蛋白、批次、实验和资料记录，属于不可逆操作。",
+            "回收站项目只对管理员可见，需要时可以通过状态调整恢复到活跃或归档。",
             "不要把生产环境的管理员邮箱和开发环境混用；上线前确认 PROTEINHUB_ADMIN_EMAILS。",
         ),
     },
@@ -628,7 +628,6 @@ def install_ui() -> None:
                     )
 
             project_list = ui.column().classes("ph-project-list w-full")
-            project_delete_target = {"project": None}
 
             def selected_project_status() -> str:
                 return str(project_view_state["status"] or "active")
@@ -689,12 +688,6 @@ def install_ui() -> None:
                                                     )
                                                     if next_status == project.get("status", "active"):
                                                         item.disable()
-                                        delete_button = ui.button(
-                                            icon="delete",
-                                            on_click=lambda p=project: open_delete_project(p),
-                                        ).props("flat round dense color=negative")
-                                        with delete_button:
-                                            ui.tooltip("删除项目")
                                     ui.button("打开", icon="arrow_forward", on_click=lambda p=project: ui.navigate.to(f"/projects/{p['id']}")).props("flat")
                 except Exception as error:
                     notify_error(error)
@@ -723,45 +716,16 @@ def install_ui() -> None:
                     ui.button("取消", on_click=project_dialog.close).props("flat")
                     ui.button("创建", icon="add", on_click=create)
 
-            with ui.dialog() as delete_project_dialog, ui.card().classes("ph-dialog-card w-full max-w-md gap-4"):
-                delete_project_title = ui.label().classes("text-lg font-semibold")
-                ui.label("删除后项目内的蛋白、批次、实验和资料记录会一并移除。").classes("ph-muted")
-
-                async def delete_selected_project() -> None:
-                    project = project_delete_target["project"]
-                    if not project:
-                        return
-                    try:
-                        await ui.run_javascript(
-                            f"return await phApi('/api/projects/{project['id']}', {{method: 'DELETE'}})",
-                            timeout=10,
-                        )
-                        delete_project_dialog.close()
-                        project_delete_target["project"] = None
-                        ui.notify("项目已删除", type="positive")
-                        await load_projects()
-                    except Exception as error:
-                        notify_error(error)
-
-                async def update_selected_project_status(project: dict, status: str) -> None:
-                    try:
-                        await ui.run_javascript(
-                            f"return await phApi('/api/projects/{project['id']}/status', {{method: 'PATCH', body: {{status: {status!r}}}}})",
-                            timeout=10,
-                        )
-                        ui.notify("项目状态已更新", type="positive")
-                        await load_projects()
-                    except Exception as error:
-                        notify_error(error)
-
-                def open_delete_project(project: dict) -> None:
-                    project_delete_target["project"] = project
-                    delete_project_title.text = f"删除项目：{project['name']}"
-                    delete_project_dialog.open()
-
-                with ui.row().classes("justify-end w-full"):
-                    ui.button("取消", on_click=delete_project_dialog.close).props("flat")
-                    ui.button("删除", icon="delete", on_click=delete_selected_project).props("unelevated color=negative")
+            async def update_selected_project_status(project: dict, status: str) -> None:
+                try:
+                    await ui.run_javascript(
+                        f"return await phApi('/api/projects/{project['id']}/status', {{method: 'PATCH', body: {{status: {status!r}}}}})",
+                        timeout=10,
+                    )
+                    ui.notify("项目状态已更新", type="positive")
+                    await load_projects()
+                except Exception as error:
+                    notify_error(error)
 
             await load_projects()
 
