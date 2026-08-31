@@ -3151,7 +3151,7 @@ def install_ui() -> None:
                         js_handler=akta_upload_js(multiple=True),
                     )
 
-            with ui.dialog() as status_dialog, ui.card().classes("ph-dialog-card w-full max-w-2xl gap-4"):
+            with ui.dialog() as status_dialog, ui.card().classes("ph-dialog-card w-full max-w-5xl gap-4"):
                 ui.label("修改批次状态").classes("text-lg font-semibold")
                 batch_status_value = ui.select(
                     BATCH_ORDER_STATUS_OPTIONS,
