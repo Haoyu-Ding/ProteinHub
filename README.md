@@ -112,6 +112,7 @@ Detailed project standards live in:
 - `GET /api/proteins/{protein_id}/artifacts`
 - `POST /api/proteins/{protein_id}/artifacts`
 - `GET /api/batches/{batch_id}`
+- `DELETE /api/batches/{batch_id}`
 - `PATCH /api/batches/{batch_id}/status`
 - `PATCH /api/batches/{batch_id}/wells/{well_id}/position`
 - `GET /api/batches/{batch_id}/plate/export`

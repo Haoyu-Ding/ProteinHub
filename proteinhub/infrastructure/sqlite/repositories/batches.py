@@ -110,6 +110,9 @@ class BatchRepository:
             [(batch_id, position, protein_id) for position, protein_id in wells],
         )
 
+    def delete(self, batch_id: int) -> None:
+        self.connection.execute("DELETE FROM batches WHERE id = ?", (batch_id,))
+
     def update_translation_settings(
         self,
         *,

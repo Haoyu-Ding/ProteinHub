@@ -2566,6 +2566,12 @@ def install_ui() -> None:
         shell()
         if not await ensure_logged_in():
             return
+        try:
+            current_user = await ui.run_javascript("return await phApi('/api/me')", timeout=10)
+        except Exception as error:
+            notify_error(error)
+            return
+        is_admin_user = current_user.get("global_role") == "admin"
         with ui.column().classes("ph-page"):
             with ui.row().classes("ph-page-header w-full"):
                 with ui.column().classes("gap-1"):
@@ -2581,6 +2587,13 @@ def install_ui() -> None:
                             icon="published_with_changes",
                             on_click=lambda: status_dialog.open(),
                         ).props("flat dense no-wrap")
+                        batch_status_button.visible = is_admin_user
+                        delete_batch_button = ui.button(
+                            "删除批次",
+                            icon="delete",
+                            on_click=lambda: delete_batch_dialog.open(),
+                        ).props("flat dense no-wrap color=negative")
+                        delete_batch_button.visible = is_admin_user
                     batch_meta = ui.row().classes("gap-2")
 
             with ui.column().classes("ph-panel w-full gap-3 p-4"):
@@ -2593,6 +2606,7 @@ def install_ui() -> None:
                         icon="edit_note",
                         on_click=lambda: status_dialog.open(),
                     ).props("flat no-wrap")
+                    receipt_edit_button.visible = is_admin_user
                 receipt_detail_summary = ui.label("收货明细：暂无").classes("ph-meta")
                 receipt_positions_label = ui.label("暂无已收孔位").classes("ph-muted")
                 receipt_note_label = ui.label("暂无收货说明").classes("ph-muted whitespace-pre-wrap")
@@ -3188,6 +3202,17 @@ def install_ui() -> None:
                         on_click=lambda: update_batch_status(),
                     ).props("unelevated")
 
+            with ui.dialog() as delete_batch_dialog, ui.card().classes("ph-dialog-card w-full max-w-md gap-4"):
+                delete_batch_title = ui.label("删除批次").classes("text-lg font-semibold")
+                ui.label("删除后会移除这个批次的孔位、实验记录和实验原始文件。").classes("ph-muted")
+                with ui.row().classes("justify-end w-full"):
+                    ui.button("取消", on_click=delete_batch_dialog.close).props("flat")
+                    ui.button(
+                        "删除",
+                        icon="delete",
+                        on_click=lambda: delete_current_batch(),
+                    ).props("unelevated color=negative")
+
             translation_state = {"dna_fasta": ""}
             translation_in_flight = {"value": False}
             batch_editable_state = {
@@ -3196,6 +3221,7 @@ def install_ui() -> None:
                 "can_manage_receipt": False,
             }
             receipt_detail_state = {"wells": []}
+            batch_page_state = {"project_id": None}
             receipt_sync_state = {"updating": False}
             receipt_checkboxes: dict[int, object] = {}
 
@@ -3643,6 +3669,20 @@ def install_ui() -> None:
                 except Exception as error:
                     notify_error(error)
 
+            async def delete_current_batch() -> None:
+                try:
+                    await ui.run_javascript(
+                        f"return await phApi('/api/batches/{batch_id}', "
+                        "{method: 'DELETE'})",
+                        timeout=10,
+                    )
+                    delete_batch_dialog.close()
+                    ui.notify("批次已删除", type="positive")
+                    project_id = batch_page_state["project_id"]
+                    ui.navigate.to(f"/projects/{project_id}" if project_id else "/projects")
+                except Exception as error:
+                    notify_error(error)
+
             def render_batch(data: dict) -> None:
                 mapping_table.clear()
                 score_density_column.clear()
@@ -3652,21 +3692,22 @@ def install_ui() -> None:
                 score_density_plots = data.get("score_density_plots") or []
                 order_status = batch.get("order_status") or "not_ordered"
                 can_write_batch = data.get("access_role") in {"owner", "member"}
-                can_manage_receipt = data.get("access_role") == "owner"
+                can_manage_receipt = is_admin_user
                 batch_editable = can_write_batch and order_status == "not_ordered"
+                batch_page_state["project_id"] = batch.get("project_id")
                 batch_editable_state["value"] = batch_editable
                 batch_editable_state["can_write"] = can_write_batch
                 batch_editable_state["can_manage_receipt"] = can_manage_receipt
                 batch_title.text = batch["name"]
                 batch_description.text = batch["description"] or "暂无描述"
+                delete_batch_title.text = f"删除批次：{batch['name']}"
                 batch_status_badge.text = humanize(order_status)
                 batch_status_value.value = order_status
                 batch_receipt_note_value.value = batch.get("receipt_note") or ""
                 batch_receipt_note_value.visible = can_manage_receipt
                 receipt_detail_section.visible = can_manage_receipt
-                batch_status_button.visible = (
-                    can_write_batch and order_status != "fully_received"
-                ) or can_manage_receipt
+                batch_status_button.visible = is_admin_user
+                delete_batch_button.visible = is_admin_user
                 receipt_edit_button.visible = can_manage_receipt
                 receipt_note = batch.get("receipt_note") or ""
                 receipt_note_label.text = receipt_note or "暂无收货说明"
@@ -3681,7 +3722,7 @@ def install_ui() -> None:
                 receipt_meta_label.text = (
                     f"最后更新：{person_label(batch.get('receipt_updated_by_name'), batch.get('receipt_updated_by_email'))} · {receipt_updated_at}"
                     if receipt_updated_at
-                    else "项目负责人可以在这里记录部分收货情况"
+                    else "管理员可以在这里记录部分收货情况"
                 )
                 render_receipt_summary(wells)
                 render_receipt_well_options(wells)

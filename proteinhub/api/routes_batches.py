@@ -25,6 +25,7 @@ from proteinhub.api.schemas import (
 from proteinhub.application.batch_service import (
     create_batch,
     create_batch_experiment,
+    delete_batch,
     export_batch_plate_workbook,
     export_batch_summary_workbook,
     get_batch,
@@ -121,6 +122,17 @@ def create_batches_router(
                 receipt_note=payload.receipt_note,
                 received_well_ids=payload.received_well_ids,
             )
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.delete("/batches/{batch_id}", status_code=204)
+    def delete_batch_route(
+        batch_id: int,
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> None:
+        try:
+            delete_batch(connection, batch_id=batch_id, user_id=user["id"])
         except DomainError as error:
             raise map_domain_error(error) from error
 

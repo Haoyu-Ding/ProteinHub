@@ -2821,6 +2821,8 @@ def test_batch_order_status_moves_forward_and_locks_ordered_batch_edits(
     owner_token = register(client, "owner@example.com")
     member_token = register(client, "member@example.com")
     outsider_token = register(client, "outsider@example.com")
+    admin_token = register(client, "ruolan.chen@northstar-bio.local", "陈若澜")
+    admin_user = client.get("/api/me", headers=auth(admin_token)).json()
 
     project = client.post(
         "/api/projects",
@@ -2873,16 +2875,23 @@ def test_batch_order_status_moves_forward_and_locks_ordered_batch_edits(
     )
     assert outsider_update.status_code == 403
 
-    skipped_ordering = client.patch(
+    owner_update = client.patch(
         f"/api/batches/{batch['id']}/status",
         headers=auth(owner_token),
         json={"order_status": "partially_received"},
     )
-    assert skipped_ordering.status_code == 400
+    assert owner_update.status_code == 403
+
+    member_update = client.patch(
+        f"/api/batches/{batch['id']}/status",
+        headers=auth(member_token),
+        json={"order_status": "ordered"},
+    )
+    assert member_update.status_code == 403
 
     ordered = client.patch(
         f"/api/batches/{batch['id']}/status",
-        headers=auth(member_token),
+        headers=auth(admin_token),
         json={"order_status": "ordered"},
     )
     assert ordered.status_code == 200, ordered.text
@@ -2892,10 +2901,18 @@ def test_batch_order_status_moves_forward_and_locks_ordered_batch_edits(
 
     backwards = client.patch(
         f"/api/batches/{batch['id']}/status",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         json={"order_status": "not_ordered"},
     )
-    assert backwards.status_code == 400
+    assert backwards.status_code == 200, backwards.text
+    assert backwards.json()["batch"]["order_status"] == "not_ordered"
+
+    reordered = client.patch(
+        f"/api/batches/{batch['id']}/status",
+        headers=auth(admin_token),
+        json={"order_status": "ordered"},
+    )
+    assert reordered.status_code == 200, reordered.text
 
     locked_move = client.patch(
         f"/api/batches/{batch['id']}/wells/{well['id']}/position",
@@ -2928,7 +2945,7 @@ def test_batch_order_status_moves_forward_and_locks_ordered_batch_edits(
 
     fully_received = client.patch(
         f"/api/batches/{batch['id']}/status",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         json={"order_status": "fully_received"},
     )
     assert fully_received.status_code == 200, fully_received.text
@@ -2936,22 +2953,28 @@ def test_batch_order_status_moves_forward_and_locks_ordered_batch_edits(
     assert fully_received.json()["batch"]["ordered_at"] == ordered_at
     assert all(well["received_at"] for well in fully_received.json()["wells"])
     assert all(
-        well["received_by"] == project["owner_id"]
+        well["received_by"] == admin_user["id"]
         for well in fully_received.json()["wells"]
     )
 
     back_from_fully_received = client.patch(
         f"/api/batches/{batch['id']}/status",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         json={"order_status": "partially_received"},
     )
-    assert back_from_fully_received.status_code == 400
+    assert back_from_fully_received.status_code == 200, back_from_fully_received.text
+    assert (
+        back_from_fully_received.json()["batch"]["order_status"]
+        == "partially_received"
+    )
 
 
 def test_batch_order_status_can_move_through_partial_receipt(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     owner_token = register(client, "owner@example.com")
     member_token = register(client, "member@example.com")
+    admin_token = register(client, "ruolan.chen@northstar-bio.local", "陈若澜")
+    admin_user = client.get("/api/me", headers=auth(admin_token)).json()
 
     project = client.post(
         "/api/projects",
@@ -2980,14 +3003,14 @@ def test_batch_order_status_can_move_through_partial_receipt(tmp_path: Path) -> 
 
     ordered = client.patch(
         f"/api/batches/{batch['id']}/status",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         json={"order_status": "ordered"},
     )
     assert ordered.status_code == 200, ordered.text
 
     partial = client.patch(
         f"/api/batches/{batch['id']}/status",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         json={
             "order_status": "partially_received",
             "receipt_note": "已收到 A1，剩余样品供应商预计下周补发。",
@@ -2997,8 +3020,8 @@ def test_batch_order_status_can_move_through_partial_receipt(tmp_path: Path) -> 
     partial_batch = partial.json()["batch"]
     assert partial_batch["order_status"] == "partially_received"
     assert partial_batch["receipt_note"] == "已收到 A1，剩余样品供应商预计下周补发。"
-    assert partial_batch["receipt_updated_by"] == project["owner_id"]
-    assert partial_batch["receipt_updated_by_name"] == "owner"
+    assert partial_batch["receipt_updated_by"] == admin_user["id"]
+    assert partial_batch["receipt_updated_by_name"] == "陈若澜"
     assert partial_batch["receipt_updated_at"]
 
     member_detail = client.get(
@@ -3020,7 +3043,7 @@ def test_batch_order_status_can_move_through_partial_receipt(tmp_path: Path) -> 
 
     fully_received = client.patch(
         f"/api/batches/{batch['id']}/status",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         json={"order_status": "fully_received"},
     )
     assert fully_received.status_code == 200, fully_received.text
@@ -3031,6 +3054,8 @@ def test_batch_partial_receipt_tracks_received_wells(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     owner_token = register(client, "owner@example.com")
     member_token = register(client, "member@example.com")
+    admin_token = register(client, "ruolan.chen@northstar-bio.local", "陈若澜")
+    admin_user = client.get("/api/me", headers=auth(admin_token)).json()
 
     project = client.post(
         "/api/projects",
@@ -3071,14 +3096,14 @@ def test_batch_partial_receipt_tracks_received_wells(tmp_path: Path) -> None:
 
     ordered = client.patch(
         f"/api/batches/{batch['id']}/status",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         json={"order_status": "ordered"},
     )
     assert ordered.status_code == 200, ordered.text
 
     partial = client.patch(
         f"/api/batches/{batch['id']}/status",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         json={
             "order_status": "ordered",
             "receipt_note": "A01 已收货，A02 待补发。",
@@ -3089,14 +3114,14 @@ def test_batch_partial_receipt_tracks_received_wells(tmp_path: Path) -> None:
     partial_payload = partial.json()
     assert partial_payload["batch"]["order_status"] == "partially_received"
     assert partial_payload["batch"]["receipt_note"] == "A01 已收货，A02 待补发。"
-    assert partial_payload["batch"]["receipt_updated_by"] == project["owner_id"]
+    assert partial_payload["batch"]["receipt_updated_by"] == admin_user["id"]
     received_by_id = {
         well["id"]: well["received_by"] for well in partial_payload["wells"]
     }
     received_at_by_id = {
         well["id"]: well["received_at"] for well in partial_payload["wells"]
     }
-    assert received_by_id[wells[0]["id"]] == project["owner_id"]
+    assert received_by_id[wells[0]["id"]] == admin_user["id"]
     assert received_at_by_id[wells[0]["id"]]
     assert received_by_id[wells[1]["id"]] is None
     assert received_at_by_id[wells[1]["id"]] == ""
@@ -3125,7 +3150,7 @@ def test_batch_partial_receipt_tracks_received_wells(tmp_path: Path) -> None:
     ).json()
     invalid_well = client.patch(
         f"/api/batches/{batch['id']}/status",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         json={
             "order_status": "partially_received",
             "received_well_ids": [other_batch["wells"][0]["id"]],
@@ -3135,7 +3160,7 @@ def test_batch_partial_receipt_tracks_received_wells(tmp_path: Path) -> None:
 
     fully_received = client.patch(
         f"/api/batches/{batch['id']}/status",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         json={
             "order_status": "partially_received",
             "received_well_ids": [well["id"] for well in wells],
@@ -3145,7 +3170,129 @@ def test_batch_partial_receipt_tracks_received_wells(tmp_path: Path) -> None:
     full_payload = fully_received.json()
     assert full_payload["batch"]["order_status"] == "fully_received"
     assert all(well["received_at"] for well in full_payload["wells"])
-    assert all(well["received_by"] == project["owner_id"] for well in full_payload["wells"])
+    assert all(well["received_by"] == admin_user["id"] for well in full_payload["wells"])
+
+
+def test_admin_can_delete_batch_and_related_rows(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    owner_token = register(client, "owner@example.com")
+    member_token = register(client, "member@example.com")
+    outsider_token = register(client, "outsider@example.com")
+    admin_token = register(client, "ruolan.chen@northstar-bio.local", "陈若澜")
+
+    project = client.post(
+        "/api/projects",
+        headers=auth(owner_token),
+        json={"name": "Batch delete project"},
+    ).json()
+    protein = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "binder", "sequence": "ACDEFG"},
+    ).json()
+    added_member = client.post(
+        f"/api/projects/{project['id']}/members",
+        headers=auth(owner_token),
+        json={"email": "member@example.com", "role": "member"},
+    )
+    assert added_member.status_code == 200, added_member.text
+    created = client.post(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+        json={"name": "Deletable batch", "protein_ids": [protein["id"]]},
+    )
+    assert created.status_code == 200, created.text
+    batch_payload = created.json()
+    batch = batch_payload["batch"]
+    well = batch_payload["wells"][0]
+
+    experiment = client.post(
+        f"/api/batches/{batch['id']}/experiments",
+        headers=auth(owner_token),
+        json={"experiment_type": "FPLC", "name": "Delete cascade FPLC"},
+    )
+    assert experiment.status_code == 200, experiment.text
+    experiment_id = experiment.json()["experiment"]["id"]
+    result = client.patch(
+        f"/api/experiments/{experiment_id}/wells/{well['id']}/result",
+        headers=auth(member_token),
+        json={"result_value": "ready", "result_note": "delete check"},
+    )
+    assert result.status_code == 200, result.text
+
+    owner_delete = client.delete(
+        f"/api/batches/{batch['id']}",
+        headers=auth(owner_token),
+    )
+    assert owner_delete.status_code == 403
+    member_delete = client.delete(
+        f"/api/batches/{batch['id']}",
+        headers=auth(member_token),
+    )
+    assert member_delete.status_code == 403
+    outsider_delete = client.delete(
+        f"/api/batches/{batch['id']}",
+        headers=auth(outsider_token),
+    )
+    assert outsider_delete.status_code == 403
+
+    admin_delete = client.delete(
+        f"/api/batches/{batch['id']}",
+        headers=auth(admin_token),
+    )
+    assert admin_delete.status_code == 204
+
+    deleted_detail = client.get(
+        f"/api/batches/{batch['id']}",
+        headers=auth(admin_token),
+    )
+    assert deleted_detail.status_code == 404
+    listed = client.get(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(admin_token),
+    )
+    assert listed.status_code == 200, listed.text
+    assert all(item["id"] != batch["id"] for item in listed.json())
+
+    settings = client.app.state.settings
+    connection = connect(settings)
+    try:
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) AS count FROM batches WHERE id = ?",
+                (batch["id"],),
+            ).fetchone()["count"]
+            == 0
+        )
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) AS count FROM batch_wells WHERE batch_id = ?",
+                (batch["id"],),
+            ).fetchone()["count"]
+            == 0
+        )
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) AS count FROM batch_experiments WHERE batch_id = ?",
+                (batch["id"],),
+            ).fetchone()["count"]
+            == 0
+        )
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) AS count FROM experiment_well_results WHERE experiment_id = ?",
+                (experiment_id,),
+            ).fetchone()["count"]
+            == 0
+        )
+    finally:
+        connection.close()
+
+    missing_delete = client.delete(
+        f"/api/batches/{batch['id']}",
+        headers=auth(admin_token),
+    )
+    assert missing_delete.status_code == 404
 
 
 def test_order_monitor_lists_accessible_ordered_batches_by_week(tmp_path: Path) -> None:
@@ -3201,33 +3348,33 @@ def test_order_monitor_lists_accessible_ordered_batches_by_week(tmp_path: Path) 
 
     ordered = client.patch(
         f"/api/batches/{ordered_batch['id']}/status",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         json={"order_status": "ordered"},
     )
     assert ordered.status_code == 200, ordered.text
 
     partial_ordered = client.patch(
         f"/api/batches/{partially_received_batch['id']}/status",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         json={"order_status": "ordered"},
     )
     assert partial_ordered.status_code == 200, partial_ordered.text
     partial_received = client.patch(
         f"/api/batches/{partially_received_batch['id']}/status",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         json={"order_status": "partially_received"},
     )
     assert partial_received.status_code == 200, partial_received.text
 
     full_ordered = client.patch(
         f"/api/batches/{fully_received_batch['id']}/status",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         json={"order_status": "ordered"},
     )
     assert full_ordered.status_code == 200, full_ordered.text
     full_received = client.patch(
         f"/api/batches/{fully_received_batch['id']}/status",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         json={"order_status": "fully_received"},
     )
     assert full_received.status_code == 200, full_received.text
@@ -3444,22 +3591,17 @@ def test_order_monitor_dashboard_ranks_owners_and_sorts_receipt_progress(
         json={"name": "Beta today", "protein_ids": [proteins_b[3]["id"]]},
     ).json()
 
-    for token, batch in (
-        (owner_a_token, old_alpha),
-        (owner_a_token, today_alpha),
-        (owner_b_token, month_beta),
-        (owner_b_token, today_beta),
-    ):
+    for batch in (old_alpha, today_alpha, month_beta, today_beta):
         ordered = client.patch(
             f"/api/batches/{batch['batch']['id']}/status",
-            headers=auth(token),
+            headers=auth(admin_token),
             json={"order_status": "ordered"},
         )
         assert ordered.status_code == 200, ordered.text
 
     old_partial = client.patch(
         f"/api/batches/{old_alpha['batch']['id']}/status",
-        headers=auth(owner_a_token),
+        headers=auth(admin_token),
         json={
             "order_status": "ordered",
             "received_well_ids": [old_alpha["wells"][0]["id"]],
@@ -3468,7 +3610,7 @@ def test_order_monitor_dashboard_ranks_owners_and_sorts_receipt_progress(
     assert old_partial.status_code == 200, old_partial.text
     month_partial = client.patch(
         f"/api/batches/{month_beta['batch']['id']}/status",
-        headers=auth(owner_b_token),
+        headers=auth(admin_token),
         json={
             "order_status": "ordered",
             "received_well_ids": [
@@ -3480,7 +3622,7 @@ def test_order_monitor_dashboard_ranks_owners_and_sorts_receipt_progress(
     assert month_partial.status_code == 200, month_partial.text
     beta_full = client.patch(
         f"/api/batches/{today_beta['batch']['id']}/status",
-        headers=auth(owner_b_token),
+        headers=auth(admin_token),
         json={
             "order_status": "ordered",
             "received_well_ids": [today_beta["wells"][0]["id"]],
@@ -4638,6 +4780,7 @@ def test_batch_translation_csv_import_validates_input_and_access(
     client = make_client(tmp_path)
     owner_token = register(client, "owner@example.com")
     outsider_token = register(client, "outsider@example.com")
+    admin_token = register(client, "ruolan.chen@northstar-bio.local", "陈若澜")
 
     project = client.post(
         "/api/projects",
@@ -4740,7 +4883,7 @@ def test_batch_translation_csv_import_validates_input_and_access(
 
     ordered = client.patch(
         f"/api/batches/{batch['id']}/status",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         json={"order_status": "ordered"},
     )
     assert ordered.status_code == 200, ordered.text

@@ -16,6 +16,7 @@ from proteinhub.application.auth_service import (
 from proteinhub.application.batch_service import (
     create_batch,
     create_batch_experiment,
+    delete_batch,
     get_batch,
     get_batch_experiment,
     import_akta_results,
@@ -80,6 +81,7 @@ __all__ = [
     "create_project",
     "create_protein",
     "create_user",
+    "delete_batch",
     "get_artifact",
     "get_batch",
     "get_batch_experiment",

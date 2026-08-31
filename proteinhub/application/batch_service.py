@@ -13,7 +13,7 @@ from typing import Any
 
 from proteinhub.application.permissions import (
     project_for_protein,
-    require_project_owner,
+    require_admin,
     require_project_read,
     require_project_write,
 )
@@ -67,12 +67,6 @@ BATCH_ORDER_STATUSES = {
     "ordered",
     "partially_received",
     "fully_received",
-}
-BATCH_ORDER_STATUS_TRANSITIONS = {
-    "not_ordered": {"not_ordered", "ordered"},
-    "ordered": {"ordered", "partially_received", "fully_received"},
-    "partially_received": {"partially_received", "fully_received"},
-    "fully_received": {"fully_received"},
 }
 SCORE_DENSITY_PREFERRED_ORDER = (
     "plddt_binder",
@@ -231,10 +225,7 @@ def update_batch_order_status(
     receipt_note: str | None = None,
     received_well_ids: list[int] | None = None,
 ) -> dict:
-    project_id = project_for_batch(connection, batch_id)
-    require_project_write(connection, project_id=project_id, user_id=user_id)
-    if receipt_note is not None or received_well_ids is not None:
-        require_project_owner(connection, project_id=project_id, user_id=user_id)
+    require_admin(connection, user_id=user_id)
     batch_repository = BatchRepository(connection)
     batch = batch_repository.get(batch_id)
     if not batch:
@@ -260,10 +251,6 @@ def update_batch_order_status(
     elif normalized_status == "fully_received":
         wells = batch_repository.list_wells(batch_id)
         normalized_received_well_ids = {int(well["id"]) for well in wells}
-    _validate_batch_order_status_transition(
-        current_status=current_status,
-        next_status=normalized_status,
-    )
     normalized_receipt_note = receipt_note.strip() if receipt_note is not None else None
     if (
         normalized_status != current_status
@@ -295,6 +282,20 @@ def update_batch_order_status(
                     receipt_updated_by=user_id,
                 )
     return get_batch(connection, batch_id=batch_id, user_id=user_id)
+
+
+def delete_batch(
+    connection: sqlite3.Connection,
+    *,
+    batch_id: int,
+    user_id: int,
+) -> None:
+    require_admin(connection, user_id=user_id)
+    batch_repository = BatchRepository(connection)
+    if not batch_repository.get(batch_id):
+        raise NotFoundError("Batch not found")
+    with transaction(connection):
+        batch_repository.delete(batch_id)
 
 
 def list_batch_experiments(
@@ -1670,14 +1671,6 @@ def _batch_status_from_received_wells(
     if received_count >= total_wells:
         return "fully_received"
     return "partially_received"
-
-
-def _validate_batch_order_status_transition(
-    *, current_status: str, next_status: str
-) -> None:
-    allowed_statuses = BATCH_ORDER_STATUS_TRANSITIONS[current_status]
-    if next_status not in allowed_statuses:
-        raise DomainError("Batch order status cannot move backwards or skip ordering")
 
 
 def _require_batch_editable(batch: dict) -> None:
