@@ -3332,12 +3332,16 @@ def install_ui() -> None:
                             receipt_checkboxes[int(well["id"])] = checkbox
                             ui.label(well["position"]).classes("ph-mapping-position")
                             with ui.column().classes("min-w-0 gap-0"):
-                                ui.label(well["protein_name"]).classes("font-medium")
+                                ui.label(well["protein_name"]).classes(
+                                    "font-medium ph-receipt-well-name"
+                                )
                                 ui.label(f"{len(well.get('protein_sequence') or '')} aa").classes("ph-meta")
-                            ui.badge(well.get("protein_type") or "无").props("outline")
+                            ui.badge(well.get("protein_type") or "无").props("outline").classes(
+                                "ph-receipt-well-badge"
+                            )
                             ui.label(
                                 f"{received_by} · {received_at}" if received_at else "未收货"
-                            ).classes("ph-meta")
+                            ).classes("ph-meta ph-receipt-well-status")
                 sync_receipt_selection_label()
 
             async def download_plate_workbook() -> None:

@@ -1078,7 +1078,7 @@ def design_system() -> None:
 
         .ph-receipt-well-row {
             display: grid;
-            grid-template-columns: 40px 64px minmax(160px, 1fr) minmax(92px, 0.45fr) minmax(150px, 0.85fr);
+            grid-template-columns: 40px 64px minmax(0, 1.4fr) minmax(96px, 132px) minmax(130px, 180px);
             align-items: center;
             gap: 10px;
             width: 100%;
@@ -1086,6 +1086,35 @@ def design_system() -> None:
             border: 1px solid var(--ph-border);
             border-radius: 8px;
             background: var(--ph-surface);
+        }
+
+        .ph-receipt-well-name {
+            min-width: 0;
+            overflow-wrap: anywhere;
+        }
+
+        .ph-receipt-well-badge {
+            justify-self: end;
+        }
+
+        .ph-receipt-well-status {
+            justify-self: end;
+            text-align: right;
+            min-width: 0;
+        }
+
+        @media (max-width: 640px) {
+            .ph-receipt-well-row {
+                grid-template-columns: 36px 56px minmax(0, 1fr);
+                align-items: start;
+            }
+
+            .ph-receipt-well-badge,
+            .ph-receipt-well-status {
+                grid-column: 3;
+                justify-self: start;
+                text-align: left;
+            }
         }
 
         .ph-member-results {
