@@ -2383,16 +2383,22 @@ def install_ui() -> None:
                 with ui.row().classes("w-full items-center justify-between"):
                     ui.label("选择蛋白").classes("font-semibold text-slate-800")
                     with ui.row().classes("items-center gap-2"):
-                        ui.button(
+                        batch_select_all_button = ui.button(
                             "全选当前项目蛋白",
                             icon="select_all",
-                            on_click=lambda: select_all_batch_proteins(),
+                            on_click=lambda: toggle_all_batch_proteins(),
                         ).props("flat dense no-wrap")
                         selected_batch_label = ui.label("已选择 0 个蛋白").classes("ph-meta")
                 batch_proteins_column = ui.column().classes("ph-batch-protein-list")
 
                 def update_selected_batch_label() -> None:
                     selected_batch_label.text = f"已选择 {len(selected_batch_proteins)} 个蛋白"
+                    all_selected = bool(project_proteins["items"]) and len(
+                        selected_batch_proteins
+                    ) == len(project_proteins["items"])
+                    batch_select_all_button.text = (
+                        "取消全选" if all_selected else "全选当前项目蛋白"
+                    )
 
                 def toggle_batch_protein(protein_id: int, selected: bool) -> None:
                     if selected:
@@ -2401,11 +2407,14 @@ def install_ui() -> None:
                         selected_batch_proteins.discard(protein_id)
                     update_selected_batch_label()
 
-                def select_all_batch_proteins() -> None:
-                    selected_batch_proteins.clear()
-                    selected_batch_proteins.update(
-                        protein["id"] for protein in project_proteins["items"]
-                    )
+                def toggle_all_batch_proteins() -> None:
+                    if len(selected_batch_proteins) == len(project_proteins["items"]):
+                        selected_batch_proteins.clear()
+                    else:
+                        selected_batch_proteins.clear()
+                        selected_batch_proteins.update(
+                            protein["id"] for protein in project_proteins["items"]
+                        )
                     render_batch_protein_options()
 
                 def render_batch_protein_options() -> None:
