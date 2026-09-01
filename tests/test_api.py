@@ -1347,12 +1347,30 @@ def test_project_public_proteins_are_project_bound_crud_records(
         f"/api/projects/{project['id']}/public-proteins",
         headers=auth(member_token),
     )
-    assert member_list.status_code == 200, member_list.text
-    assert [item["name"] for item in member_list.json()] == ["TEV protease"]
+    assert member_list.status_code == 403
+
+    member_detail = client.get(
+        f"/api/public-proteins/{public_protein['id']}",
+        headers=auth(member_token),
+    )
+    assert member_detail.status_code == 403
+
+    member_update = client.patch(
+        f"/api/projects/{project['id']}/public-proteins/{public_protein['id']}",
+        headers=auth(member_token),
+        json={
+            "name": "TEV protease v2",
+            "sequence": "hiklmn",
+            "description": "updated control",
+            "protein_type": "tool enzyme",
+            "target": "tag removal",
+        },
+    )
+    assert member_update.status_code == 403
 
     updated = client.patch(
         f"/api/projects/{project['id']}/public-proteins/{public_protein['id']}",
-        headers=auth(member_token),
+        headers=auth(owner_token),
         json={
             "name": "TEV protease v2",
             "sequence": "hiklmn",
@@ -1366,9 +1384,15 @@ def test_project_public_proteins_are_project_bound_crud_records(
     assert updated.json()["sequence"] == "HIKLMN"
     assert updated.json()["target"] == "tag removal"
 
-    deleted = client.delete(
+    member_delete = client.delete(
         f"/api/projects/{project['id']}/public-proteins/{public_protein['id']}",
         headers=auth(member_token),
+    )
+    assert member_delete.status_code == 403
+
+    deleted = client.delete(
+        f"/api/projects/{project['id']}/public-proteins/{public_protein['id']}",
+        headers=auth(owner_token),
     )
     assert deleted.status_code == 204
 
@@ -2382,6 +2406,21 @@ def test_project_permissions_for_members_and_non_members(tmp_path: Path) -> None
         headers=auth(owner_token),
         json={"name": "Protein A", "sequence": "ACD"},
     ).json()
+    second_protein = client.post(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(owner_token),
+        json={"name": "Protein B", "sequence": "EFG"},
+    ).json()
+    visible_batch = client.post(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+        json={"name": "Visible batch", "protein_ids": [protein["id"]]},
+    ).json()["batch"]
+    hidden_batch = client.post(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(owner_token),
+        json={"name": "Hidden batch", "protein_ids": [second_protein["id"]]},
+    ).json()["batch"]
 
     denied = client.get(
         f"/api/proteins/{protein['id']}",
@@ -2395,13 +2434,32 @@ def test_project_permissions_for_members_and_non_members(tmp_path: Path) -> None
         json={"email": "member@example.com", "role": "member"},
     )
     assert added.status_code == 200, added.text
+    member_user_id = added.json()["id"]
+
+    member_project = client.get(
+        f"/api/projects/{project['id']}",
+        headers=auth(member_token),
+    )
+    assert member_project.status_code == 200, member_project.text
+
+    member_proteins = client.get(
+        f"/api/projects/{project['id']}/proteins",
+        headers=auth(member_token),
+    )
+    assert member_proteins.status_code == 403
+
+    member_detail = client.get(
+        f"/api/proteins/{protein['id']}",
+        headers=auth(member_token),
+    )
+    assert member_detail.status_code == 403
 
     member_upload = client.post(
         f"/api/proteins/{protein['id']}/artifacts",
         headers=auth(member_token),
         files={"file": ("notes.txt", b"hello", "text/plain")},
     )
-    assert member_upload.status_code == 200, member_upload.text
+    assert member_upload.status_code == 403
 
     member_cannot_add_member = client.post(
         f"/api/projects/{project['id']}/members",
@@ -2410,12 +2468,87 @@ def test_project_permissions_for_members_and_non_members(tmp_path: Path) -> None
     )
     assert member_cannot_add_member.status_code == 403
 
-    artifact_id = member_upload.json()["id"]
-    member_cannot_delete = client.delete(
-        f"/api/artifacts/{artifact_id}",
+    owner_artifact = client.post(
+        f"/api/proteins/{protein['id']}/artifacts",
+        headers=auth(owner_token),
+        files={"file": ("notes.txt", b"hello", "text/plain")},
+    )
+    assert owner_artifact.status_code == 200, owner_artifact.text
+    artifact_id = owner_artifact.json()["id"]
+    member_cannot_download = client.get(
+        f"/api/artifacts/{artifact_id}/download",
         headers=auth(member_token),
     )
-    assert member_cannot_delete.status_code == 403
+    assert member_cannot_download.status_code == 403
+
+    initial_member_batches = client.get(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(member_token),
+    )
+    assert initial_member_batches.status_code == 200, initial_member_batches.text
+    assert initial_member_batches.json() == []
+
+    hidden_before_assignment = client.get(
+        f"/api/batches/{visible_batch['id']}",
+        headers=auth(member_token),
+    )
+    assert hidden_before_assignment.status_code == 403
+
+    unassigned_experiment = client.post(
+        f"/api/batches/{visible_batch['id']}/experiments",
+        headers=auth(member_token),
+        json={"experiment_type": "FPLC", "name": "Should not write"},
+    )
+    assert unassigned_experiment.status_code == 403
+
+    initial_access = client.get(
+        f"/api/projects/{project['id']}/members/{member_user_id}/batch-access",
+        headers=auth(owner_token),
+    )
+    assert initial_access.status_code == 200, initial_access.text
+    assert initial_access.json()["batch_ids"] == []
+
+    outsider_access_update = client.put(
+        f"/api/projects/{project['id']}/members/{member_user_id}/batch-access",
+        headers=auth(outsider_token),
+        json={"batch_ids": [visible_batch["id"]]},
+    )
+    assert outsider_access_update.status_code == 403
+
+    assigned = client.put(
+        f"/api/projects/{project['id']}/members/{member_user_id}/batch-access",
+        headers=auth(owner_token),
+        json={"batch_ids": [visible_batch["id"]]},
+    )
+    assert assigned.status_code == 200, assigned.text
+    assert assigned.json()["batch_ids"] == [visible_batch["id"]]
+
+    member_batches = client.get(
+        f"/api/projects/{project['id']}/batches",
+        headers=auth(member_token),
+    )
+    assert member_batches.status_code == 200, member_batches.text
+    assert [batch["id"] for batch in member_batches.json()] == [visible_batch["id"]]
+
+    visible_detail = client.get(
+        f"/api/batches/{visible_batch['id']}",
+        headers=auth(member_token),
+    )
+    assert visible_detail.status_code == 200, visible_detail.text
+    assert visible_detail.json()["access_role"] == "member"
+
+    hidden_detail = client.get(
+        f"/api/batches/{hidden_batch['id']}",
+        headers=auth(member_token),
+    )
+    assert hidden_detail.status_code == 403
+
+    hidden_experiment = client.post(
+        f"/api/batches/{hidden_batch['id']}/experiments",
+        headers=auth(member_token),
+        json={"experiment_type": "FPLC", "name": "Still hidden"},
+    )
+    assert hidden_experiment.status_code == 403
 
     owner_delete = client.delete(
         f"/api/artifacts/{artifact_id}",
@@ -2704,9 +2837,16 @@ def test_batch_well_positions_can_move_and_swap_before_results(tmp_path: Path) -
     )
     assert outsider_move.status_code == 403
 
-    moved = client.patch(
+    member_move = client.patch(
         f"/api/batches/{batch['id']}/wells/{well_a['id']}/position",
         headers=auth(member_token),
+        json={"position": "A03", "mode": "move"},
+    )
+    assert member_move.status_code == 403
+
+    moved = client.patch(
+        f"/api/batches/{batch['id']}/wells/{well_a['id']}/position",
+        headers=auth(owner_token),
         json={"position": "A03", "mode": "move"},
     )
     assert moved.status_code == 200, moved.text
@@ -2845,6 +2985,7 @@ def test_batch_order_status_moves_forward_and_locks_ordered_batch_edits(
         json={"email": "member@example.com", "role": "member"},
     )
     assert added_member.status_code == 200, added_member.text
+    member_user_id = added_member.json()["id"]
 
     created = client.post(
         f"/api/projects/{project['id']}/batches",
@@ -2860,6 +3001,13 @@ def test_batch_order_status_moves_forward_and_locks_ordered_batch_edits(
     well = batch_payload["wells"][0]
     assert batch["order_status"] == "not_ordered"
     assert batch["ordered_at"] == ""
+
+    assigned = client.put(
+        f"/api/projects/{project['id']}/members/{member_user_id}/batch-access",
+        headers=auth(owner_token),
+        json={"batch_ids": [batch["id"]]},
+    )
+    assert assigned.status_code == 200, assigned.text
 
     listed = client.get(
         f"/api/projects/{project['id']}/batches",
@@ -2921,9 +3069,16 @@ def test_batch_order_status_moves_forward_and_locks_ordered_batch_edits(
     )
     assert locked_move.status_code == 400
 
-    locked_translation = client.post(
+    non_admin_translation = client.post(
         f"/api/batches/{batch['id']}/translations",
         headers=auth(owner_token),
+        json={"organism": "E. coli"},
+    )
+    assert non_admin_translation.status_code == 403
+
+    locked_translation = client.post(
+        f"/api/batches/{batch['id']}/translations",
+        headers=auth(admin_token),
         json={"organism": "E. coli"},
     )
     assert locked_translation.status_code == 400
@@ -2992,11 +3147,18 @@ def test_batch_order_status_can_move_through_partial_receipt(tmp_path: Path) -> 
         json={"email": "member@example.com", "role": "member"},
     )
     assert added_member.status_code == 200, added_member.text
+    member_user_id = added_member.json()["id"]
     batch = client.post(
         f"/api/projects/{project['id']}/batches",
         headers=auth(owner_token),
         json={"name": "Partial receipt batch", "protein_ids": [protein["id"]]},
     ).json()["batch"]
+    assigned = client.put(
+        f"/api/projects/{project['id']}/members/{member_user_id}/batch-access",
+        headers=auth(owner_token),
+        json={"batch_ids": [batch["id"]]},
+    )
+    assert assigned.status_code == 200, assigned.text
     assert batch["receipt_note"] == ""
     assert batch["receipt_updated_by"] is None
     assert batch["receipt_updated_at"] == ""
@@ -3196,6 +3358,7 @@ def test_admin_can_delete_batch_and_related_rows(tmp_path: Path) -> None:
         json={"email": "member@example.com", "role": "member"},
     )
     assert added_member.status_code == 200, added_member.text
+    member_user_id = added_member.json()["id"]
     created = client.post(
         f"/api/projects/{project['id']}/batches",
         headers=auth(owner_token),
@@ -3205,6 +3368,12 @@ def test_admin_can_delete_batch_and_related_rows(tmp_path: Path) -> None:
     batch_payload = created.json()
     batch = batch_payload["batch"]
     well = batch_payload["wells"][0]
+    assigned = client.put(
+        f"/api/projects/{project['id']}/members/{member_user_id}/batch-access",
+        headers=auth(owner_token),
+        json={"batch_ids": [batch["id"]]},
+    )
+    assert assigned.status_code == 200, assigned.text
 
     experiment = client.post(
         f"/api/batches/{batch['id']}/experiments",
@@ -4508,6 +4677,7 @@ def test_batch_translation_generates_dna_on_demand(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     owner_token = register(client, "owner@example.com")
     outsider_token = register(client, "outsider@example.com")
+    admin_token = register(client, "ruolan.chen@northstar-bio.local", "陈若澜")
 
     project = client.post(
         "/api/projects",
@@ -4572,9 +4742,22 @@ def test_batch_translation_generates_dna_on_demand(tmp_path: Path) -> None:
     )
     assert outsider_summary_export.status_code == 403
 
-    translated = client.post(
+    owner_translation = client.post(
         f"/api/batches/{batch['id']}/translations",
         headers=auth(owner_token),
+        json={
+            "padding": True,
+            "add_additional_w": True,
+            "organism": "E. coli",
+            "backbone": "5",
+            "resistance": "Kan",
+        },
+    )
+    assert owner_translation.status_code == 403
+
+    translated = client.post(
+        f"/api/batches/{batch['id']}/translations",
+        headers=auth(admin_token),
         json={
             "padding": True,
             "add_additional_w": True,
@@ -4640,14 +4823,14 @@ def test_batch_translation_generates_dna_on_demand(tmp_path: Path) -> None:
 
     invalid_organism = client.post(
         f"/api/batches/{batch['id']}/translations",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         json={"organism": "Yeast"},
     )
     assert invalid_organism.status_code == 400
 
     invalid_resistance = client.post(
         f"/api/batches/{batch['id']}/translations",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         json={"resistance": "Puro"},
     )
     assert invalid_resistance.status_code == 400
@@ -4663,6 +4846,7 @@ def test_batch_translation_generates_dna_on_demand(tmp_path: Path) -> None:
 def test_batch_translation_csv_import_replaces_selected_dna(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     owner_token = register(client, "owner@example.com")
+    admin_token = register(client, "ruolan.chen@northstar-bio.local", "陈若澜")
 
     project = client.post(
         "/api/projects",
@@ -4690,7 +4874,7 @@ def test_batch_translation_csv_import_replaces_selected_dna(tmp_path: Path) -> N
 
     translated = client.post(
         f"/api/batches/{batch['id']}/translations",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         json={
             "padding": True,
             "add_additional_w": True,
@@ -4704,7 +4888,7 @@ def test_batch_translation_csv_import_replaces_selected_dna(tmp_path: Path) -> N
     short_manual_dna = "ATGGGTAAA"
     imported = client.post(
         f"/api/batches/{batch['id']}/translations/import-csv",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         files={
             "file": (
                 "manual-translations.csv",
@@ -4731,7 +4915,7 @@ def test_batch_translation_csv_import_replaces_selected_dna(tmp_path: Path) -> N
     long_manual_dna = "GCTTGTGATGAATTTGGT"
     headerless_import = client.post(
         f"/api/batches/{batch['id']}/translations/import-csv",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         files={
             "file": (
                 "manual-translations.csv",
@@ -4799,9 +4983,16 @@ def test_batch_translation_csv_import_validates_input_and_access(
     ).json()["batch"]
     valid_dna = "ATGGGTAAA"
 
-    unmatched = client.post(
+    owner_import = client.post(
         f"/api/batches/{batch['id']}/translations/import-csv",
         headers=auth(owner_token),
+        files={"file": ("manual.csv", f"binder,{valid_dna}\n".encode(), "text/csv")},
+    )
+    assert owner_import.status_code == 403
+
+    unmatched = client.post(
+        f"/api/batches/{batch['id']}/translations/import-csv",
+        headers=auth(admin_token),
         files={
             "file": (
                 "manual.csv",
@@ -4815,7 +5006,7 @@ def test_batch_translation_csv_import_validates_input_and_access(
 
     duplicate_csv = client.post(
         f"/api/batches/{batch['id']}/translations/import-csv",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         files={
             "file": (
                 "manual.csv",
@@ -4829,7 +5020,7 @@ def test_batch_translation_csv_import_validates_input_and_access(
 
     invalid_dna = client.post(
         f"/api/batches/{batch['id']}/translations/import-csv",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         files={"file": ("manual.csv", b"binder,ATGN\n", "text/csv")},
     )
     assert invalid_dna.status_code == 400
@@ -4837,7 +5028,7 @@ def test_batch_translation_csv_import_validates_input_and_access(
 
     mismatch = client.post(
         f"/api/batches/{batch['id']}/translations/import-csv",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         files={"file": ("manual.csv", b"binder,GCT\n", "text/csv")},
     )
     assert mismatch.status_code == 400
@@ -4875,7 +5066,7 @@ def test_batch_translation_csv_import_validates_input_and_access(
     ).json()["batch"]
     ambiguous = client.post(
         f"/api/batches/{duplicate_name_batch['id']}/translations/import-csv",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         files={"file": ("manual.csv", f"dup,{valid_dna}\n".encode(), "text/csv")},
     )
     assert ambiguous.status_code == 400
@@ -4889,7 +5080,7 @@ def test_batch_translation_csv_import_validates_input_and_access(
     assert ordered.status_code == 200, ordered.text
     locked_import = client.post(
         f"/api/batches/{batch['id']}/translations/import-csv",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         files={"file": ("manual.csv", f"binder,{valid_dna}\n".encode(), "text/csv")},
     )
     assert locked_import.status_code == 400
@@ -4899,6 +5090,7 @@ def test_batch_translation_csv_import_validates_input_and_access(
 def test_batch_translation_uses_script_long_padding_rule(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     owner_token = register(client, "owner@example.com")
+    admin_token = register(client, "ruolan.chen@northstar-bio.local", "陈若澜")
 
     project = client.post(
         "/api/projects",
@@ -4926,7 +5118,7 @@ def test_batch_translation_uses_script_long_padding_rule(tmp_path: Path) -> None
 
     translated = client.post(
         f"/api/batches/{batch['id']}/translations",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         json={
             "padding": True,
             "add_additional_w": True,
@@ -4951,6 +5143,7 @@ def test_batch_translation_rejects_dna_that_does_not_translate_back(
     monkeypatch.setenv("FAKE_DOMESTICATOR_BAD_TRANSLATION", "1")
     client = make_client(tmp_path)
     owner_token = register(client, "owner@example.com")
+    admin_token = register(client, "ruolan.chen@northstar-bio.local", "陈若澜")
 
     project = client.post(
         "/api/projects",
@@ -4970,7 +5163,7 @@ def test_batch_translation_rejects_dna_that_does_not_translate_back(
 
     translated = client.post(
         f"/api/batches/{batch['id']}/translations",
-        headers=auth(owner_token),
+        headers=auth(admin_token),
         json={"organism": "E. coli"},
     )
 
@@ -5015,6 +5208,7 @@ def test_batch_wells_map_results_back_to_project_proteins(tmp_path: Path) -> Non
         json={"email": "member@example.com", "role": "member"},
     )
     assert added_member.status_code == 200, added_member.text
+    member_user_id = added_member.json()["id"]
 
     outsider_project = client.post(
         "/api/projects",
@@ -5066,6 +5260,13 @@ def test_batch_wells_map_results_back_to_project_proteins(tmp_path: Path) -> Non
     ]
     assert wells[0]["protein_name"] == "binder-a"
     assert wells[0]["protein_type"] == "cyclic peptide"
+
+    assigned = client.put(
+        f"/api/projects/{project['id']}/members/{member_user_id}/batch-access",
+        headers=auth(owner_token),
+        json={"batch_ids": [batch["id"]]},
+    )
+    assert assigned.status_code == 200, assigned.text
 
     plate_export = client.get(
         f"/api/batches/{batch['id']}/plate/export",

@@ -10,7 +10,7 @@ from proteinhub.application.batch_service import (
     get_batch_experiment,
     project_for_batch,
 )
-from proteinhub.application.permissions import require_project_write
+from proteinhub.application.permissions import require_batch_visibility
 from proteinhub.application.position_mapping import (
     parse_position_mapping_file,
     require_mapping_batch_positions,
@@ -44,8 +44,8 @@ def import_hplc_results(
     files: list[tuple[str, str, bytes]],
     position_mapping_file: tuple[str, str, bytes] | None = None,
 ) -> dict:
+    require_batch_visibility(connection, batch_id=batch_id, user_id=user_id)
     project_id = project_for_batch(connection, batch_id)
-    require_project_write(connection, project_id=project_id, user_id=user_id)
     batch_repository = BatchRepository(connection)
     batch = batch_repository.get(batch_id)
     if not batch:

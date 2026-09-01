@@ -1617,7 +1617,10 @@ def install_ui() -> None:
                         public_proteins_tab = ui.tab("工具蛋白", icon="biotech")
                         batches_tab = ui.tab("实验批次", icon="grid_view")
                         members_tab = ui.tab("成员", icon="group")
-                with ui.tab_panels(tabs, value=proteins_tab).classes("ph-panel ph-workspace-panel"):
+                    proteins_tab.visible = False
+                    public_proteins_tab.visible = False
+                    members_tab.visible = False
+                with ui.tab_panels(tabs, value=batches_tab).classes("ph-panel ph-workspace-panel") as tab_panels:
                     with ui.tab_panel(proteins_tab).classes("ph-proteins-panel"):
                         with ui.row().classes("ph-section-bar w-full"):
                             with ui.column().classes("gap-0"):
@@ -1686,7 +1689,21 @@ def install_ui() -> None:
                                 ui.label("实验批次").classes("text-xl font-semibold")
                                 ui.label("把项目中的蛋白排入 96 孔板，记录每个孔的实验结果。").classes("ph-muted")
                             new_batch_button = ui.button("新建批次", icon="add", on_click=lambda: batch_dialog.open()).props("unelevated")
-                        with ui.element("div").classes("ph-batch-scroll w-full"):
+                        with ui.column().classes("w-full gap-3") as member_batch_section:
+                            ui.label("可见批次").classes("text-lg font-semibold")
+                            member_batch_hint = ui.label("先从下拉框选择一个批次。").classes("ph-muted")
+                            member_batch_select = ui.select(
+                                {},
+                                value="",
+                                label="批次",
+                            ).props("outlined dense").classes("w-full")
+                            with ui.row().classes("justify-end w-full"):
+                                member_batch_open_button = ui.button(
+                                    "查看批次",
+                                    icon="open_in_new",
+                                    on_click=lambda: open_visible_batch(),
+                                ).props("unelevated")
+                        with ui.element("div").classes("ph-batch-scroll w-full") as batches_scroll:
                             batches_column = ui.column().classes("w-full gap-3")
                     with ui.tab_panel(members_tab).classes("ph-members-panel"):
                         with ui.row().classes("ph-section-bar w-full"):
@@ -1698,11 +1715,14 @@ def install_ui() -> None:
                             members_column = ui.column().classes("w-full gap-2")
 
             project_proteins = {"items": []}
+            project_batches = {"items": []}
             public_protein_form_target = {"public_protein": None}
             public_protein_delete_target = {"public_protein": None}
             selected_batch_proteins: set[int] = set()
             protein_rating_target = {"protein_id": None}
             project_access = {"role": ""}
+            member_batch_section.visible = False
+            batches_scroll.visible = False
 
             with ui.dialog() as similarity_dialog, ui.card().classes("ph-dialog-card w-full max-w-2xl gap-4"):
                 similarity_title = ui.label("相似蛋白").classes("text-lg font-semibold")
@@ -1717,6 +1737,17 @@ def install_ui() -> None:
                 _render_sequence_similarity_matches(protein, similarity_matches_column)
                 similarity_dialog.open()
 
+            def batch_label(batch: dict) -> str:
+                order_status = humanize(batch.get("order_status") or "not_ordered")
+                return f"{batch['name']} (#{batch['id']}) · {order_status}"
+
+            def open_visible_batch() -> None:
+                batch_value = member_batch_select.value
+                if not batch_value:
+                    ui.notify("请先选择一个批次", type="warning")
+                    return
+                ui.navigate.to(f"/batches/{int(batch_value)}")
+
             async def load_project() -> None:
                 try:
                     data = await ui.run_javascript(f"return await phApi('/api/projects/{project_id}')", timeout=10)
@@ -1729,23 +1760,73 @@ def install_ui() -> None:
                     )
                     role_badge.text = humanize(project["role"])
                     project_access["role"] = project["role"]
-                    can_write_project = project["role"] in {"owner", "member"}
+                    is_owner = project["role"] == "owner"
+                    can_write_project = is_owner
+                    for tab in (proteins_tab, public_proteins_tab, members_tab):
+                        tab.visible = is_owner
+                    tabs.value = proteins_tab if is_owner else batches_tab
+                    tab_panels.value = tabs.value
                     bulk_import_button.visible = can_write_project
                     new_protein_button.visible = can_write_project
                     new_public_protein_button.visible = can_write_project
                     new_batch_button.visible = can_write_project
-                    add_member_button.visible = project["role"] == "owner"
+                    add_member_button.visible = is_owner
+                    member_batch_section.visible = not is_owner
+                    batches_scroll.visible = is_owner
+                    await load_batches()
                     members_column.clear()
+                    batch_options = {
+                        str(batch["id"]): batch_label(batch)
+                        for batch in project_batches["items"]
+                    }
                     with members_column:
                         for member in data["members"]:
-                            with ui.row().classes("ph-member-row"):
-                                with ui.row().classes("items-center gap-3"):
-                                    with ui.element("div").classes("ph-icon-box ph-icon-project"):
-                                        ui.icon("person")
-                                    with ui.column().classes("gap-0"):
-                                        ui.label(person_label(member.get("name"), member.get("email"))).classes("font-medium")
-                                        ui.label(member["email"]).classes("ph-meta")
-                                ui.badge(humanize(member["role"])).props("outline")
+                            with ui.column().classes("ph-member-row w-full gap-2"):
+                                with ui.row().classes("w-full items-start justify-between gap-3"):
+                                    with ui.row().classes("items-center gap-3 min-w-0"):
+                                        with ui.element("div").classes("ph-icon-box ph-icon-project"):
+                                            ui.icon("person")
+                                        with ui.column().classes("gap-0 min-w-0"):
+                                            ui.label(person_label(member.get("name"), member.get("email"))).classes("font-medium")
+                                            ui.label(member["email"]).classes("ph-meta")
+                                    ui.badge(humanize(member["role"])).props("outline")
+                                if is_owner and member["role"] == "member":
+                                    access = await ui.run_javascript(
+                                        f"return await phApi('/api/projects/{project_id}/members/{member['id']}/batch-access')",
+                                        timeout=10,
+                                    )
+                                    selected_batch_ids = [str(batch_id) for batch_id in access.get("batch_ids", [])]
+                                    if batch_options:
+                                        member_batch_select = ui.select(
+                                            batch_options,
+                                            value=selected_batch_ids,
+                                            label="可见批次",
+                                            multiple=True,
+                                        ).props("outlined dense use-chips clearable").classes("w-full")
+
+                                        async def save_member_batch_access(
+                                            member_user_id: int = member["id"],
+                                            select: ui.select = member_batch_select,
+                                        ) -> None:
+                                            try:
+                                                batch_ids = [
+                                                    int(batch_id)
+                                                    for batch_id in (select.value or [])
+                                                ]
+                                                payload = {"batch_ids": batch_ids}
+                                                await ui.run_javascript(
+                                                    f"return await phApi('/api/projects/{project_id}/members/{member_user_id}/batch-access', "
+                                                    f"{{method: 'PUT', body: {json.dumps(payload)}}})",
+                                                    timeout=10,
+                                                )
+                                                ui.notify("批次可见范围已更新", type="positive")
+                                            except Exception as error:
+                                                notify_error(error)
+
+                                        with ui.row().classes("justify-end w-full"):
+                                            ui.button("保存批次", icon="save", on_click=save_member_batch_access).props("flat no-wrap")
+                                    else:
+                                        ui.label("暂无可分配批次").classes("ph-muted")
                 except Exception as error:
                     notify_error(error)
 
@@ -1774,6 +1855,11 @@ def install_ui() -> None:
                 await load_proteins()
 
             async def load_proteins() -> None:
+                if project_access["role"] != "owner":
+                    project_proteins["items"] = []
+                    proteins_column.clear()
+                    render_batch_protein_options()
+                    return
                 proteins_column.clear()
                 with proteins_column:
                     ui.label("正在加载设计蛋白...").classes("ph-muted")
@@ -1833,7 +1919,7 @@ def install_ui() -> None:
                                             icon="sell",
                                             on_click=lambda p=protein: open_rating_dialog(p),
                                         ).props("flat round dense")
-                                        rating_button.visible = project_access["role"] in {"owner", "member"}
+                                        rating_button.visible = project_access["role"] == "owner"
                                         with rating_button:
                                             ui.tooltip("设置评级")
                                         open_button = ui.button(
@@ -1850,6 +1936,9 @@ def install_ui() -> None:
                     notify_error(error)
 
             async def load_public_proteins() -> None:
+                if project_access["role"] != "owner":
+                    public_proteins_column.clear()
+                    return
                 public_proteins_column.clear()
                 with public_proteins_column:
                     ui.label("正在加载工具蛋白...").classes("ph-muted")
@@ -1900,14 +1989,14 @@ def install_ui() -> None:
                                             icon="edit",
                                             on_click=lambda p=public_protein: open_public_protein_dialog(p),
                                         ).props("flat round dense")
-                                        edit_button.visible = project_access["role"] in {"owner", "member"}
+                                        edit_button.visible = project_access["role"] == "owner"
                                         with edit_button:
                                             ui.tooltip("编辑工具蛋白")
                                         delete_button = ui.button(
                                             icon="delete",
                                             on_click=lambda p=public_protein: open_delete_public_protein_dialog(p),
                                         ).props("flat round dense color=negative")
-                                        delete_button.visible = project_access["role"] in {"owner", "member"}
+                                        delete_button.visible = project_access["role"] == "owner"
                                         with delete_button:
                                             ui.tooltip("删除工具蛋白")
                 except Exception as error:
@@ -1917,11 +2006,29 @@ def install_ui() -> None:
                     notify_error(error)
 
             async def load_batches() -> None:
+                is_owner = project_access["role"] == "owner"
                 batches_column.clear()
-                with batches_column:
-                    ui.label("正在加载批次...").classes("ph-muted")
+                if is_owner:
+                    with batches_column:
+                        ui.label("正在加载批次...").classes("ph-muted")
                 try:
                     batches = await ui.run_javascript(f"return await phApi('/api/projects/{project_id}/batches')", timeout=10)
+                    project_batches["items"] = batches
+                    if not is_owner:
+                        options = {
+                            str(batch["id"]): batch_label(batch)
+                            for batch in batches
+                        }
+                        current_value = str(member_batch_select.value or "")
+                        selected_value = current_value if current_value in options else ""
+                        member_batch_select.set_options(options, value=selected_value)
+                        member_batch_open_button.visible = bool(options)
+                        member_batch_hint.text = (
+                            "选择一个批次后进入详情页查看实验结果。"
+                            if options
+                            else "还没有分配给你的可见批次。"
+                        )
+                        return
                     batches_column.clear()
                     with batches_column:
                         if not batches:
@@ -1957,8 +2064,11 @@ def install_ui() -> None:
                                     ).props("flat")
                 except Exception as error:
                     batches_column.clear()
-                    with batches_column:
-                        ui.label("批次加载失败，请稍后重试。").classes("ph-muted")
+                    if is_owner:
+                        with batches_column:
+                            ui.label("批次加载失败，请稍后重试。").classes("ph-muted")
+                    else:
+                        member_batch_hint.text = "批次加载失败，请稍后重试。"
                     notify_error(error)
 
             with ui.dialog() as protein_rating_dialog, ui.card().classes("ph-dialog-card w-full max-w-sm gap-4"):
@@ -2548,6 +2658,8 @@ def install_ui() -> None:
                         with member_results:
                             ui.label("输入姓名并搜索后，候选成员会显示在这里。").classes("ph-muted")
                         await load_project()
+                        tabs.value = members_tab
+                        tab_panels.value = members_tab
                     except Exception as error:
                         notify_error(error)
 
@@ -2557,9 +2669,9 @@ def install_ui() -> None:
 
             await ui.context.client.connected()
             await load_project()
-            await load_proteins()
-            await load_public_proteins()
-            await load_batches()
+            if project_access["role"] == "owner":
+                await load_proteins()
+                await load_public_proteins()
 
     @ui.page("/batches/{batch_id}")
     async def batch_page(batch_id: int) -> None:
@@ -2643,20 +2755,21 @@ def install_ui() -> None:
                 with ui.row().classes("ph-section-bar w-full"):
                     with ui.column().classes("gap-0"):
                         ui.label("翻译").classes("text-xl font-semibold")
-                        translation_status = ui.label("等待翻译").classes(
-                            "ph-muted ph-translation-status"
-                        )
+                        translation_status = ui.label(
+                            "等待翻译" if is_admin_user else "等待管理员翻译"
+                        ).classes("ph-muted ph-translation-status")
                     with ui.row().classes("items-center gap-2"):
                         dna_import_button = ui.button(
                             "导入 DNA CSV",
                             icon="upload_file",
                         ).props("flat no-wrap")
+                        dna_import_button.visible = is_admin_user
                         ui.button(
                             "下载 DNA",
                             icon="download",
                             on_click=lambda: download_translation_sequences(),
                         ).props("flat no-wrap")
-                with ui.element("div").classes("ph-translation-actions w-full"):
+                with ui.element("div").classes("ph-translation-actions w-full") as translation_controls:
                     translation_padding = ui.select(
                         {"no": "not padding", "yes": "padding"},
                         value="no",
@@ -2686,6 +2799,7 @@ def install_ui() -> None:
                         icon="translate",
                         on_click=lambda: translate_batch_sequences_ui(),
                     ).props("unelevated no-wrap")
+                translation_controls.visible = is_admin_user
                 translation_results = (
                     ui.element("div")
                     .classes("ph-batch-mapping ph-batch-mapping-scroll")
@@ -3492,8 +3606,8 @@ def install_ui() -> None:
                 """
 
             async def translate_batch_sequences_ui() -> None:
-                if not batch_editable_state["can_write"]:
-                    ui.notify("只读模式，不能重新翻译", type="warning")
+                if not is_admin_user:
+                    ui.notify("只有管理员可以翻译", type="warning")
                     return
                 if not batch_editable_state["value"]:
                     ui.notify("批次已下单，不能重新翻译", type="warning")
@@ -3691,7 +3805,7 @@ def install_ui() -> None:
                 experiments = data["experiments"]
                 score_density_plots = data.get("score_density_plots") or []
                 order_status = batch.get("order_status") or "not_ordered"
-                can_write_batch = data.get("access_role") in {"owner", "member"}
+                can_write_batch = data.get("access_role") == "owner"
                 can_manage_receipt = is_admin_user
                 batch_editable = can_write_batch and order_status == "not_ordered"
                 batch_page_state["project_id"] = batch.get("project_id")
@@ -3787,7 +3901,9 @@ def install_ui() -> None:
                     )
                 elif not translation_state["dna_fasta"]:
                     translation_results.clear()
-                    translation_status.text = "等待翻译"
+                    translation_status.text = (
+                        "等待管理员翻译" if not is_admin_user else "等待翻译"
+                    )
                     translation_state["dna_fasta"] = ""
                 with score_density_column:
                     if not score_density_plots:

@@ -16,7 +16,11 @@ from proteinhub.domain.errors import (
     PermissionDeniedError,
 )
 from proteinhub.infrastructure.database.connection import transaction
-from proteinhub.infrastructure.sqlite.repositories import ProjectRepository, UserRepository
+from proteinhub.infrastructure.sqlite.repositories import (
+    BatchRepository,
+    ProjectRepository,
+    UserRepository,
+)
 
 
 PROJECT_STATUSES = {"active", "archived", "trash"}
@@ -209,3 +213,73 @@ def update_project_member(
     if not updated:
         raise NotFoundError("Project member not found")
     return updated
+
+
+def get_project_member_batch_access(
+    connection: sqlite3.Connection,
+    *,
+    project_id: int,
+    owner_user_id: int,
+    member_user_id: int,
+) -> dict:
+    require_project_owner(connection, project_id=project_id, user_id=owner_user_id)
+    projects = ProjectRepository(connection)
+    project = projects.get(project_id)
+    if not project:
+        raise NotFoundError("Project not found")
+    member = projects.get_member(project_id=project_id, user_id=member_user_id)
+    if not member or member["role"] != "member":
+        raise NotFoundError("Project member not found")
+    return {
+        "batch_ids": projects.list_member_batch_access_ids(
+            project_id=project_id,
+            user_id=member_user_id,
+        )
+    }
+
+
+def update_project_member_batch_access(
+    connection: sqlite3.Connection,
+    *,
+    project_id: int,
+    owner_user_id: int,
+    member_user_id: int,
+    batch_ids: list[int],
+) -> dict:
+    require_project_owner(connection, project_id=project_id, user_id=owner_user_id)
+    projects = ProjectRepository(connection)
+    project = projects.get(project_id)
+    if not project:
+        raise NotFoundError("Project not found")
+    member = projects.get_member(project_id=project_id, user_id=member_user_id)
+    if not member or member["role"] != "member":
+        raise NotFoundError("Project member not found")
+
+    normalized_batch_ids = []
+    for batch_id in batch_ids:
+        normalized_batch_id = int(batch_id)
+        if normalized_batch_id not in normalized_batch_ids:
+            normalized_batch_ids.append(normalized_batch_id)
+
+    valid_batch_ids = {
+        int(batch["id"])
+        for batch in BatchRepository(connection).list_for_project(project_id)
+    }
+    invalid_batch_ids = [
+        batch_id
+        for batch_id in normalized_batch_ids
+        if batch_id not in valid_batch_ids
+    ]
+    if invalid_batch_ids:
+        raise DomainError("Batch does not belong to this project")
+
+    with transaction(connection):
+        projects.replace_member_batch_access(
+            project_id=project_id,
+            user_id=member_user_id,
+            batch_ids=normalized_batch_ids,
+        )
+
+    return {
+        "batch_ids": normalized_batch_ids,
+    }
