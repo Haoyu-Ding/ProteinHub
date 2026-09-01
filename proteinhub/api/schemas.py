@@ -232,14 +232,6 @@ class ProjectMemberResponse(BaseModel):
     created_at: str
 
 
-class ProjectMemberBatchAccessResponse(BaseModel):
-    batch_ids: list[int] = Field(default_factory=list)
-
-
-class ProjectMemberBatchAccessUpdateRequest(BaseModel):
-    batch_ids: list[int] = Field(default_factory=list)
-
-
 class ProjectDetailResponse(BaseModel):
     project: ProjectResponse
     members: list[ProjectMemberResponse]

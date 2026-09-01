@@ -12,11 +12,10 @@ from pathlib import Path
 from typing import Any
 
 from proteinhub.application.permissions import (
-    list_visible_batch_ids_for_project,
     project_for_protein,
     require_admin,
-    require_batch_visibility,
-    require_project_owner,
+    require_project_read,
+    require_project_write,
 )
 from proteinhub.application.position_mapping import (
     PositionMapping,
@@ -96,15 +95,8 @@ LONG_PADDING_PREFIX = "GSHHHHHH*"
 def list_batches(
     connection: sqlite3.Connection, *, project_id: int, user_id: int
 ) -> list[dict]:
-    visible_batch_ids = list_visible_batch_ids_for_project(
-        connection,
-        project_id=project_id,
-        user_id=user_id,
-    )
-    batches = BatchRepository(connection).list_for_project(project_id)
-    if visible_batch_ids is None:
-        return batches
-    return [batch for batch in batches if int(batch["id"]) in visible_batch_ids]
+    require_project_read(connection, project_id=project_id, user_id=user_id)
+    return BatchRepository(connection).list_for_project(project_id)
 
 
 def create_batch(
@@ -118,7 +110,7 @@ def create_batch(
     plate_format: str = "96",
     start_position: str = "A01",
 ) -> dict:
-    require_project_owner(connection, project_id=project_id, user_id=user_id)
+    require_project_write(connection, project_id=project_id, user_id=user_id)
     batch_name = required(name, "Batch name")
     normalized_plate_format = plate_format.strip() or "96"
     if normalized_plate_format != "96":
@@ -154,9 +146,10 @@ def create_batch(
 def get_batch(
     connection: sqlite3.Connection, *, batch_id: int, user_id: int
 ) -> dict:
-    access_role = require_batch_visibility(
+    project_id = project_for_batch(connection, batch_id)
+    access_role = require_project_read(
         connection,
-        batch_id=batch_id,
+        project_id=project_id,
         user_id=user_id,
     )
     batch_repository = BatchRepository(connection)
@@ -183,7 +176,7 @@ def update_batch_well_position(
     mode: str = "move",
 ) -> dict:
     project_id = project_for_batch(connection, batch_id)
-    require_project_owner(connection, project_id=project_id, user_id=user_id)
+    require_project_write(connection, project_id=project_id, user_id=user_id)
     normalized_position = _normalize_plate_position(position)
     normalized_mode = mode.strip().lower() or "move"
     if normalized_mode not in POSITION_UPDATE_MODES:
@@ -311,7 +304,8 @@ def list_batch_experiments(
     batch_id: int,
     user_id: int,
 ) -> list[dict]:
-    require_batch_visibility(connection, batch_id=batch_id, user_id=user_id)
+    project_id = project_for_batch(connection, batch_id)
+    require_project_read(connection, project_id=project_id, user_id=user_id)
     return ExperimentRepository(connection).list_for_batch(batch_id)
 
 
@@ -325,7 +319,8 @@ def create_batch_experiment(
     description: str = "",
     details: Mapping[str, Any] | None = None,
 ) -> dict:
-    require_batch_visibility(connection, batch_id=batch_id, user_id=user_id)
+    project_id = project_for_batch(connection, batch_id)
+    require_project_write(connection, project_id=project_id, user_id=user_id)
     experiment_class = experiment_class_for(experiment_type)
     experiment_name = required(name, "Experiment name")
     normalized_details = experiment_class.normalize_details(details)
@@ -351,15 +346,13 @@ def get_batch_experiment(
     experiment_id: int,
     user_id: int,
 ) -> dict:
-    experiments = ExperimentRepository(connection)
-    batch_id = experiments.batch_id_for(experiment_id)
-    if batch_id is None:
-        raise NotFoundError("Experiment not found")
-    access_role = require_batch_visibility(
+    project_id = project_for_experiment(connection, experiment_id)
+    access_role = require_project_read(
         connection,
-        batch_id=batch_id,
+        project_id=project_id,
         user_id=user_id,
     )
+    experiments = ExperimentRepository(connection)
     experiment = experiments.get(experiment_id)
     if not experiment:
         raise NotFoundError("Experiment not found")
@@ -379,11 +372,9 @@ def update_experiment_well_result(
     result_value: str = "",
     result_note: str = "",
 ) -> dict:
+    project_id = project_for_experiment(connection, experiment_id)
+    require_project_write(connection, project_id=project_id, user_id=user_id)
     experiments = ExperimentRepository(connection)
-    batch_id = experiments.batch_id_for(experiment_id)
-    if batch_id is None:
-        raise NotFoundError("Experiment not found")
-    require_batch_visibility(connection, batch_id=batch_id, user_id=user_id)
     well = experiments.get_well_for_experiment(
         experiment_id=experiment_id, well_id=well_id
     )
@@ -415,8 +406,8 @@ def import_akta_results(
     settings: Settings,
     position_mapping_file: tuple[str, str, bytes] | None = None,
 ) -> dict:
-    require_batch_visibility(connection, batch_id=batch_id, user_id=user_id)
     project_id = project_for_batch(connection, batch_id)
+    require_project_write(connection, project_id=project_id, user_id=user_id)
     normalized_run_date = _normalize_run_date(run_date, source="AKTA")
     if not files:
         raise DomainError("At least one AKTA zip file is required")
@@ -603,8 +594,8 @@ def import_spr_results(
     content: bytes,
     position_mapping_file: tuple[str, str, bytes] | None = None,
 ) -> dict:
-    require_batch_visibility(connection, batch_id=batch_id, user_id=user_id)
     project_id = project_for_batch(connection, batch_id)
+    require_project_write(connection, project_id=project_id, user_id=user_id)
     normalized_run_date = _normalize_run_date(run_date, source="SPR")
     file_name = required(Path(filename.replace("\\", "/")).name, "SPR filename")
     if not file_name.lower().endswith(".pptx"):
@@ -817,8 +808,8 @@ def import_spr_concentrations(
     content_type: str,
     content: bytes,
 ) -> dict:
-    require_batch_visibility(connection, batch_id=batch_id, user_id=user_id)
     project_id = project_for_batch(connection, batch_id)
+    require_project_write(connection, project_id=project_id, user_id=user_id)
     normalized_run_date = _normalize_run_date(run_date, source="SPR")
     file_name = required(
         Path(filename.replace("\\", "/")).name, "SPR concentration filename"
@@ -907,7 +898,7 @@ def list_protein_batch_results(
     connection: sqlite3.Connection, *, protein_id: int, user_id: int
 ) -> list[dict]:
     project_id = project_for_protein(connection, protein_id)
-    require_project_owner(connection, project_id=project_id, user_id=user_id)
+    require_project_read(connection, project_id=project_id, user_id=user_id)
     return BatchRepository(connection).list_results_for_protein(protein_id)
 
 
@@ -917,7 +908,8 @@ def export_batch_plate_workbook(
     batch_id: int,
     user_id: int,
 ) -> bytes:
-    require_batch_visibility(connection, batch_id=batch_id, user_id=user_id)
+    project_id = project_for_batch(connection, batch_id)
+    require_project_read(connection, project_id=project_id, user_id=user_id)
     batch_repository = BatchRepository(connection)
     batch = batch_repository.get(batch_id)
     if not batch:
@@ -931,7 +923,8 @@ def export_batch_summary_workbook(
     batch_id: int,
     user_id: int,
 ) -> bytes:
-    require_batch_visibility(connection, batch_id=batch_id, user_id=user_id)
+    project_id = project_for_batch(connection, batch_id)
+    require_project_read(connection, project_id=project_id, user_id=user_id)
     batch_repository = BatchRepository(connection)
     batch = batch_repository.get(batch_id)
     if not batch:
@@ -951,7 +944,8 @@ def translate_batch_sequences(
     backbone: str = "5",
     resistance: str = "Amp",
 ) -> dict:
-    require_admin(connection, user_id=user_id)
+    project_id = project_for_batch(connection, batch_id)
+    require_project_write(connection, project_id=project_id, user_id=user_id)
     normalized_organism = _normalize_translation_organism(organism)
     normalized_backbone = required(str(backbone), "Backbone")
     normalized_resistance = _normalize_translation_resistance(resistance)
@@ -1031,7 +1025,8 @@ def import_batch_translation_csv(
     filename: str,
     content: bytes,
 ) -> dict:
-    require_admin(connection, user_id=user_id)
+    project_id = project_for_batch(connection, batch_id)
+    require_project_write(connection, project_id=project_id, user_id=user_id)
 
     batch_repository = BatchRepository(connection)
     batch = batch_repository.get(batch_id)

@@ -185,57 +185,6 @@ class ProjectRepository:
             (project_id, project_id),
         ).fetchall()
 
-    def list_member_batch_access_ids(
-        self, *, project_id: int, user_id: int
-    ) -> list[int]:
-        rows = self.connection.execute(
-            """
-            SELECT batch_id
-            FROM project_member_batch_access
-            WHERE project_id = ? AND user_id = ?
-            ORDER BY batch_id
-            """,
-            (project_id, user_id),
-        ).fetchall()
-        return [int(row["batch_id"]) for row in rows]
-
-    def replace_member_batch_access(
-        self, *, project_id: int, user_id: int, batch_ids: list[int]
-    ) -> None:
-        self.connection.execute(
-            """
-            DELETE FROM project_member_batch_access
-            WHERE project_id = ? AND user_id = ?
-            """,
-            (project_id, user_id),
-        )
-        if not batch_ids:
-            return
-        self.connection.executemany(
-            """
-            INSERT INTO project_member_batch_access (
-                project_id,
-                user_id,
-                batch_id
-            )
-            VALUES (?, ?, ?)
-            """,
-            [(project_id, user_id, batch_id) for batch_id in batch_ids],
-        )
-
-    def member_has_batch_access(
-        self, *, project_id: int, user_id: int, batch_id: int
-    ) -> bool:
-        row = self.connection.execute(
-            """
-            SELECT 1
-            FROM project_member_batch_access
-            WHERE project_id = ? AND user_id = ? AND batch_id = ?
-            """,
-            (project_id, user_id, batch_id),
-        ).fetchone()
-        return row is not None
-
     def list_members_for_projects(self, project_ids: list[int]) -> list[dict]:
         if not project_ids:
             return []

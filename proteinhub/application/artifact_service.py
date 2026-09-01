@@ -9,6 +9,8 @@ from proteinhub.application.permissions import (
     project_for_artifact,
     project_for_protein,
     require_project_owner,
+    require_project_read,
+    require_project_write,
 )
 from proteinhub.application.validation import required
 from proteinhub.domain.errors import DomainError, NotFoundError
@@ -41,7 +43,7 @@ def list_artifacts(
     protein_id: int,
 ) -> list[dict]:
     project_id = project_for_protein(connection, protein_id)
-    require_project_owner(connection, project_id=project_id, user_id=user_id)
+    require_project_read(connection, project_id=project_id, user_id=user_id)
     return ArtifactRepository(connection).list_for_protein(protein_id)
 
 
@@ -58,7 +60,7 @@ def create_artifact(
     file_store=None,
 ) -> UploadedArtifact:
     project_id = project_for_protein(connection, protein_id)
-    require_project_owner(connection, project_id=project_id, user_id=user_id)
+    require_project_write(connection, project_id=project_id, user_id=user_id)
     file_name = required(filename, "Filename")
     mime_type = content_type or "application/octet-stream"
     normalized_type = artifact_type.strip() or "other"
@@ -98,7 +100,7 @@ def get_artifact(
     connection: sqlite3.Connection, *, artifact_id: int, user_id: int
 ) -> dict:
     project_id = project_for_artifact(connection, artifact_id)
-    require_project_owner(connection, project_id=project_id, user_id=user_id)
+    require_project_read(connection, project_id=project_id, user_id=user_id)
     artifact = ArtifactRepository(connection).get(artifact_id)
     if not artifact:
         raise NotFoundError("Artifact not found")

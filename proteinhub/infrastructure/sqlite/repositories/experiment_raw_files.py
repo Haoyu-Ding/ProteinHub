@@ -22,30 +22,6 @@ class ExperimentRawFileRepository:
     def __init__(self, connection: sqlite3.Connection) -> None:
         self.connection = connection
 
-    def batch_id_for(self, raw_file_id: int) -> int | None:
-        row = self.connection.execute(
-            """
-            SELECT batch_experiments.batch_id AS batch_id
-            FROM experiment_raw_files
-            JOIN batch_experiments
-                ON batch_experiments.id = experiment_raw_files.experiment_id
-            WHERE experiment_raw_files.id = ?
-            """,
-            (raw_file_id,),
-        ).fetchone()
-        return int(row["batch_id"]) if row else None
-
-    def batch_id_for_experiment(self, experiment_id: int) -> int | None:
-        row = self.connection.execute(
-            """
-            SELECT batch_id
-            FROM batch_experiments
-            WHERE id = ?
-            """,
-            (experiment_id,),
-        ).fetchone()
-        return int(row["batch_id"]) if row else None
-
     def project_id_for(self, raw_file_id: int) -> int | None:
         row = self.connection.execute(
             """
