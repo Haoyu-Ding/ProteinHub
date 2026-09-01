@@ -150,6 +150,55 @@ class ProjectRepository:
             (role, project_id, user_id),
         )
 
+    def list_member_batch_ids(self, *, project_id: int, user_id: int) -> list[int]:
+        rows = self.connection.execute(
+            """
+            SELECT project_member_batch_access.batch_id
+            FROM project_member_batch_access
+            JOIN batches ON batches.id = project_member_batch_access.batch_id
+            WHERE project_member_batch_access.project_id = ?
+              AND project_member_batch_access.user_id = ?
+            ORDER BY batches.created_at DESC, batches.id DESC
+            """,
+            (project_id, user_id),
+        ).fetchall()
+        return [int(row["batch_id"]) for row in rows]
+
+    def member_can_access_batch(
+        self, *, project_id: int, user_id: int, batch_id: int
+    ) -> bool:
+        row = self.connection.execute(
+            """
+            SELECT 1
+            FROM project_member_batch_access
+            WHERE project_id = ?
+              AND user_id = ?
+              AND batch_id = ?
+            """,
+            (project_id, user_id, batch_id),
+        ).fetchone()
+        return row is not None
+
+    def replace_member_batch_access(
+        self, *, project_id: int, user_id: int, batch_ids: list[int]
+    ) -> None:
+        self.connection.execute(
+            """
+            DELETE FROM project_member_batch_access
+            WHERE project_id = ? AND user_id = ?
+            """,
+            (project_id, user_id),
+        )
+        if not batch_ids:
+            return
+        self.connection.executemany(
+            """
+            INSERT INTO project_member_batch_access (project_id, user_id, batch_id)
+            VALUES (?, ?, ?)
+            """,
+            [(project_id, user_id, batch_id) for batch_id in batch_ids],
+        )
+
     def list_members(self, project_id: int) -> list[dict]:
         return self.connection.execute(
             """

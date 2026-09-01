@@ -30,9 +30,22 @@ class BatchRepository:
             (batch_id,),
         ).fetchone()
 
-    def list_for_project(self, project_id: int) -> list[dict]:
+    def list_for_project(
+        self,
+        project_id: int,
+        *,
+        batch_ids: set[int] | None = None,
+    ) -> list[dict]:
+        if batch_ids is not None and not batch_ids:
+            return []
+        filters = ["batches.project_id = ?"]
+        args: list[object] = [project_id]
+        if batch_ids is not None:
+            placeholders = ",".join("?" for _ in batch_ids)
+            filters.append(f"batches.id IN ({placeholders})")
+            args.extend(sorted(batch_ids))
         return self.connection.execute(
-            """
+            f"""
             SELECT
                 batches.*,
                 users.name AS created_by_name,
@@ -69,11 +82,25 @@ class BatchRepository:
             FROM batches
             JOIN users ON users.id = batches.created_by
             LEFT JOIN users AS receipt_users ON receipt_users.id = batches.receipt_updated_by
-            WHERE batches.project_id = ?
+            WHERE {" AND ".join(filters)}
             ORDER BY batches.created_at DESC, batches.id DESC
             """,
-            (project_id,),
+            tuple(args),
         ).fetchall()
+
+    def existing_ids_for_project(self, *, project_id: int, batch_ids: set[int]) -> set[int]:
+        if not batch_ids:
+            return set()
+        placeholders = ",".join("?" for _ in batch_ids)
+        rows = self.connection.execute(
+            f"""
+            SELECT id
+            FROM batches
+            WHERE project_id = ? AND id IN ({placeholders})
+            """,
+            (project_id, *batch_ids),
+        ).fetchall()
+        return {int(row["id"]) for row in rows}
 
     def insert(
         self,

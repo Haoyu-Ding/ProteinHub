@@ -793,6 +793,11 @@ def design_system() -> None:
             background: var(--ph-surface);
         }
 
+        .ph-member-batch-select {
+            min-width: 240px;
+            max-width: 360px;
+        }
+
         .ph-akta-preview {
             width: 100%;
             gap: 12px;

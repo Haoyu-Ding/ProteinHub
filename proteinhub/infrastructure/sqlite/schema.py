@@ -101,6 +101,16 @@ CREATE TABLE IF NOT EXISTS batches (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS project_member_batch_access (
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    batch_id INTEGER NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (project_id, user_id, batch_id),
+    FOREIGN KEY (project_id, user_id)
+        REFERENCES project_members(project_id, user_id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS batch_wells (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     batch_id INTEGER NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
@@ -197,6 +207,10 @@ CREATE INDEX IF NOT EXISTS idx_artifacts_protein_deleted
     ON artifacts(protein_id, is_deleted);
 CREATE INDEX IF NOT EXISTS idx_batches_project_created
     ON batches(project_id, created_at, id);
+CREATE INDEX IF NOT EXISTS idx_project_member_batch_access_user
+    ON project_member_batch_access(project_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_project_member_batch_access_batch
+    ON project_member_batch_access(batch_id);
 CREATE INDEX IF NOT EXISTS idx_batch_experiments_batch
     ON batch_experiments(batch_id);
 CREATE INDEX IF NOT EXISTS idx_experiment_well_results_experiment

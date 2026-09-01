@@ -9,8 +9,7 @@ from pathlib import Path
 
 from proteinhub.application.permissions import (
     project_for_protein,
-    require_project_read,
-    require_project_write,
+    require_project_owner,
 )
 from proteinhub.application.structure_sequence import (
     extract_structure_deposit_date,
@@ -82,7 +81,7 @@ def list_proteins(
     date_to: str = "",
     sort: str = "time_desc",
 ) -> list[dict]:
-    require_project_read(connection, project_id=project_id, user_id=user_id)
+    require_project_owner(connection, project_id=project_id, user_id=user_id)
     normalized_ratings = _normalize_manual_rating_filter(manual_ratings or [])
     normalized_date_from = _normalize_filter_date(date_from, "Start date")
     normalized_date_to = _normalize_filter_date(date_to, "End date")
@@ -110,7 +109,7 @@ def create_protein(
     target: str = "",
     allow_high_similarity: bool = False,
 ) -> dict:
-    require_project_write(connection, project_id=project_id, user_id=user_id)
+    require_project_owner(connection, project_id=project_id, user_id=user_id)
     protein_name = required(name, "Protein name")
     sequence_text = normalize_protein_sequence(sequence)
     normalized_type = normalize_protein_type(protein_type)
@@ -153,7 +152,7 @@ def create_protein_with_structure_file(
     target: str = "",
     allow_high_similarity: bool = False,
 ) -> dict:
-    require_project_write(connection, project_id=project_id, user_id=user_id)
+    require_project_owner(connection, project_id=project_id, user_id=user_id)
     extract_structure_sequence(filename, content)
     return _create_protein_with_optional_structure(
         connection,
@@ -183,7 +182,7 @@ def import_proteins_from_structures(
     allow_high_similarity: bool = False,
     score_file: tuple[str, str, bytes] | None = None,
 ) -> dict:
-    require_project_write(connection, project_id=project_id, user_id=user_id)
+    require_project_owner(connection, project_id=project_id, user_id=user_id)
     if not files:
         raise DomainError("At least one structure file is required")
 
@@ -310,7 +309,7 @@ def update_protein_sequence(
     target: str = "",
 ) -> dict:
     project_id = project_for_protein(connection, protein_id)
-    require_project_write(connection, project_id=project_id, user_id=user_id)
+    require_project_owner(connection, project_id=project_id, user_id=user_id)
     protein_name = required(name, "Protein name")
     sequence_text = normalize_protein_sequence(sequence)
     normalized_type = normalize_protein_type(protein_type)
@@ -337,7 +336,7 @@ def update_protein_manual_rating(
     manual_rating: str,
 ) -> dict:
     project_id = project_for_protein(connection, protein_id)
-    require_project_write(connection, project_id=project_id, user_id=user_id)
+    require_project_owner(connection, project_id=project_id, user_id=user_id)
     normalized_rating = normalize_manual_rating(manual_rating)
 
     with transaction(connection):
@@ -357,7 +356,7 @@ def parse_protein_sequence(
     filename: str,
     content: bytes,
 ) -> dict:
-    require_project_write(connection, project_id=project_id, user_id=user_id)
+    require_project_owner(connection, project_id=project_id, user_id=user_id)
     return extract_structure_sequence(filename, content)
 
 
@@ -370,13 +369,13 @@ def parse_protein_structure_for_existing(
     content: bytes,
 ) -> dict:
     project_id = project_for_protein(connection, protein_id)
-    require_project_write(connection, project_id=project_id, user_id=user_id)
+    require_project_owner(connection, project_id=project_id, user_id=user_id)
     return extract_structure_sequence(filename, content)
 
 
 def get_protein(connection: sqlite3.Connection, *, protein_id: int, user_id: int) -> dict:
     project_id = project_for_protein(connection, protein_id)
-    access_role = require_project_read(
+    access_role = require_project_owner(
         connection,
         project_id=project_id,
         user_id=user_id,
@@ -396,7 +395,7 @@ def check_project_protein_sequences(
     items: list[dict],
     similarity_threshold: float = SIMILARITY_THRESHOLD,
 ) -> dict:
-    require_project_write(connection, project_id=project_id, user_id=user_id)
+    require_project_owner(connection, project_id=project_id, user_id=user_id)
     result = _check_project_sequence_items(
         connection,
         project_id=project_id,
@@ -643,7 +642,7 @@ def _create_protein_with_optional_structure(
     structure_file: tuple[str, str, bytes] | None = None,
     allow_high_similarity: bool = False,
 ) -> dict:
-    require_project_write(connection, project_id=project_id, user_id=user_id)
+    require_project_owner(connection, project_id=project_id, user_id=user_id)
     protein_name = required(name, "Protein name")
     sequence_text = normalize_protein_sequence(sequence)
     normalized_type = normalize_protein_type(protein_type)

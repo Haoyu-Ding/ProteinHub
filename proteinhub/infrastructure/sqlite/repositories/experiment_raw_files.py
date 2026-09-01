@@ -36,6 +36,19 @@ class ExperimentRawFileRepository:
         ).fetchone()
         return int(row["project_id"]) if row else None
 
+    def batch_id_for(self, raw_file_id: int) -> int | None:
+        row = self.connection.execute(
+            """
+            SELECT batch_experiments.batch_id AS batch_id
+            FROM experiment_raw_files
+            JOIN batch_experiments
+                ON batch_experiments.id = experiment_raw_files.experiment_id
+            WHERE experiment_raw_files.id = ?
+            """,
+            (raw_file_id,),
+        ).fetchone()
+        return int(row["batch_id"]) if row else None
+
     def list_for_experiment(self, experiment_id: int) -> list[dict]:
         return self.connection.execute(
             """

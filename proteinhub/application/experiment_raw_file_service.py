@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import sqlite3
-
-from proteinhub.application.batch_service import project_for_experiment
-from proteinhub.application.permissions import require_project_read
+from proteinhub.application.permissions import require_batch_read
 from proteinhub.domain.errors import NotFoundError
-from proteinhub.infrastructure.sqlite.repositories import ExperimentRawFileRepository
+from proteinhub.infrastructure.sqlite.repositories import (
+    ExperimentRepository,
+    ExperimentRawFileRepository,
+)
 
 
 def list_experiment_raw_files(
@@ -14,8 +15,10 @@ def list_experiment_raw_files(
     experiment_id: int,
     user_id: int,
 ) -> list[dict]:
-    project_id = project_for_experiment(connection, experiment_id)
-    require_project_read(connection, project_id=project_id, user_id=user_id)
+    batch_id = ExperimentRepository(connection).batch_id_for(experiment_id)
+    if batch_id is None:
+        raise NotFoundError("Experiment not found")
+    require_batch_read(connection, batch_id=batch_id, user_id=user_id)
     return ExperimentRawFileRepository(connection).list_for_experiment(experiment_id)
 
 
@@ -26,10 +29,10 @@ def get_experiment_raw_file_download(
     user_id: int,
 ) -> tuple[dict, bytes]:
     raw_files = ExperimentRawFileRepository(connection)
-    project_id = raw_files.project_id_for(raw_file_id)
-    if project_id is None:
+    batch_id = raw_files.batch_id_for(raw_file_id)
+    if batch_id is None:
         raise NotFoundError("Experiment raw file not found")
-    require_project_read(connection, project_id=project_id, user_id=user_id)
+    require_batch_read(connection, batch_id=batch_id, user_id=user_id)
     raw_file = raw_files.get(raw_file_id)
     content = raw_files.get_content(raw_file_id)
     if not raw_file or content is None:

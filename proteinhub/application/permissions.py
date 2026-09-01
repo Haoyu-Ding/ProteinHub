@@ -5,6 +5,7 @@ import sqlite3
 from proteinhub.domain.errors import NotFoundError, PermissionDeniedError
 from proteinhub.infrastructure.sqlite.repositories import (
     ArtifactRepository,
+    BatchRepository,
     ProjectRepository,
     ProteinRepository,
     UserRepository,
@@ -74,6 +75,52 @@ def require_project_owner(
         raise PermissionDeniedError("Only project owners can perform this action")
     _require_project_visible_to_user(connection, project_id=project_id)
     return role
+
+
+def visible_batch_ids_for_project(
+    connection: sqlite3.Connection,
+    *,
+    project_id: int,
+    user_id: int,
+) -> set[int] | None:
+    role = require_project_read(connection, project_id=project_id, user_id=user_id)
+    if role == "owner":
+        return None
+    batch_ids = ProjectRepository(connection).list_member_batch_ids(
+        project_id=project_id,
+        user_id=user_id,
+    )
+    return set(batch_ids)
+
+
+def require_batch_read(
+    connection: sqlite3.Connection,
+    *,
+    batch_id: int,
+    user_id: int,
+) -> str:
+    project_id = BatchRepository(connection).project_id_for(batch_id)
+    if project_id is None:
+        raise NotFoundError("Batch not found")
+    role = require_project_read(connection, project_id=project_id, user_id=user_id)
+    if role == "owner":
+        return role
+    if not ProjectRepository(connection).member_can_access_batch(
+        project_id=project_id,
+        user_id=user_id,
+        batch_id=batch_id,
+    ):
+        raise PermissionDeniedError("You do not have access to this batch")
+    return role
+
+
+def require_batch_write(
+    connection: sqlite3.Connection,
+    *,
+    batch_id: int,
+    user_id: int,
+) -> str:
+    return require_batch_read(connection, batch_id=batch_id, user_id=user_id)
 
 
 def _require_project_visible_to_user(

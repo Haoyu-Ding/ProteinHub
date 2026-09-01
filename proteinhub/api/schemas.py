@@ -81,6 +81,10 @@ class MemberUpdateRequest(BaseModel):
     role: str = "member"
 
 
+class MemberBatchAccessUpdateRequest(BaseModel):
+    batch_ids: list[int] = Field(default_factory=list)
+
+
 class ProteinCreateRequest(BaseModel):
     name: str
     sequence: str
@@ -230,6 +234,7 @@ class ProjectMemberResponse(BaseModel):
     email: str
     role: str
     created_at: str
+    visible_batch_ids: list[int] = Field(default_factory=list)
 
 
 class ProjectDetailResponse(BaseModel):

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 
 from proteinhub.api.dependencies import ApiContext, map_domain_error
 from proteinhub.api.schemas import (
+    MemberBatchAccessUpdateRequest,
     MemberCreateRequest,
     MemberUpdateRequest,
     ProjectCreateRequest,
@@ -33,6 +34,7 @@ from proteinhub.application.project_service import (
     list_project_members,
     list_projects,
     search_project_member_candidates,
+    update_project_member_batch_access,
     update_project_status,
     update_project_member,
 )
@@ -157,6 +159,28 @@ def create_projects_router(
                 owner_user_id=user["id"],
                 member_user_id=member_user_id,
                 role=payload.role,
+            )
+        except DomainError as error:
+            raise map_domain_error(error) from error
+
+    @router.put(
+        "/projects/{project_id}/members/{member_user_id}/batch-access",
+        response_model=ProjectMemberResponse,
+    )
+    def update_member_batch_access_route(
+        project_id: int,
+        member_user_id: int,
+        payload: MemberBatchAccessUpdateRequest,
+        user: dict = Depends(current_user),
+        connection: sqlite3.Connection = Depends(get_connection),
+    ) -> dict:
+        try:
+            return update_project_member_batch_access(
+                connection,
+                project_id=project_id,
+                owner_user_id=user["id"],
+                member_user_id=member_user_id,
+                batch_ids=payload.batch_ids,
             )
         except DomainError as error:
             raise map_domain_error(error) from error
