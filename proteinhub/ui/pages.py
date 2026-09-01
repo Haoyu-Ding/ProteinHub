@@ -999,10 +999,22 @@ def install_ui() -> None:
                 ).props("unelevated no-wrap")
 
             with ui.row().classes("ph-panel w-full items-end gap-3 p-4"):
+                search_mode = ui.toggle(
+                    {"contains": "片段搜索", "similarity": "相似度搜索"},
+                    value="contains",
+                    on_change=lambda event: update_sequence_search_mode(),
+                ).props("toggle-color=primary unelevated")
                 sequence_query = ui.input(
-                    "序列片段",
+                    "序列 / 片段",
                     placeholder="ACDEFG",
                 ).props("outlined clearable").classes("min-w-[260px] flex-1")
+                similarity_threshold = ui.number(
+                    "相似度阈值 (%)",
+                    value=90,
+                    min=0,
+                    max=100,
+                    step=1,
+                ).props("outlined dense").classes("w-40")
                 search_button = ui.button(
                     "搜索",
                     icon="search",
@@ -1029,6 +1041,7 @@ def install_ui() -> None:
                 preview = sequence[:90] + ("..." if len(sequence) > 90 else "")
                 source_type = result.get("source_type") or ""
                 source_color = "primary" if source_type == "batch_protein" else "secondary"
+                identity = result.get("identity")
                 with ui.card().classes("ph-resource-card ph-protein-card w-full p-4"):
                     with ui.element("div").classes("ph-protein-card-layout"):
                         with ui.row().classes("ph-protein-card-main"):
@@ -1052,13 +1065,25 @@ def install_ui() -> None:
                                             ui.badge(
                                                 f"靶标 {result['target']}"
                                             ).props("outline color=secondary")
+                                        if identity is not None:
+                                            ui.badge(
+                                                f"相似度 {float(identity) * 100:.1f}%"
+                                            ).props("outline color=positive")
                                 batch_text = ""
                                 if result.get("batch_count"):
                                     batch_text = f" · {result['batch_count']} 个批次"
+                                similarity_text = ""
+                                if identity is not None:
+                                    similarity_text = f" · 相似度 {float(identity) * 100:.1f}%"
+                                    if result.get("alignment_length"):
+                                        similarity_text += (
+                                            f" · 比对长度 {int(result['alignment_length'])} aa"
+                                        )
                                 ui.label(
                                     f"项目 {result['project_name']} · "
                                     f"{result['sequence_length']} 个氨基酸"
                                     f"{batch_text}"
+                                    f"{similarity_text}"
                                 ).classes("ph-meta")
                                 ui.label(preview).classes(
                                     "ph-protein-sequence-preview font-mono text-sm text-slate-700"
@@ -1088,11 +1113,16 @@ def install_ui() -> None:
                     refresh_button.disable()
                     load_more_button.disable()
                     params = {
+                        "mode": search_mode.value or "contains",
                         "limit": sequence_page_size,
                         "offset": sequence_page_state["offset"],
                     }
                     if sequence_query.value:
                         params["q"] = sequence_query.value
+                    if params["mode"] == "similarity":
+                        threshold_percent = float(similarity_threshold.value or 90)
+                        threshold = max(0.0, min(threshold_percent / 100, 1.0))
+                        params["similarity_threshold"] = f"{threshold:.4f}"
                     endpoint = f"/api/admin/sequences?{urlencode(params)}"
                     results = await ui.run_javascript(
                         f"return await phApi({json.dumps(endpoint)})",
@@ -1103,9 +1133,15 @@ def install_ui() -> None:
                     with results_column:
                         if reset and not results:
                             if sequence_query.value:
-                                empty_state("search_off", "没有匹配序列", "换一段序列试试看。")
+                                if search_mode.value == "similarity":
+                                    empty_state("search_off", "没有相似序列", "调低阈值后再试试看。")
+                                else:
+                                    empty_state("search_off", "没有匹配序列", "换一段序列试试看。")
                             else:
-                                empty_state("science", "还没有可搜索序列", "已进批次的设计蛋白和工具蛋白会显示在这里。")
+                                if search_mode.value == "similarity":
+                                    empty_state("search", "请输入查询序列", "输入完整序列后开始搜索。")
+                                else:
+                                    empty_state("science", "还没有可搜索序列", "已进批次的设计蛋白和工具蛋白会显示在这里。")
                         for result in results:
                             render_sequence_result(result)
                     sequence_page_state["offset"] += len(results)
@@ -1125,6 +1161,10 @@ def install_ui() -> None:
                 sequence_query.value = ""
                 await load_sequences()
 
+            def update_sequence_search_mode() -> None:
+                similarity_threshold.visible = search_mode.value == "similarity"
+
+            update_sequence_search_mode()
             await load_sequences()
 
     @ui.page("/admin/users")

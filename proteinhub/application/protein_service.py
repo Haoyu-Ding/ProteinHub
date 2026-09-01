@@ -4,7 +4,6 @@ import csv
 import sqlite3
 from dataclasses import dataclass
 from datetime import date
-from functools import lru_cache
 from io import BytesIO, StringIO
 from pathlib import Path
 
@@ -17,6 +16,7 @@ from proteinhub.application.structure_sequence import (
     extract_structure_deposit_date,
     extract_structure_sequence,
 )
+from proteinhub.application.sequence_similarity import sequence_identity
 from proteinhub.application.validation import required
 from proteinhub.domain.errors import DomainError, NotFoundError
 from proteinhub.infrastructure.database.connection import transaction
@@ -716,7 +716,7 @@ def _compare_sequence_against_existing(
                 )
             )
             continue
-        identity, alignment_length = _sequence_identity(sequence, existing_sequence)
+        identity, alignment_length = sequence_identity(sequence, existing_sequence)
         if identity >= threshold:
             matches.append(
                 SequenceMatch(
@@ -744,7 +744,7 @@ def _compare_sequence_pair(
         identity = 1.0
         alignment_length = len(left_sequence)
     else:
-        identity, alignment_length = _sequence_identity(left_sequence, right_sequence)
+        identity, alignment_length = sequence_identity(left_sequence, right_sequence)
         if identity < threshold:
             return None
         match_type = "high_similarity"
@@ -767,56 +767,3 @@ def _compare_sequence_pair(
             alignment_length=alignment_length,
         ),
     )
-
-
-def _sequence_identity(sequence_a: str, sequence_b: str) -> tuple[float, int]:
-    if not sequence_a or not sequence_b:
-        return 0.0, max(len(sequence_a), len(sequence_b))
-    if len(sequence_a) > len(sequence_b):
-        sequence_a, sequence_b = sequence_b, sequence_a
-    if len(sequence_b) > 500:
-        return _longest_common_subsequence_identity(sequence_a, sequence_b)
-    matches = _global_alignment_best_identity(sequence_a, sequence_b)
-    return matches
-
-
-@lru_cache(maxsize=2048)
-def _global_alignment_best_identity(sequence_a: str, sequence_b: str) -> tuple[float, int]:
-    m = len(sequence_a)
-    n = len(sequence_b)
-    if m == 0 or n == 0:
-        return 0.0, max(m, n)
-    previous = [0] * (n + 1)
-    for i, aa in enumerate(sequence_a, start=1):
-        current = [0]
-        for j, bb in enumerate(sequence_b, start=1):
-            match = previous[j - 1] + (1 if aa == bb else 0)
-            delete = previous[j]
-            insert = current[j - 1]
-            current.append(max(match, delete, insert))
-        previous = current
-    matches = previous[-1]
-    alignment_length = max(m, n)
-    return (matches / alignment_length if alignment_length else 0.0, alignment_length)
-
-
-def _longest_common_subsequence_identity(sequence_a: str, sequence_b: str) -> tuple[float, int]:
-    m = len(sequence_a)
-    n = len(sequence_b)
-    if m == 0 or n == 0:
-        return 0.0, max(m, n)
-    if m > n:
-        sequence_a, sequence_b = sequence_b, sequence_a
-        m, n = n, m
-    previous = [0] * (n + 1)
-    for aa in sequence_a:
-        current = [0]
-        for j, bb in enumerate(sequence_b, start=1):
-            if aa == bb:
-                current.append(previous[j - 1] + 1)
-            else:
-                current.append(max(previous[j], current[-1]))
-        previous = current
-    matches = previous[-1]
-    alignment_length = max(m, n)
-    return (matches / alignment_length if alignment_length else 0.0, alignment_length)

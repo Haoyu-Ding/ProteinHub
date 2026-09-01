@@ -307,6 +307,9 @@ class AdminSequenceSearchResultResponse(BaseModel):
     updated_at: str
     batch_count: int = 0
     detail_path: str
+    identity: float | None = None
+    alignment_length: int | None = None
+    match_type: str = ""
 
 
 class StructureSequenceResponse(BaseModel):

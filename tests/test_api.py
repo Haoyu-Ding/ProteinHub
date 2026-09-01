@@ -1464,6 +1464,22 @@ def test_admin_sequence_search_includes_batched_and_public_sequences(
         "Public control",
     }
 
+    similarity_searched = client.get(
+        "/api/admin/sequences",
+        headers=auth(admin_token),
+        params={
+            "q": "ACDEFGHIKM",
+            "mode": "similarity",
+            "similarity_threshold": 0.9,
+        },
+    )
+    assert similarity_searched.status_code == 200, similarity_searched.text
+    similarity_results = similarity_searched.json()
+    assert [item["name"] for item in similarity_results] == ["Batched binder"]
+    assert similarity_results[0]["identity"] == 0.9
+    assert similarity_results[0]["alignment_length"] == 10
+    assert similarity_results[0]["match_type"] == "high_similarity"
+
     public_detail = client.get(
         f"/api/public-proteins/{public_protein['id']}",
         headers=auth(owner_token),

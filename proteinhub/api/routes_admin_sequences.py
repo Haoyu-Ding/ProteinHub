@@ -25,6 +25,8 @@ def create_admin_sequences_router(
     )
     def admin_sequences(
         q: str = Query(default=""),
+        mode: str = Query(default="contains"),
+        similarity_threshold: float = Query(default=0.9, ge=0, le=1),
         limit: int = Query(default=50, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
         user: dict = Depends(current_user),
@@ -35,6 +37,8 @@ def create_admin_sequences_router(
                 connection,
                 user_id=user["id"],
                 query=q,
+                mode=mode,
+                similarity_threshold=similarity_threshold,
                 limit=limit,
                 offset=offset,
             )
